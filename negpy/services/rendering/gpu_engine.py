@@ -79,6 +79,7 @@ from negpy.features.exposure.placement import limited_mask_params
 from negpy.features.local.logic import compute_local_maps, limited_masks
 from negpy.features.local.models import MAX_KEYED_MASKS
 from negpy.features.transparency.logic import (
+    contrast_free_cmy,
     slide_exposure,
     slide_mono_weights,
     density_stage,
@@ -119,7 +120,7 @@ from negpy.features.process.path import RenderPath, is_mono, render_path
 from negpy.infrastructure.gpu.device import GPUDevice
 from negpy.infrastructure.gpu.resources import GPUBuffer, GPUTexture
 from negpy.infrastructure.gpu.shader_loader import ShaderLoader
-from negpy.kernel.image.logic import rgba_to_rgb_into, working_oetf_decode
+from negpy.kernel.image.logic import apply_geometry_orientation, rgba_to_rgb_into, working_oetf_decode
 from negpy.kernel.system.config import APP_CONFIG
 from negpy.kernel.system.logging import get_logger
 from negpy.kernel.system.paths import get_resource_path
@@ -201,13 +202,7 @@ def _build_analysis_source(
     """The shared meter grid's own buffer: oriented, downsampled (only a meter reads it), warped and sliced once for every
     meter reading it. The whole frame is warped before the ROI is cut, as on the CPU and in the print stage: a crop rotated
     about its own center is a different region."""
-    analysis_source = img
-    if geometry.rotation != 0:
-        analysis_source = np.rot90(analysis_source, k=geometry.rotation)
-    if geometry.flip_horizontal:
-        analysis_source = np.fliplr(analysis_source)
-    if geometry.flip_vertical:
-        analysis_source = np.flipud(analysis_source)
+    analysis_source = apply_geometry_orientation(img, geometry.rotation, geometry.flip_horizontal, geometry.flip_vertical)
     full_h, full_w = analysis_source.shape[:2]
     analysis_source = _downsample_for_analysis(np.ascontiguousarray(analysis_source), max_size)
     if geometry.fine_rotation != 0.0:
@@ -2046,9 +2041,12 @@ class GPUEngine:
             t_e, t_exp0, t_contrast0, textural_range, metered_anchor, shadow_point, highlight_point
         )
         t_tw3, t_sw3 = transfer_widths(t_e)
-        t_cmy = filtration_offsets(
-            (t_e.wb_cyan, t_e.wb_magenta, t_e.wb_yellow),
-            LogNegativeBounds(floors=adj_floors, ceils=adj_ceils),
+        t_cmy = contrast_free_cmy(
+            filtration_offsets(
+                (t_e.wb_cyan, t_e.wb_magenta, t_e.wb_yellow),
+                LogNegativeBounds(floors=adj_floors, ceils=adj_ceils),
+            ),
+            t_contrast,
         )
         t_sh_c, t_hi_c, t_zone_k = zone_geometry()
         t_wb_c, t_wb_k = wb_split_geometry()
@@ -2923,13 +2921,9 @@ class GPUEngine:
         # Tiles apply geometry on the CPU (shader uniform zeroed), so distortion too.
         k1_eff = settings.geometry.distortion_k1
 
-        img_rot = img
-        if settings.geometry.rotation != 0:
-            img_rot = np.rot90(img_rot, k=settings.geometry.rotation)
-        if settings.geometry.flip_horizontal:
-            img_rot = np.fliplr(img_rot)
-        if settings.geometry.flip_vertical:
-            img_rot = np.flipud(img_rot)
+        img_rot = apply_geometry_orientation(
+            img, settings.geometry.rotation, settings.geometry.flip_horizontal, settings.geometry.flip_vertical
+        )
         if settings.geometry.fine_rotation != 0.0:
             img_rot = apply_fine_rotation(img_rot, settings.geometry.fine_rotation)
         if k1_eff != 0.0:

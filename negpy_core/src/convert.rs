@@ -4,9 +4,9 @@
 use multiversion::multiversion;
 use rayon::prelude::*;
 
-const LUMA_R: f64 = 0.2126;
-const LUMA_G: f64 = 0.7152;
-const LUMA_B: f64 = 0.0722;
+const LUMA_R: f64 = 0.2974;
+const LUMA_G: f64 = 0.6273;
+const LUMA_B: f64 = 0.0753;
 const BLOCK: usize = 1 << 14;
 
 /// `v * scale + 0.5` clipped to 0..scale, NaN to 0, then truncated: the rounding of
@@ -201,6 +201,20 @@ pub fn channel_any(src: &[f32], cn: usize, c: usize) -> bool {
 /// `np.clip(src, 0, 1)` into `dst`; NaN stays.
 pub fn clip_unit(src: &[f32], dst: &mut [f32]) {
     crate::par_zip(dst, src, |d, &v| *d = v.clamp(0.0, 1.0));
+}
+
+/// `np.clip(src * gains, 0, 1)` into `dst`, one gain per channel; NaN stays.
+pub fn scale_clip_unit(src: &[f32], gains: &[f32], dst: &mut [f32]) {
+    let cn = gains.len();
+    dst.par_chunks_mut(cn * BLOCK)
+        .zip(src.par_chunks(cn * BLOCK))
+        .for_each(move |(d, s)| {
+            for (d, s) in d.chunks_exact_mut(cn).zip(s.chunks_exact(cn)) {
+                for ((d, &v), &g) in d.iter_mut().zip(s).zip(gains) {
+                    *d = (v * g).clamp(0.0, 1.0);
+                }
+            }
+        });
 }
 
 /// `np.nan_to_num(src, nan=nan, posinf=posinf, neginf=neginf)` into `dst`.

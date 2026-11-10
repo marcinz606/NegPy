@@ -809,7 +809,7 @@ fn clip_fractions(
     Ok((f[0], f[1], f[2]))
 }
 
-/// The median of a float32 grid's float64 Rec. 709 luma, any shape that ends in 3.
+/// The median of a float32 grid's float64 luma, any shape that ends in 3.
 #[pyfunction]
 fn luma_median(py: Python<'_>, grid: PyReadonlyArrayDyn<'_, f32>) -> PyResult<f64> {
     if grid.shape().last() != Some(&3) {

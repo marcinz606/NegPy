@@ -1359,6 +1359,15 @@ class TestLinearCorrections:
         np.testing.assert_allclose(result[:, :, 1], 0.5, atol=1e-6)
         np.testing.assert_allclose(result[:, :, 2], 1.0, atol=1e-6)
 
+    def test_apply_white_balance_matches_numpy(self) -> None:
+        f32 = np.random.default_rng(4).uniform(-0.1, 1.1, (6, 7, 3)).astype(np.float32)
+        wb = _CameraWB(as_shot=(2.1, 1.0, 1.7, 0.9), daylight=(1.0, 1.0, 1.0, 1.0))
+        r, _g, b = 2.1 / 0.95, 1.0, 1.7 / 0.95
+        want = f32.copy()
+        want[:, :, 0] *= r
+        want[:, :, 2] *= b
+        np.testing.assert_array_equal(_apply_white_balance(f32, wb), np.clip(want, 0.0, 1.0))
+
     def test_apply_white_balance_clamps(self) -> None:
         f32 = np.full((4, 4, 3), 0.8, dtype=np.float32)
         wb = _CameraWB(as_shot=(2.0, 1.0, 2.0, 1.0), daylight=(1.0, 1.0, 1.0, 1.0))
@@ -1610,6 +1619,28 @@ class TestTiffLinearOutput:
         assert result[0] >= 0.0
         assert result[1] <= 1.0
 
+    @pytest.mark.parametrize(
+        ("key", "max_ulps"),
+        [("1.8", 1), ("2.2", 1), ("2.4", 1), ("2.6", 1), ("srgb", 4), ("rec709", 3), ("lstar", 1)],
+    )
+    def test_linearize_matches_the_numpy_curves(self, key: str, max_ulps: int) -> None:
+        # NumPy's float32 power is not correctly rounded and takes a float32 exponent.
+        x = np.clip(np.random.default_rng(5).uniform(-0.1, 1.1, 200_000).astype(np.float32), 0.0, 1.0)
+        x[:3] = [0.04045, 0.081, 0.08]
+        pieces = {
+            "srgb": (0.04045, 12.92, 0.055, 1.055, 2.4),
+            "rec709": (0.081, 4.5, 0.099, 1.099, 1.0 / 0.45),
+            "lstar": (0.08, 9.0329, 0.16, 1.16, 3.0),
+        }
+        if key in pieces:
+            cut, slope, offset, scale, gamma = pieces[key]
+            want = np.where(x <= cut, x / slope, np.power((x + offset) / scale, gamma, dtype=np.float32)).astype(np.float32)
+        else:
+            want = np.power(x, float(key), dtype=np.float32)
+        got = _linearize(x, key)
+        ulps = np.abs(got.view(np.int32).astype(np.int64) - want.view(np.int32).astype(np.int64))
+        assert ulps.max() <= max_ulps
+
     def test_linearize_all_gamma_options_have_keys(self) -> None:
         keys = [k for k, _ in TIFF_GAMMA_OPTIONS]
         data = np.array([0.5], dtype=np.float32)
@@ -1673,6 +1704,17 @@ class TestTiffLinearOutput:
         rgb_lin, _ = _decode_tiff(path, gamma_key="linear")
         rgb_22, _ = _decode_tiff(path, gamma_key="2.2")
         assert np.all(rgb_22 < rgb_lin)
+
+    @pytest.mark.parametrize("dtype", [np.uint8, np.uint16])
+    def test_decode_tiff_expansion_matches_numpy(self, tmp_path: str, dtype: type) -> None:
+        from negpy.services.export.linear_output import _decode_tiff
+
+        data = np.random.default_rng(3).integers(0, np.iinfo(dtype).max + 1, (3, 9, 13), dtype=dtype)
+        path = os.path.join(str(tmp_path), "planar.tif")
+        tifffile.imwrite(path, data, planarconfig="separate", photometric="rgb")
+        rgb, _ = _decode_tiff(path, expansion=1.3)
+        f32 = np.moveaxis(data, 0, -1).astype(np.float32) * (1.0 / np.iinfo(dtype).max)
+        np.testing.assert_array_equal(rgb, np.clip(np.clip(f32, 0.0, 1.0) * 1.3, 0.0, 1.0))
 
     def test_export_tiff_with_gamma(self, tmp_path: str) -> None:
         data = np.full((4, 4, 3), 32768, dtype=np.uint16)
@@ -2104,6 +2146,15 @@ class TestNoritsuRaw:
         path = os.path.join(str(tmp_path), "photo.tiff")
         tifffile.imwrite(path, np.zeros((10, 10, 3), dtype=np.uint16))
         assert not is_noritsu_raw(path)
+
+    def test_decode_noritsu_matches_numpy(self, tmp_path: str) -> None:
+        from negpy.services.export.linear_output import NORITSU_EXPANSION, _decode_noritsu
+
+        path = _make_noritsu_raw_small(str(tmp_path))
+        rgb, _ = _decode_noritsu(path)
+        w, h = detect_noritsu_dims(path)
+        arr = np.fromfile(path, dtype="<u2").reshape(h, w, 3)[:, :, ::-1]
+        np.testing.assert_array_equal(rgb, np.clip(arr.astype(np.float32) / 65535.0 * NORITSU_EXPANSION, 0.0, 1.0))
 
     def test_noritsu_not_camera_raw(self, tmp_path: str) -> None:
         path = _make_noritsu_raw(str(tmp_path))

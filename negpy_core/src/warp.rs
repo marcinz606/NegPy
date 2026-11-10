@@ -463,6 +463,34 @@ pub fn rotation_matrix((cx, cy): (f32, f32), angle: f64, scale: f64) -> [f64; 6]
     ]
 }
 
+/// `create_uv_grid`'s fine-rotated grid: for output pixel (x, y), with (sx, sy) = `m` (x, y),
+/// the uv `o + sx * du + sy * dv`, in float64 in NumPy's order, rounded to float32. `dst` is
+/// HxWx2. No `mul_add`, as NumPy rounds each product.
+pub fn affine_uv_grid(
+    m: [f64; 6],
+    o: [f64; 2],
+    du: [f64; 2],
+    dv: [f64; 2],
+    w: usize,
+    dst: &mut [f32],
+) {
+    if w == 0 {
+        return;
+    }
+    dst.par_chunks_mut(w * 2)
+        .enumerate()
+        .for_each(move |(y, row)| {
+            let y = y as f64;
+            for (x, px) in row.as_chunks_mut::<2>().0.iter_mut().enumerate() {
+                let x = x as f64;
+                let sx = m[0] * x + m[1] * y + m[2];
+                let sy = m[3] * x + m[4] * y + m[5];
+                px[0] = (o[0] + sx * du[0] + sy * dv[0]) as f32;
+                px[1] = (o[1] + sx * du[1] + sy * dv[1]) as f32;
+            }
+        });
+}
+
 /// `cv2.getPerspectiveTransform(src, dst)`: the 3x3 matrix mapping four float32 points onto
 /// four, solved with c22 = 1 by OpenCV's LU with partial pivoting. None for a degenerate quad.
 pub fn perspective_transform(src: &[[f32; 2]; 4], dst: &[[f32; 2]; 4]) -> Option<[f64; 9]> {

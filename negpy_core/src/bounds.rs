@@ -2,9 +2,9 @@
 
 use crate::stats::np_percentiles_f64;
 
-const LUMA_R: f64 = 0.2126;
-const LUMA_G: f64 = 0.7152;
-const LUMA_B: f64 = 0.0722;
+const LUMA_R: f64 = 0.2974;
+const LUMA_G: f64 = 0.6273;
+const LUMA_B: f64 = 0.0753;
 const EPSILON: f64 = 1e-6;
 
 /// `np.percentile(grid[:, :, ch], qs)` for each channel of an HxWx3 float32 grid, with float64

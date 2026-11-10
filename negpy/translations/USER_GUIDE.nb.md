@@ -2,17 +2,17 @@
 
 NegPy gjør skanninger av filmnegativer og dias til ferdige bilder. Originalfilene dine endres aldri. NegPy lagrer redigeringene dine i en lokal database. Velg språk under Innstillinger → Grensesnitt → Språk, og start NegPy på nytt. Systemstandard følger systemspråket og bruker engelsk når NegPy ikke har det språket. Når et panel mangler oversettelse, viser NegPy den engelske teksten.
 
-<!-- panel:library src:35989d38 -->
+<!-- panel:library src:9a5d5d3a -->
 ### Bibliotek
 
 Fanen **Bibliotek** (`Ctrl+L`) viser **rullene** dine. En rull er en navngitt gruppe bilder, vanligvis én film: en **mapperull** eller en **virtuell rull**. Importen husker mappen. NegPy flytter, gir nytt navn til eller sletter aldri filene dine.
 
 *   **+**: **Importer mappe som rull…** gjør en mappe til én rull og åpner den. **Importer undermapper som ruller…** gjør hver undermappe med bilder til en rull.
 *   **Dobbeltklikk** en rull (eller trykk Enter) for å åpne den i filmstripen.
-*   **⋮** eller høyreklikk en rull: **Åpne**, **Last ut alle…** (den åpne rullen), **Rullanalyse**, **Gi nytt navn…**, **Lagre i mapperull**, **Gjenopprett fjernede bilder…** og **Slett…**. Gjenopprett fjernede bilder henter tilbake bildene som Fjern fra rull tok ut av en mapperull. Linjen under navnet på rullen teller dem. Slett beholder filene og de delte redigeringene deres. Rullens innstillinger, grunnlag, filmbase, scener, kortlåser og redigeringene som bare ble gjort i den rullen, går tapt. Oppdater legger ikke til en slettet mapperull igjen.
+*   **⋮** eller høyreklikk en rull: **Åpne**, **Last ut alle…** (den åpne rullen), **Rullanalyse**, **Gi nytt navn…**, **Finn mappe…**, **Lagre i mapperull**, **Gjenopprett fjernede bilder…** og **Slett…**. Gjenopprett fjernede bilder henter tilbake bildene som Fjern fra rull tok ut av en mapperull. Slett beholder filene og de delte redigeringene deres. Rullens innstillinger, grunnlag, filmbase, scener, kortlåser og redigeringene som bare ble gjort i den rullen, går tapt. Oppdater legger ikke til en slettet mapperull igjen.
 *   **Filtrer ruller…** og **Sorter** hjelper deg å finne en rull. **⋮ → Oppdater** finner nye undermapper og teller bildene på nytt. **⋮ → Søkefiltre…** viser mappenavn som hoppes over (først `export`).
 
-En rull der mappen er borte, viser **mappen mangler**. Et mappenavn som samsvarer med utstyret ditt ("penf" for "Pen F"), åpner Rullinnstillinger ferdig utfylt.
+En rull der mappen er borte, viser **mappen mangler**. **Finn mappe…** peker den mot den nye mappen. Et mappenavn som samsvarer med utstyret ditt ("penf" for "Pen F"), åpner Rullinnstillinger ferdig utfylt.
 
 En mapperull inneholder bare filene i sin egen mappe. En fil du legger til fra en annen mappe, blir værende bare i denne økten.
 
@@ -51,14 +51,12 @@ Et vanlig ord samsvarer med filnavnet. `field:value`-uttrykk samsvarer med bilde
 
 Uttrykk kan kombineres: `film:portra iso:>=400 -rejected:`. Metadatauttrykk samsvarer bare med bilder der du har fylt ut metadataene. **Søk etter betydning** (slå det på i Innstillinger → Ytelse) finner bilder etter en beskrivelse, for eksempel "en hund på en strand".
 
-<!-- panel:analysis src:cf165609 -->
+<!-- panel:analysis src:7afa1351 -->
 ## 3. Analyseavlesning
 
 Denne avlesningen beskriver det gjeldende bildet mens du redigerer.
 
 #### Diagram
-
-Velg en diagramvisning:
 
 *   **Kurve**: papirets kurve, fra negativet (bortover) til kopien (oppover). Brattere betyr mer kontrast. Det grå histogrammet er negativet, det fargede er kopien.
 *   **Bølgeform**: lysheten i kopien over bildet.
@@ -66,6 +64,8 @@ Velg en diagramvisning:
 *   **Vektorskop**: fargene i kopien rundt et midtpunkt. En klynge utenfor midten er et fargestikk.
 
 **Log** viser små områder, som klipping.
+
+**Analyseoverlegg**: diagrammet på bildet mens kortet er lukket.
 
 #### Klipping
 
@@ -83,7 +83,7 @@ Folden **Avlesninger** inneholder tall om skanningen. En gul verdi er en advarse
 
 **Filmbase** (trådkorset): klikk den klare filmen mellom bildene for å angi basen avlesningene måler fra.
 
-*   **Negativ**: tetthetsomfanget til negativet (Δ). Hold pekeren over for flatt, normalt eller kontrastrikt.
+*   **Negativ**: tetthetsomfanget til negativet (Δ).
 *   **Eksponering**: lyst (positiv) eller mørkt (negativ) bilde, i blendertrinn.
 *   **Klipping**: andel av kopien som er helt svart, og så helt hvit.
 *   **Skanneklipping**: andel av hver kanal ved skannerens maksimum. Ingen redigering retter det; eksponer skanningen lavere.
@@ -314,14 +314,14 @@ Skannevalgene er én innstilling for hele appen. Listen under dem viser hvordan 
 
 Et kamera viser kortene RAW-dekoding og Optikk. Et kamera med smalbåndslys viser også Trichrome og Kalibrering. En endring oppdaterer hvert åpent bilde (Ctrl+Z angrer den per bilde), men et kopipapir du har valgt selv, blir stående. En kameraskanning angir dekodingen og kopipapiret for hvert bilde ut fra sitt eget lys.
 
-<!-- panel:demosaic src:577713a8 -->
+<!-- panel:demosaic src:5627a0ef -->
 ### 10.2 RAW-dekoding
 
 Hvordan en kamera-RAW-fil gjøres om til piksler. Vises for et kamera.
 
 *   **Kamera-WB / Lineær RAW**: Kamera-WB bruker kameraets hvitbalanse. Lineær RAW dekoder nøytralt, for smalbåndslys. Oppsett angir det for deg.
 *   **Forhåndsvisning** / **Eksport**: demosaikkmetoden, som fyller inn fargene hver sensorpiksel ikke kan se. **Auto** er raskt på skjermen og bruker **AHD** ved eksport. **VNG** er jevn og **PPG** rask. **DCB** og **DHT** beholder flere fine detaljer, men kan gjøre korn om til mønstre. **AAHD** mykner kanter. Bare metodene i din LibRaw-versjon vises.
-*   **Gjenoppretting** (dias): gjenoppbygger utbrente høylys i en kamera-RAW. **Blanding** passer sol og himmel. **Rekonstruer** er sterkere, men kan gi feil farge. Et nytt bilde fra filmskanneren starter med Gjenoppretting av.
+*   **Gjenoppretting** (dias): gjenoppbygger utbrente høylys i en kamera-RAW. **Blanding** passer sol og himmel. **Rekonstruer** er sterkere, men kan gi feil farge. Et nytt bilde fra filmskanneren starter med Gjenoppretting av. En advarsel vises under Gjenoppretting når bildet har klippede høylys, som kan bli rosa.
 
 <!-- panel:optics src:33b2d330 -->
 ### 10.3 Optikk
@@ -559,7 +559,7 @@ NegPy holder macOS og Windows våkne mens den skanner. På Linux slår du av aut
 
 **Plustek**: OpticFilm 8200i SE, 8100 V2, 8300i SE, 7600i v1 og 7600i v2 virker; for andre modeller kan du prøve SANE. På Windows setter du først opp USB-driveren ([PLUSTEK_WINDOWS.md](PLUSTEK_WINDOWS.md)). **Coolscan**: trenger ikke SANE. På Linux krever USB en udev-regel for leverandøren `04b0`.
 
-<!-- panel:scan_quality src:0e35bd9a -->
+<!-- panel:scan_quality src:1f841943 -->
 ### Film og kvalitet
 
 *   **Film**: fargenegativ, S/H-negativ, dias eller Kodachrome. Den styrer bildeoppdaging, lysmåling, og om infrarødt tilbys.
@@ -570,6 +570,7 @@ NegPy holder macOS og Windows våkne mens den skanner. På Linux slår du av aut
 *   **Infrarød**: **IR** skanner en infrarød kanal, for støvfjerning på kortet Retusj. **ICE** (Coolscan) fjerner i stedet støvet i skanneren. En skanner uten ICE viser én **IR**-bryter. Ikke for S/H eller Kodachrome.
 *   **Superfin** (Coolscan): skanner én linje per passering. Tregere.
 *   **Autofokus**, **Autoeksponering** og **Eksponering**: fokus og eksponering på skanneren, før skanningen.
+*   **Analog forsterkning** (Coolscan): mer eller mindre skannereksponering enn den målte, i blendertrinn. Pilen åpner **Rød**, **Grønn** og **Blå**, én per kanal.
 
 <!-- panel:scan_framing src:945dad86 -->
 ### Innramming

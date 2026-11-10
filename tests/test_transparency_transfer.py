@@ -412,6 +412,14 @@ class TestControlsStayLive(unittest.TestCase):
         delta = (warmed - self.base).reshape(-1, 3).mean(axis=0)
         self.assertGreater(abs(float(delta[0])), 1e-4)
 
+    def test_global_filtration_prints_the_same_gain_at_every_grade(self):
+        gains = []
+        for grade in (70.0, 115.0, 160.0):
+            flat = self._rendered(grade=grade)
+            warm = self._rendered(grade=grade, wb_yellow=0.5)
+            gains.append(float(np.median(warm[..., 2] / np.maximum(flat[..., 2], 1e-6))))
+        self.assertLess(max(gains) - min(gains), 0.02)
+
     def test_shadow_and_highlight_white_balance_still_shift_channels(self):
         """Regression for issue #1077: Shadows/Highlights WB did nothing on Slides
         because the transfer path never read shadow_cyan/highlight_cyan at all."""

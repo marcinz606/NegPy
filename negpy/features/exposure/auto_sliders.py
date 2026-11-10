@@ -4,6 +4,7 @@ The stored value is an offset on the meter; the slider shows meter + offset, and
 converts back. A toggle flips only the flag.
 """
 
+from dataclasses import replace
 from typing import Any, Dict, Mapping, Optional, Tuple
 
 from negpy.features.exposure.logic import (
@@ -17,7 +18,7 @@ from negpy.features.exposure.logic import (
     grade_to_slope,
     slope_to_grade,
 )
-from negpy.features.exposure.models import ExposureConfig
+from negpy.features.exposure.models import EXPOSURE_CONSTANTS, ExposureConfig
 from negpy.features.exposure.papers import effective_constants, effective_paper_profile, slope_gain
 
 # The offsets at which the meter alone decides.
@@ -89,3 +90,15 @@ def print_stored_value(
     if field == "shadow_density" and exposure.auto_normalize_contrast and metrics.get("shadow_point") is not None:
         return shown - auto_shadow_from_metrics(exposure, process_mode, metrics)
     return shown
+
+
+def grade_at_softest(exposure: ExposureConfig, process_mode: Optional[str], metrics: Mapping[str, Any]) -> bool:
+    """Whether the frame prints its softest slope while the Grade slider still shows travel
+    toward the soft end: a flat negative reaches the slope floor before R180."""
+    if metrics.get("norm_density_range") is None:
+        return False
+    softest = float(EXPOSURE_CONSTANTS["iso_r_max"])
+    if print_shown_values(exposure, process_mode, metrics).get("grade", exposure.grade) >= softest - 0.5:
+        return False
+    slope = curve_params_from_metrics(exposure, process_mode, metrics)[0][1]
+    return slope <= curve_params_from_metrics(replace(exposure, grade=softest), process_mode, metrics)[0][1] + 1e-6

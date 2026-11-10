@@ -4,9 +4,9 @@
 use crate::stats::{np_median, np_percentiles, np_percentiles_f64, np_quantile, pairwise_sum_f32};
 use rayon::prelude::*;
 
-const LUMA_R: f32 = 0.2126;
-const LUMA_G: f32 = 0.7152;
-const LUMA_B: f32 = 0.0722;
+const LUMA_R: f32 = 0.2974;
+const LUMA_G: f32 = 0.6273;
+const LUMA_B: f32 = 0.0753;
 
 /// One channel of `(grid - floor) / span`. A float64 operand (a NumPy float64 scalar) makes
 /// NumPy compute that step in float64; a Python float joins the float32 math (NEP 50).

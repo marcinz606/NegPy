@@ -18,7 +18,7 @@ def test_cyanotype_output_is_pinned():
         for img in images
         for args in [("classic", 0.0, 1.4, 0.0, 0.0), ("new", 1.0, 2.3, 0.6, 0.4)]
     ]
-    assert digest(*outs) == "ddbdef09e6ec49a030ca26c5dde1fb667a3616a39c0f068c22b30cdb0aa9d57b"
+    assert digest(*outs) == "5f757837348e484a6f42b85019251271cfc8a45027e21fd580936e727bf1d10a"
 
 
 def test_sabattier_rejects_a_bad_image():

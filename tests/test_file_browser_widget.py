@@ -1316,7 +1316,7 @@ def test_the_save_button_and_menu_follow_what_the_film_strip_holds(browser, sess
     browser.controller.save_choice.return_value = choice
     browser._save_choice_cache = ((), ("hidden", ""))
     browser._update_tally()
-    assert browser.save_roll_btn.text() == label
+    assert browser.save_roll_btn.text().strip() == label
     browser._sync_save_actions()
     assert browser.save_folder_roll_action.isVisible() is folder_visible
     assert browser.save_folder_roll_action.isEnabled() is folder_enabled
@@ -1332,12 +1332,12 @@ def test_the_save_choice_is_read_again_after_a_library_change_and_on_click(brows
     browser.controller.save_choice.return_value = ("ready", "")
     browser._forget_save_choice()
     browser._update_tally()
-    assert browser.save_roll_btn.text() == "Save to Folder Roll"
+    assert browser.save_roll_btn.text().strip() == "Save to Folder Roll"
 
     # The folder became a roll in the Library: the button and a click both see it.
     browser.controller.save_choice.return_value = ("blocked", "“A” is already a folder roll, so open it from the Library.")
     browser.library_tree.rolls_changed.emit()
-    assert browser.save_roll_btn.text() == "Save as Virtual Roll…"
+    assert browser.save_roll_btn.text().strip() == "Save as Virtual Roll…"
     browser._save_choice_cache = (browser._save_choice_cache[0], ("ready", ""))
     with patch.object(browser, "save_to_folder_roll") as to_folder, patch.object(browser, "_on_save_roll_clicked") as virtual:
         browser._on_save_roll_button()

@@ -15,7 +15,7 @@ from PyQt6.QtWidgets import QApplication, QDialog, QMessageBox
 
 from negpy.kernel.system.memory import available_system_memory_bytes
 from negpy.kernel.system.text import count_of, plural
-from negpy.kernel.image.logic import apply_exif_orientation, working_oetf_encode
+from negpy.kernel.image.logic import apply_exif_orientation, apply_geometry_orientation, working_oetf_encode
 from negpy.desktop.auto_sliders import record_meters, shown_values
 from negpy.desktop.converters import ImageConverter
 from negpy.desktop.file_manager import move_to_trash
@@ -119,6 +119,7 @@ from negpy.services.assets.capture_modes import BLEND, SINGLE, record_capture_mo
 from negpy.services.assets.composites import forget_composite, frame_count, part_paths, restore_maps, saved_composites, source_files
 from negpy.services.assets.triplets import applied_triplets, forget_triplets, saved_triplets
 from negpy.services.assets import rolls
+from negpy.services.assets.rehome import folder_roll_missing, relink_folder_roll
 from negpy.services.assets.sensor import SensorProfiles
 from negpy.services.export.contact_sheet_layout import ContactSheetSettings
 from negpy.services.export.contact_sheet_roll import (
@@ -172,7 +173,9 @@ from negpy.features.exposure.papers import DEFAULT_PROFILE_KEY, profiles_for_mod
 from negpy.features.exposure.logic import (
     calculate_wb_shifts,
     calculate_wb_shifts_from_log,
+    channel_density_ranges,
 )
+from negpy.features.transparency.logic import slide_pick_wb, transfer_total_contrast
 from negpy.features.altprocess.models import AltProcess, AltProcessConfig
 from negpy.features.finish.models import FinishConfig
 from negpy.features.geometry.logic import (
@@ -564,6 +567,7 @@ class AppController(QObject):
     """
 
     image_updated = pyqtSignal()
+    roll_folder_missing = pyqtSignal(str)  # a folder roll was opened but its folder is gone
     preview_loaded = pyqtSignal()
     metrics_available = pyqtSignal(dict)
     loading_started = pyqtSignal()
@@ -2049,6 +2053,9 @@ class AppController(QObject):
             self.set_status(tr("That roll no longer exists"), 3000)
             return
         if entry["kind"] == "folder":
+            if folder_roll_missing(self.session.repo, roll_id):
+                self.roll_folder_missing.emit(roll_id)
+                return
             paths = [entry["folder_path"]]
             self._extras_notice = roll_id if self._unnoticed_extras(roll_id, entry) else None
         else:
@@ -2221,6 +2228,18 @@ class AppController(QObject):
                 self.session.rehome_folder_paths(old_path, new_path)
         rolls.rename_roll(self.session.repo, roll_id, new_name)
         return True
+
+    def relink_roll(self, roll_id: str, new_path: str) -> str:
+        """Point a folder roll at its renamed or moved folder. Returns "" or the reason it failed.
+        The open roll keeps its frames, as a rename does; any other roll opens."""
+        old_path, reason = relink_folder_roll(self.session.repo, roll_id, new_path)
+        if old_path is None:
+            return reason
+        if roll_id == self.state.active_roll_id and self.state.uploaded_files:
+            self.session.rehome_folder_paths(old_path, new_path)
+        else:
+            self.open_roll(roll_id)
+        return ""
 
     def invalidate_library_walk(self) -> None:
         """Drop the cached traversal so the next search re-reads the folders."""
@@ -5278,13 +5297,7 @@ class AppController(QObject):
             return
 
         geom = self.state.config.geometry
-        transformed = img
-        if geom.rotation != 0:
-            transformed = np.rot90(transformed, k=geom.rotation)
-        if geom.flip_horizontal:
-            transformed = np.ascontiguousarray(np.fliplr(transformed))
-        if geom.flip_vertical:
-            transformed = np.ascontiguousarray(np.flipud(transformed))
+        transformed = apply_geometry_orientation(img, geom.rotation, geom.flip_horizontal, geom.flip_vertical)
         if geom.fine_rotation != 0.0:
             transformed = apply_fine_rotation(transformed, geom.fine_rotation)
 
@@ -5723,7 +5736,10 @@ class AppController(QObject):
 
         exp = self.state.config.exposure
         bounds = metrics.get("final_bounds") or metrics.get("log_bounds")  # CPU/GPU key names
-        if is_log:
+        slide_pick = is_log and render_path(self.state.config.process) is not RenderPath.PRINT
+        if slide_pick:
+            new_c, new_m, new_y = slide_pick_wb(sampled[:3], channel_density_ranges(bounds), transfer_total_contrast(exp, metrics))
+        elif is_log:
             new_m, new_y = calculate_wb_shifts_from_log(sampled[:3], bounds)
         else:
             delta_m, delta_y = calculate_wb_shifts(sampled[:3])
@@ -5735,7 +5751,7 @@ class AppController(QObject):
         if region == 0:
             new_exp = replace(
                 exp,
-                wb_cyan=0.0,
+                wb_cyan=float(np.clip(new_c, -1.0, 1.0)) if slide_pick else 0.0,
                 wb_magenta=float(np.clip(new_m, -1.0, 1.0)),
                 wb_yellow=float(np.clip(new_y, -1.0, 1.0)),
             )
@@ -5748,15 +5764,16 @@ class AppController(QObject):
                 ("highlight_cyan", "highlight_magenta", "highlight_yellow"),
             )[region - 1]
             rng_m = rng_y = 1.0
-            if is_log and bounds is not None:
+            if is_log and bounds is not None and not slide_pick:
                 rng_m = max(abs(bounds.ceils[1] - bounds.floors[1]), 1e-6)
                 rng_y = max(abs(bounds.ceils[2] - bounds.floors[2]), 1e-6)
             dm = (new_m - exp.wb_magenta) / rng_m
             dy = (new_y - exp.wb_yellow) / rng_y
+            dc = (new_c - exp.wb_cyan) if slide_pick else 0.0
             new_exp = replace(
                 exp,
                 **{
-                    c_field: 0.0,
+                    c_field: float(np.clip(dc, -1.0, 1.0)),
                     m_field: float(np.clip(dm, -1.0, 1.0)),
                     y_field: float(np.clip(dy, -1.0, 1.0)),
                 },
@@ -8989,12 +9006,7 @@ class AppController(QObject):
             view = apply_exif_orientation(view, self.state.preview_orientation)
         # GeometryProcessor's order.
         geometry = self.state.config.geometry
-        view = np.rot90(view, k=geometry.rotation)
-        if geometry.flip_horizontal:
-            view = np.fliplr(view)
-        if geometry.flip_vertical:
-            view = np.flipud(view)
-        view = np.ascontiguousarray(view)
+        view = np.ascontiguousarray(apply_geometry_orientation(view, geometry.rotation, geometry.flip_horizontal, geometry.flip_vertical))
         h, w = view.shape[:2]
         scale = APP_CONFIG.preview_render_size / max(h, w)
         view = negpy_core.resize_linear(np.ascontiguousarray(view, dtype=np.float32), (round(w * scale), round(h * scale)))

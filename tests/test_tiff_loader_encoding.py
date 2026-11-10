@@ -82,6 +82,24 @@ class TestTiffEncodingAssumptions:
             np.testing.assert_allclose(f32, expected, atol=1e-6)
             assert metadata["color_space"] == ColorSpace.ADOBE_RGB.value
 
+    def test_adobe_rgb_uint16_keeps_its_precision_through_the_linear_decode(self) -> None:
+        codes = np.arange(65536, dtype=np.uint16).reshape(256, 256)
+        data = np.stack([codes] * 3, axis=-1)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = os.path.join(tmpdir, "tagged.tif")
+            tifffile.imwrite(path, data, photometric="rgb", extratags=[(34675, 7, len(_ADOBE_RGB_ICC), _ADOBE_RGB_ICC, True)])
+            ctx, _ = TiffLoader().load(path)
+            with ctx as raw:
+                out = raw.postprocess(gamma=(1, 1), output_bps=16, no_auto_bright=True, user_wb=[1, 1, 1, 1])
+        assert out.dtype == np.float32
+        want = (codes.astype(np.float64) / 65535.0) ** (563.0 / 256.0)
+        band = (want > 0.9e-3) & (want < 1.1e-3)
+        # A linear uint16 holds about 14 codes in this band; the Adobe RGB source holds about 260.
+        assert len(np.unique(out[..., 1][band])) > 200
+        err = out[..., 1].astype(np.float64) - want
+        assert abs(err.mean()) < 0.01 / 65535.0
+        assert np.abs(err).max() < 0.1 / 65535.0
+
     def test_linear_raw_ignores_srgb_icc_tag(self) -> None:
         """Linear RAW couples to the loader: a stitched/scanner TIFF that lies about
         being sRGB (see #588) must decode as literal linear data when it's on."""
@@ -133,7 +151,8 @@ class TestWrapperGamma:
     def test_gamma_1_1_is_linear_passthrough(self) -> None:
         data = np.linspace(0.0, 1.0, 300, dtype=np.float32).reshape(10, 10, 3)
         out = NonStandardFileWrapper(data).postprocess(gamma=(1, 1), output_bps=16)
-        np.testing.assert_array_equal(out, (data * 65535.0).astype(np.uint16))
+        assert out.dtype == np.float32
+        np.testing.assert_array_equal(out, data)
 
     def test_default_gamma_applies_bt709_encode(self) -> None:
         data = np.linspace(0.0, 1.0, 300, dtype=np.float32).reshape(10, 10, 3)

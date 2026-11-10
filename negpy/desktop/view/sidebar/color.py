@@ -11,7 +11,8 @@ from negpy.desktop.view.widgets.sliders import CompactSlider, KelvinSlider
 from negpy.desktop.view.widgets.step_combo import StepCombo
 from negpy.features.exposure.logic import kelvin_to_wb, wb_to_kelvin
 from negpy.features.exposure.models import BwFilter
-from negpy.features.process.path import is_mono
+from negpy.features.process.path import RenderPath, is_mono, render_path
+from negpy.features.transparency.logic import slide_kelvin_to_wb, slide_wb_to_kelvin
 
 
 class ColorSidebar(BaseSidebar):
@@ -70,9 +71,9 @@ class ColorSidebar(BaseSidebar):
         region_row.addWidget(self.ring_btn)
         color_col.addLayout(region_row)
 
-        # Temperature lever over the selected region's M/Y pair (real darkroom: cyan stays 0).
+        # Temperature lever over the selected region's pair: M/Y on a print, C/Y on a slide.
         self.temp_slider = KelvinSlider(tr("Temperature"))
-        self.temp_slider.setValue(wb_to_kelvin(conf.wb_magenta, conf.wb_yellow))
+        self.temp_slider.setValue(self._kelvin_of(conf, 0))
         self._temp_anchor = None
         color_col.addWidget(self.temp_slider)
 
@@ -100,18 +101,19 @@ class ColorSidebar(BaseSidebar):
         ("shadow_cyan", "shadow_magenta", "shadow_yellow"),
         ("highlight_cyan", "highlight_magenta", "highlight_yellow"),
     )
-    _REGION_MY = (
-        ("wb_magenta", "wb_yellow"),
-        ("shadow_magenta", "shadow_yellow"),
-        ("highlight_magenta", "highlight_yellow"),
-    )
 
     def _region_index(self) -> int:
         return self.region_btn.currentIndex()
 
-    def _region_my(self, conf) -> tuple:
-        m_field, y_field = self._REGION_MY[self._region_index()]
-        return getattr(conf, m_field), getattr(conf, y_field)
+    def _is_slide(self) -> bool:
+        return render_path(self.state.config.process) is not RenderPath.PRINT
+
+    def _kelvin_of(self, conf, index: int) -> float:
+        """Temperature of region `index`: a slide reads Cyan and Yellow, a print Magenta and Yellow."""
+        c_f, m_f, y_f = self._REGION_FIELDS[index]
+        if self._is_slide():
+            return slide_wb_to_kelvin(getattr(conf, c_f), getattr(conf, y_f))
+        return wb_to_kelvin(getattr(conf, m_f), getattr(conf, y_f))
 
     def slider_pages(self) -> tuple[SliderPage, ...]:
         if hidden_by_gating(self.region_btn):
@@ -119,7 +121,7 @@ class ColorSidebar(BaseSidebar):
         conf = self.state.config.exposure
         pages = []
         for i, fields in enumerate(self._REGION_FIELDS):
-            kelvin = wb_to_kelvin(*(getattr(conf, f) for f in self._REGION_MY[i]))
+            kelvin = self._kelvin_of(conf, i)
             pages.append(SliderPage(self.region_btn, i, self.temp_slider.label.text(), self.temp_slider, kelvin))
             for slider, field in zip((self.cyan_slider, self.magenta_slider, self.yellow_slider), fields):
                 pages.append(SliderPage(self.region_btn, i, slider.label.text(), slider, getattr(conf, field)))
@@ -172,18 +174,28 @@ class ColorSidebar(BaseSidebar):
         self.ring_btn.setToolTip(wrap_tooltip(self._ring_tooltip(printing=pending)))
 
     def _on_temp_drag_started(self) -> None:
-        # Anchor (M, Y) for the whole drag: re-projecting an already-clipped pair on every tick
+        # Anchor the pair for the whole drag: re-projecting an already-clipped pair on every tick
         # would corrupt the tint component.
-        self._temp_anchor = self._region_my(self.state.config.exposure)
+        self._temp_anchor = self._temp_pair(self.state.config.exposure)
 
     def _on_temp_drag_ended(self) -> None:
         self._temp_anchor = None
 
+    def _temp_pair(self, conf) -> tuple:
+        """The pair Temperature moves: (cyan, yellow) on a slide, (magenta, yellow) on a print."""
+        c_f, m_f, y_f = self._REGION_FIELDS[self._region_index()]
+        return (getattr(conf, c_f if self._is_slide() else m_f), getattr(conf, y_f))
+
     def _on_temp_changed(self, kelvin: float, persist: bool = False) -> None:
-        m0, y0 = self._temp_anchor or self._region_my(self.state.config.exposure)
-        m2, y2 = kelvin_to_wb(kelvin, m0, y0)
-        m_field, y_field = self._REGION_MY[self._region_index()]
-        self.update_config_section("exposure", render=True, persist=persist, readback_metrics=persist, **{m_field: m2, y_field: y2})
+        a0, y0 = self._temp_anchor or self._temp_pair(self.state.config.exposure)
+        c_f, m_f, y_f = self._REGION_FIELDS[self._region_index()]
+        if self._is_slide():
+            a2, y2 = slide_kelvin_to_wb(kelvin, a0, y0)
+            fields = {c_f: a2, y_f: y2}
+        else:
+            a2, y2 = kelvin_to_wb(kelvin, a0, y0)
+            fields = {m_f: a2, y_f: y2}
+        self.update_config_section("exposure", render=True, persist=persist, readback_metrics=persist, **fields)
 
     def _on_cyan_changed(self, v: float, persist: bool = False) -> None:
         field = ("wb_cyan", "shadow_cyan", "highlight_cyan")[self._region_index()]
@@ -210,7 +222,7 @@ class ColorSidebar(BaseSidebar):
             self.cyan_slider.setValue(getattr(conf, channels[0]))
             self.magenta_slider.setValue(getattr(conf, channels[1]))
             self.yellow_slider.setValue(getattr(conf, channels[2]))
-            self.temp_slider.setValue(wb_to_kelvin(*self._region_my(conf)))
+            self.temp_slider.setValue(self._kelvin_of(conf, idx))
             self.cast_removal_slider.setValue(conf.cast_removal_strength)
             self.filter_combo.setCurrentIndex(self.filter_combo.findData(conf.bw_filter))
             bw = is_mono(self.state.config.process)

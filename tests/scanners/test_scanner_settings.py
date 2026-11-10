@@ -27,6 +27,14 @@ def test_backend_default_matches_registry():
     assert ScannerSettings.defaults().backend == DEFAULT_BACKEND_ID
 
 
+def test_channel_gain_json_roundtrip_yields_tuple():
+    original = ScannerSettings(analog_gain_ev=0.3, channel_gain_ev=(0.8, 0.0, -0.2))
+    restored = ScannerSettings.from_dict(json.loads(json.dumps(asdict(original))))
+    assert restored.channel_gain_ev == (0.8, 0.0, -0.2)
+    assert isinstance(restored.channel_gain_ev, tuple)
+    assert restored == original
+
+
 def test_backend_survives_json_roundtrip():
     from dataclasses import replace
 

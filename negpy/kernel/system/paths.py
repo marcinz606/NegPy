@@ -1,7 +1,10 @@
+import errno
 import os
-import sys
-import subprocess
 from pathlib import Path
+import stat
+import subprocess
+import sys
+import time
 from typing import Optional
 
 
@@ -138,3 +141,85 @@ def apply_umask_mode(path: str) -> None:
     """Give a file the mode a newly created file gets under the umask. A tempfile file is always
     0600, and a rename keeps it, so a file written through one would be private to its owner."""
     os.chmod(path, 0o666 & ~_UMASK)
+
+
+def replace_file(src: str, dst: str, *, timeout: float = 2.0, interval: float = 0.02) -> None:
+    """Atomically replace dst with src.
+
+    On Windows, retry transient sharing violations and access errors that occur when
+    external processes (such as antivirus scanners, indexers, or file watchers like
+    Adobe Bridge) momentarily hold an open handle to the newly written temporary file
+    or destination. If dst is marked read-only on Windows, its read-only attribute
+    is cleared before replacing.
+    """
+    if sys.platform != "win32":
+        os.replace(src, dst)
+        return
+
+    deadline = time.monotonic() + max(0.0, timeout)
+    delay = max(0.005, interval)
+
+    while True:
+        try:
+            os.replace(src, dst)
+            return
+        except OSError as err:
+            if os.path.exists(dst):
+                try:
+                    mode = os.stat(dst).st_mode
+                    if not (mode & stat.S_IWRITE):
+                        os.chmod(dst, mode | stat.S_IWRITE)
+                        os.replace(src, dst)
+                        return
+                except OSError:
+                    pass
+
+            winerror = getattr(err, "winerror", None)
+            if winerror not in (5, 32) and err.errno not in (errno.EACCES, errno.EBUSY):
+                raise
+
+            if time.monotonic() >= deadline:
+                raise
+
+            time.sleep(delay)
+            delay = min(delay * 1.5, 0.2)
+
+
+def safe_unlink(path: Optional[str], *, timeout: float = 0.5) -> None:
+    """Silently remove a file, retrying briefly on Windows if locked and ignoring missing files."""
+    if not path:
+        return
+    try:
+        if not os.path.exists(path):
+            return
+    except OSError:
+        return
+
+    if sys.platform != "win32":
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+        return
+
+    deadline = time.monotonic() + max(0.0, timeout)
+    delay = 0.02
+
+    while True:
+        try:
+            mode = os.stat(path).st_mode
+            if not (mode & stat.S_IWRITE):
+                os.chmod(path, mode | stat.S_IWRITE)
+        except OSError:
+            pass
+
+        try:
+            os.unlink(path)
+            return
+        except FileNotFoundError:
+            return
+        except OSError:
+            if time.monotonic() >= deadline:
+                return
+            time.sleep(delay)
+            delay = min(delay * 1.5, 0.1)

@@ -1026,7 +1026,7 @@ class ImageProcessor:
         bake_camera_wb: bool = False,
         load_ir: bool = True,
     ) -> Tuple[np.ndarray, Dict[str, Any]]:
-        """Decode one RAW to sensor-native (output_color=raw), linear uint16 RGB.
+        """Decode one RAW to sensor-native (output_color=raw), linear RGB.
 
         `fast` allows a half-size decode (contact-sheet tiles); ignored where
         half_size would distort colors (see _use_half_size_decode).
@@ -1050,7 +1050,8 @@ class ImageProcessor:
         reaches this decode (camera or override) is offset back out via `bright` —
         see `highlight_reconstruction_bright_gain`.
 
-        Returns (rgb_uint16, loader_metadata).
+        Returns (rgb, loader_metadata): uint16 from a camera RAW or a linear 16-bit source,
+        float32 in [0, 1] from any other source.
         """
         ctx_mgr, metadata = loader_factory.get_loader(file_path, linear_raw=linear_raw, positive_decode=positive_decode, load_ir=load_ir)
         with ctx_mgr as raw:

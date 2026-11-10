@@ -55,6 +55,27 @@ fn srgb_to_linear<'py>(
     filled(py, &img, color::srgb_to_linear)
 }
 
+/// v / slope up to `cut`, else ((v + offset) / scale)^gamma, of a float32 array, any shape.
+#[pyfunction]
+fn piecewise_to_linear<'py>(
+    py: Python<'py>,
+    img: PyReadonlyArrayDyn<'py, f32>,
+    cut: f32,
+    slope: f32,
+    offset: f32,
+    scale: f32,
+    gamma: f64,
+) -> PyResult<Bound<'py, PyArrayDyn<f32>>> {
+    let curve = color::Piecewise {
+        cut,
+        slope,
+        offset,
+        scale,
+        gamma,
+    };
+    filled(py, &img, |s, d| color::piecewise_to_linear(s, d, curve))
+}
+
 pub(crate) fn space(
     m: &PyReadonlyArray2<'_, f32>,
     white: &PyReadonlyArray1<'_, f32>,
@@ -146,23 +167,26 @@ fn matmul_3x3<'py>(
     filled(py, &px, |src, d| color::matmul_3x3(src, d, m))
 }
 
-/// `_gamut_aware_chroma_scale_kernel` of an (..., 3) float32 Lab array.
+/// `apply_saturation(img, saturation, skin_protection)` of an (..., 3) float32 linear RGB
+/// array, then the working Lab constants.
 #[pyfunction]
 #[allow(clippy::too_many_arguments)]
-fn gamut_aware_chroma_scale<'py>(
+fn saturation<'py>(
     py: Python<'py>,
-    lab: PyReadonlyArrayDyn<'py, f32>,
+    img: PyReadonlyArrayDyn<'py, f32>,
     saturation: f32,
-    m: PyReadonlyArray2<'py, f32>,
+    skin_protection: f32,
+    to_xyz: PyReadonlyArray2<'py, f32>,
+    to_rgb: PyReadonlyArray2<'py, f32>,
     white: PyReadonlyArray1<'py, f32>,
     eps: f32,
     kappa: f32,
-    iters: usize,
 ) -> PyResult<Bound<'py, PyArrayDyn<f32>>> {
-    triplets(&lab)?;
-    let s = space(&m, &white, eps, kappa)?;
-    filled(py, &lab, |src, d| {
-        color::gamut_aware_chroma_scale(src, d, saturation, iters, s)
+    triplets(&img)?;
+    let to_lab = space(&to_xyz, &white, eps, kappa)?;
+    let to_rgb = space(&to_rgb, &white, eps, kappa)?;
+    filled(py, &img, |src, d| {
+        color::saturation(src, d, (saturation, skin_protection), to_lab, to_rgb)
     })
 }
 
@@ -203,5 +227,6 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(skin_weight, m)?)?;
     m.add_function(wrap_pyfunction!(matmul_3x3, m)?)?;
     m.add_function(wrap_pyfunction!(srgb_to_linear, m)?)?;
-    m.add_function(wrap_pyfunction!(gamut_aware_chroma_scale, m)?)
+    m.add_function(wrap_pyfunction!(piecewise_to_linear, m)?)?;
+    m.add_function(wrap_pyfunction!(saturation, m)?)
 }

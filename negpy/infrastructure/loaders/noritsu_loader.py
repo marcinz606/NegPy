@@ -8,7 +8,6 @@ from PIL import Image
 from negpy.domain.interfaces import IImageLoader
 from negpy.infrastructure.loaders.helpers import NonStandardFileWrapper, linear_uint16_to_display_uint8
 from negpy.infrastructure.loaders.pakon_loader import PakonLoader
-from negpy.kernel.image.logic import uint16_to_float32
 
 KNOWN_NORITSU_DIMS: list[tuple[int, int]] = [
     (3711, 5028),
@@ -123,10 +122,8 @@ class NoritsuLoader(IImageLoader):
             raise ValueError(f"File too small: expected {expected_pixels} samples, got {len(data)}")
 
         arr = data.reshape(h, w, 3)[:, :, ::-1]  # BGR → RGB
-        f32 = uint16_to_float32(np.ascontiguousarray(arr))
-
         metadata = {"orientation": 0, "ir": None}
-        return NonStandardFileWrapper(f32), metadata
+        return NonStandardFileWrapper(source_u16=np.ascontiguousarray(arr)), metadata
 
     def load_bounded_preview(
         self,

@@ -149,10 +149,10 @@ The **Library** tab (`Ctrl+L`) lists your **rolls**. A roll is a named group of 
 
 *   **+**: **Import Folder as a Roll…** makes one roll of a folder and opens it. **Import Subfolders as Rolls…** makes a roll of each subfolder that holds images.
 *   **Double-click** a roll (or press Enter) to open it in the Film Strip.
-*   **⋮** or right-click a roll: **Open**, **Unload All…** (the open roll), **Roll Analysis**, **Rename…**, **Save to Folder Roll**, **Restore Removed Frames…** and **Delete…**. Restore Removed Frames brings back the frames that Remove from Roll took out of a folder roll; the line under the roll's name counts them. Delete keeps the files and their shared edits. It loses the roll's settings, baseline, film base, scenes, card locks and the edits made only in that roll, and Refresh does not add a deleted folder roll again.
+*   **⋮** or right-click a roll: **Open**, **Unload All…** (the open roll), **Roll Analysis**, **Rename…**, **Locate Folder…**, **Save to Folder Roll**, **Restore Removed Frames…** and **Delete…**. Restore Removed Frames brings back the frames that Remove from Roll took out of a folder roll. Delete keeps the files and their shared edits. It loses the roll's settings, baseline, film base, scenes, card locks and the edits made only in that roll, and Refresh does not add a deleted folder roll again.
 *   **Filter rolls…** and **Sort** help you find a roll. **⋮ → Refresh** finds new subfolders and recounts the frames. **⋮ → Discovery Filters…** lists folder names to skip (`export` at first).
 
-A roll whose folder is gone shows **folder missing**. A folder name that matches your gear ("penf" for "Pen F") opens Roll Settings filled in.
+A roll whose folder was renamed or moved outside NegPy shows **folder missing**. **Locate Folder…** points it at the new folder. A folder name that matches your gear ("penf" for "Pen F") opens Roll Settings filled in.
 
 A folder roll holds only the files in its folder. A file you add from another folder stays for this session only.
 
@@ -218,14 +218,14 @@ This readout describes the current frame while you edit.
 
 #### Chart
 
-Pick a chart view:
-
 *   **Curve**: the paper's curve, from the negative (across) to the print (up). Steeper means more contrast. The gray histogram is the negative, the colored one the print.
 *   **Waveform**: print brightness across the frame.
 *   **Parade**: red, green and blue side by side; a gray subject sits at one height in all three. **Parade Overlay** puts the three on one plot.
 *   **Vectorscope**: the print's colors around a center point. A cluster off center is a color cast.
 
 **Log** shows small areas, like clipping.
+
+**Analysis Overlay**: the chart on the picture while the card is closed.
 
 #### Clipping
 
@@ -243,7 +243,7 @@ The **Readouts** fold holds numbers about the scan. An amber value is a warning;
 
 **Film Base** (the crosshair): click the clear film between frames to set the base the readouts measure from.
 
-*   **Negative**: the negative's density range (Δ). Hover for flat, normal or contrasty.
+*   **Negative**: the negative's density range (Δ).
 *   **Exposure**: bright (positive) or dark (negative) frame, in stops.
 *   **Clipping**: share of the print that is pure black, then pure white.
 *   **Scan clip**: share of each channel at the scanner's maximum. No edit fixes it; expose the scan lower.
@@ -519,7 +519,7 @@ How a camera RAW file is turned into pixels. Shown for a camera.
 
 *   **Camera WB / Linear RAW**: Camera WB uses the camera's white balance. Linear RAW decodes neutral, for narrowband light. Setup sets it for you.
 *   **Preview** / **Export**: the demosaic method, which fills in the colors each sensor pixel cannot see. **Auto** is fast on screen and uses **AHD** for export. **VNG** is smooth and **PPG** fast. **DCB** and **DHT** keep more fine detail but can turn grain into patterns. **AAHD** softens edges. Only the methods in your LibRaw build are listed.
-*   **Recovery** (slides): rebuilds blown highlights in a camera RAW. **Blend** suits sun and sky. **Reconstruct** is stronger but can get the color wrong. A new film scanner frame starts with Recovery off.
+*   **Recovery** (slides): rebuilds blown highlights in a camera RAW. **Blend** suits sun and sky. **Reconstruct** is stronger but can get the color wrong. A new film scanner frame starts with Recovery off. A warning shows under Recovery when the frame has clipped highlights, which can turn pink.
 
 <!-- panel:optics -->
 ### 10.3 Optics
@@ -806,6 +806,7 @@ NegPy keeps macOS and Windows awake while it scans. On Linux, turn off automatic
 *   **Infrared**: **IR** scans an infrared channel, for dust removal on the Retouch card. **ICE** (Coolscan) removes the dust in the scanner instead. A scanner without ICE shows one **IR** toggle. Not for B&W or Kodachrome.
 *   **Superfine** (Coolscan): scans one line per pass. Slower.
 *   **Autofocus**, **Auto-exposure** and **Exposure**: focus and exposure on the scanner, before the scan.
+*   **Analog Gain** (Coolscan): more or less scanner exposure than the metered one, in stops. The chevron opens **Red**, **Green** and **Blue**, one per channel.
 
 <!-- panel:scan_framing -->
 ### Framing

@@ -724,6 +724,46 @@ def test_a_held_device_refuses_a_stateless_meter() -> None:
             _meter(backend)
 
 
+# ── analog gain ───────────────────────────────────────────────────────────
+
+
+def test_the_backend_offers_analog_gain() -> None:
+    backend, _ = make_backend()
+    assert backend.list_devices()[0].capabilities.analog_gain
+
+
+def test_no_analog_gain_leaves_the_metering_to_the_scan() -> None:
+    backend, module = make_backend()
+    _scan(backend)
+    session = module.opened[-1]
+    assert session.meters == [] and session.scans[-1]["exposures"] is None
+
+
+def test_analog_gain_scales_the_metered_exposures_per_channel() -> None:
+    backend, module = make_backend()
+    _scan(backend, dataclasses.replace(_PARAMS, capture_ir=True, analog_gain_ev=1.0, channel_gain_ev=(1.0, 0.0, -1.0)))
+    session = module.opened[-1]
+    assert [m["infrared"] for m in session.meters] == [True]
+    # The fake meters 11/22/33/44; infrared keeps its own exposure.
+    assert session.scans[-1]["exposures"] == {"red": 44, "green": 44, "blue": 33, "infrared": 44}
+
+
+def test_analog_gain_applies_on_top_of_a_locked_exposure() -> None:
+    backend, module = make_backend()
+    locked = {"red": 100, "green": 100, "blue": 100}
+    _scan(backend, dataclasses.replace(_PARAMS, exposures=locked, channel_gain_ev=(0.5, 0.0, 0.0)))
+    session = module.opened[-1]
+    assert session.meters == []
+    assert session.scans[-1]["exposures"] == {"red": 141, "green": 100, "blue": 100}
+
+
+def test_analog_gain_outside_the_range_is_refused_before_the_unit_moves() -> None:
+    backend, module = make_backend()
+    with pytest.raises(RuntimeError, match="Analog Gain must be"):
+        _scan(backend, dataclasses.replace(_PARAMS, channel_gain_ev=(2.5, 0.0, 0.0)))
+    assert module.opened == []
+
+
 def test_a_load_that_fails_still_leaves_the_return_to_report() -> None:
     backend, module = make_backend()
     backend.detect_frames(DEVICE_ID)

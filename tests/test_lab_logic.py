@@ -19,6 +19,31 @@ from negpy.features.lab.logic import (
 )
 
 
+# Oklab (Ottosson, 2020) on linear Adobe RGB, in float64: the oracle for the Saturation kernel. The
+# cone matrix rows are normalized as in negpy_core, so a gray has no chroma.
+_ADOBE_TO_XYZ = np.array([[0.5767309, 0.1855540, 0.1881852], [0.2973769, 0.6273491, 0.0752741], [0.0270343, 0.0706872, 0.9911085]])
+_OK_M1 = np.array(
+    [[0.8189330101, 0.3618667424, -0.1288597137], [0.0329845436, 0.9293118715, 0.0361456387], [0.0482003018, 0.2643662691, 0.6338517070]]
+)
+_OK_M2 = np.array(
+    [[0.2104542553, 0.7936177850, -0.0040720468], [1.9779984951, -2.4285922050, 0.4505937099], [0.0259040371, 0.7827717662, -0.8086757660]]
+)
+_OK_LMS = (_OK_M1 @ _ADOBE_TO_XYZ) / (_OK_M1 @ _ADOBE_TO_XYZ).sum(axis=1, keepdims=True)
+
+
+def _oklab(rgb: np.ndarray) -> np.ndarray:
+    return np.cbrt(np.asarray(rgb, dtype=np.float64) @ _OK_LMS.T) @ _OK_M2.T
+
+
+def _oklab_scaled(rgb: np.ndarray, k: float) -> np.ndarray:
+    """Linear RGB of *rgb* with its Oklab chroma scaled by *k* and its own L* put back."""
+    ok = _oklab(rgb) * np.array([1.0, k, k])
+    scaled = ((ok @ np.linalg.inv(_OK_M2).T) ** 3) @ np.linalg.inv(_OK_LMS).T
+    lab = rgb_to_lab_working(scaled.astype(np.float32))
+    lab[..., 0] = rgb_to_lab_working(np.asarray(rgb, dtype=np.float32))[..., 0]
+    return lab_to_rgb_working(lab)
+
+
 class TestLabLogic(unittest.TestCase):
     def test_spectral_crosstalk(self) -> None:
         """Matrix should mix channels (op now lives in normalization, capture-side)."""
@@ -189,35 +214,39 @@ class TestLabLogic(unittest.TestCase):
         self.assertLess(float(cross[mask].max()), 1e-4)
 
     def test_saturation(self) -> None:
-        """Saturation scales chroma in CIELAB — preserves L*, no V-style darkening."""
-        # Pure Red (1, 0, 0). L* measured in the working space (Adobe RGB CIELAB).
+        """Saturation scales chroma in Oklab and holds L*."""
         img = np.zeros((10, 10, 3), dtype=np.float32)
         img[:, :, 0] = 1.0
-        l_input = rgb_to_lab_working(img)[0, 0, 0]
 
-        # Desaturate fully → mid-gray (R≈G≈B) at the same L*.
         desat = apply_saturation(img, 0.0)
         r, g, b = float(desat[0, 0, 0]), float(desat[0, 0, 1]), float(desat[0, 0, 2])
         self.assertAlmostEqual(r, g, delta=1e-3)
         self.assertAlmostEqual(g, b, delta=1e-3)
-        # Midtone gray, not white. Linear output: pure red's Adobe Y≈0.30.
-        self.assertLess(r, 0.5)
-        self.assertGreater(r, 0.2)
-        l_desat = rgb_to_lab_working(desat)[0, 0, 0]
-        self.assertAlmostEqual(float(l_desat), float(l_input), delta=1.0)
+        self.assertAlmostEqual(float(rgb_to_lab_working(desat)[0, 0, 0]), float(rgb_to_lab_working(img)[0, 0, 0]), delta=0.01)
 
-        # Saturate pale red (0.8, 0.5, 0.5) × 2.0 → still red-dominant, L* preserved
-        # (in-gamut input chosen so the result doesn't hit per-channel sRGB clip).
         img2 = np.ones((10, 10, 3), dtype=np.float32) * 0.5
         img2[:, :, 0] = 0.8
-        l_input2 = rgb_to_lab_working(img2)[0, 0, 0]
-
         sat = apply_saturation(img2, 2.0)
         r2, g2, b2 = float(sat[0, 0, 0]), float(sat[0, 0, 1]), float(sat[0, 0, 2])
         self.assertGreater(r2, g2)
         self.assertGreater(r2, b2)
-        l_sat = rgb_to_lab_working(sat)[0, 0, 0]
-        self.assertAlmostEqual(float(l_sat), float(l_input2), delta=2.0)
+        self.assertAlmostEqual(float(rgb_to_lab_working(sat)[0, 0, 0]), float(rgb_to_lab_working(img2)[0, 0, 0]), delta=0.01)
+
+    def test_saturation_keeps_a_gray_gray(self) -> None:
+        gray = np.linspace(0.0, 1.0, 64, dtype=np.float32)[:, None, None].repeat(3, axis=2)
+        np.testing.assert_allclose(apply_saturation(gray, 1.8), gray, atol=2e-6)
+
+    def test_saturation_holds_hue(self) -> None:
+        """In-gamut colors keep their Oklab hue, blues included, and their L*."""
+        rng = np.random.default_rng(11)
+        img = rng.uniform(0.3, 0.6, (64, 64, 3)).astype(np.float32)
+        img[:32, :, 2] += 0.15
+        out = apply_saturation(img, 1.3)
+        before, after = _oklab(img), _oklab(out)
+        hue = np.arctan2(after[..., 2], after[..., 1]) - np.arctan2(before[..., 2], before[..., 1])
+        chroma = np.hypot(before[..., 1], before[..., 2])
+        self.assertLess(float(np.abs(np.angle(np.exp(1j * hue)))[chroma > 0.02].max()), np.radians(0.5))
+        np.testing.assert_allclose(rgb_to_lab_working(out)[..., 0], rgb_to_lab_working(img)[..., 0], atol=0.01)
 
     def test_saturation_does_not_darken_saturated_red(self) -> None:
         """Regression for #193: boosting saturation must not drop perceived lightness L*."""
@@ -230,14 +259,12 @@ class TestLabLogic(unittest.TestCase):
         boosted = apply_saturation(img, 1.5)
         l_out = float(rgb_to_lab_working(boosted)[0, 0, 0])
 
-        # CIELAB preserves L* pre-clip; the gamut-aware knee (see
-        # test_saturation_is_gamut_aware below) keeps this red (L*≈67) closer
-        # to the gamut edge than a hard per-channel clamp -- measured ~4.7
-        # points down, vs. the ~6 a naive flat scale + clip produces.
+        # L* is held; the gamut knee (see test_saturation_is_gamut_aware below) keeps this red off
+        # the per-channel clamp, which is the only thing that moves it.
         self.assertGreaterEqual(l_out, l_in - 5.5)
 
     def test_saturation_is_gamut_aware(self) -> None:
-        """A flat a*/b* scale preserves hue mathematically, but a hard per-channel
+        """A flat chroma scale preserves hue mathematically, but a hard per-channel
         RGB clamp afterward shifts the *actual* hue by changing the R:G:B ratio
         unevenly. The gamut-aware knee should avoid that: pushing hard on a
         deeply saturated color should land much closer to its true (unclipped)
@@ -293,7 +320,7 @@ class TestLabLogic(unittest.TestCase):
     def test_saturation_unaffected_when_comfortably_in_gamut(self) -> None:
         """A gentle push on a color nowhere near the gamut edge -- and nowhere
         near the skin-protection hue band -- should behave identically to a
-        flat a*/b* scale -- the knee should only engage near the boundary, not
+        flat Oklab chroma scale -- the knee should only engage near the boundary, not
         change everyday, moderate saturation adjustments."""
         img = np.full((4, 4, 3), 0.5, dtype=np.float32)
         img[:, :, 2] = 0.55  # mild, safely in-gamut blue bias -- hue ~291deg,
@@ -303,12 +330,7 @@ class TestLabLogic(unittest.TestCase):
 
         gamut_aware = apply_saturation(img, 1.1)
 
-        lab = rgb_to_lab_working(img)
-        lab[..., 1] *= 1.1
-        lab[..., 2] *= 1.1
-        naive = np.clip(lab_to_rgb_working(lab), 0.0, 1.0)
-
-        np.testing.assert_allclose(gamut_aware, naive, atol=1e-4)
+        np.testing.assert_allclose(gamut_aware, np.clip(_oklab_scaled(img, 1.1), 0.0, 1.0), atol=1e-5)
 
     def test_saturation_below_one_unchanged(self) -> None:
         """Desaturating (saturation < 1.0) can't push a pixel further out of
@@ -321,12 +343,7 @@ class TestLabLogic(unittest.TestCase):
 
         gamut_aware = apply_saturation(img, 0.3)
 
-        lab = rgb_to_lab_working(img)
-        lab[..., 1] *= 0.3
-        lab[..., 2] *= 0.3
-        naive = np.clip(lab_to_rgb_working(lab), 0.0, 1.0)
-
-        np.testing.assert_allclose(gamut_aware, naive, atol=1e-5)
+        np.testing.assert_allclose(gamut_aware, np.clip(_oklab_scaled(img, 0.3), 0.0, 1.0), atol=1e-5)
 
     def test_chroma_denoise(self) -> None:
         img = np.full((100, 100, 3), 0.5, dtype=np.float32)
