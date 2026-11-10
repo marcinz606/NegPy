@@ -90,7 +90,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     // cyanotype pass has since put real color on the print and collapsing would
     // throw it away.
     if (params.is_bw == 1u && params.alt_mode == 0u) {
-        let luma = dot(color, vec3<f32>(0.2126, 0.7152, 0.0722));
+        let luma = dot(color, vec3<f32>(0.2974, 0.6273, 0.0753));
         color = vec3<f32>(luma);
     }
 

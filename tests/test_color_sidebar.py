@@ -34,8 +34,7 @@ def test_region_selector_retargets_sliders_and_temperature(qapp):
     assert abs(sidebar.yellow_slider.value() - 0.4) < 1e-9
     assert abs(sidebar.temp_slider.value() - wb_to_kelvin(-0.3, 0.4)) < 1.0
     assert controller.state.wb_pick_region == 1
-    assert sidebar._region_my(controller.state.config.exposure) == (-0.3, 0.4)
-    assert sidebar._REGION_MY[sidebar._region_index()] == ("shadow_magenta", "shadow_yellow")
+    assert sidebar._temp_pair(controller.state.config.exposure) == (-0.3, 0.4)
 
 
 def test_temperature_writes_selected_region_fields(qapp):

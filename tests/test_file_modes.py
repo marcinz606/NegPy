@@ -84,7 +84,7 @@ def test_every_tempfile_rename_applies_the_umask_mode():
         for p in root.rglob("*.py")
         if str(p.relative_to(root)) not in _PRIVATE
         and any(maker in (text := p.read_text(encoding="utf-8")) for maker in ("NamedTemporaryFile(", "mkstemp("))
-        and "os.replace(" in text
+        and any(renamer in text for renamer in ("os.replace(", "replace_file("))
         and "apply_umask_mode(" not in text
     ]
     assert offenders == [], "call apply_umask_mode before renaming a tempfile file into place"

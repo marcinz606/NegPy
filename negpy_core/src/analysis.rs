@@ -6,9 +6,9 @@ use rayon::prelude::*;
 use crate::filter::Border;
 use crate::stats::{np_median, np_percentiles, pairwise_sum_f32, percentiles};
 
-const LUMA_R: f64 = 0.2126;
-const LUMA_G: f64 = 0.7152;
-const LUMA_B: f64 = 0.0722;
+const LUMA_R: f64 = 0.2974;
+const LUMA_G: f64 = 0.6273;
+const LUMA_B: f64 = 0.0753;
 
 /// `kernel.image.logic.get_luminance` of an HxWx3 float32 image: Numba's fastmath kernel,
 /// f64 with fused multiply-adds, then float32.
@@ -1815,7 +1815,7 @@ pub fn clip_fractions(
     counts.map(|c| c as f64 / n)
 }
 
-/// `grid @ w` in float64 for Rec. 709 luma, in the order OpenBLAS's dgemv sums the three terms.
+/// `grid @ w` in float64 for the luma, in the order OpenBLAS's dgemv sums the three terms.
 #[multiversion(targets("x86_64+avx2+fma", "aarch64+neon"))]
 fn luma_f64_chunk(grid: &[f32], dst: &mut [f64]) {
     for (d, p) in dst.iter_mut().zip(grid.as_chunks::<3>().0) {
@@ -1824,7 +1824,7 @@ fn luma_f64_chunk(grid: &[f32], dst: &mut [f64]) {
     }
 }
 
-/// `density_above_base`'s metered median: `np.median` of an Nx3 grid's float64 Rec. 709 luma.
+/// `density_above_base`'s metered median: `np.median` of an Nx3 grid's float64 luma.
 pub fn luma_median(grid: &[f32]) -> f64 {
     let mut lum = vec![0f64; grid.len() / 3];
     lum.par_chunks_mut(4096)
@@ -1833,7 +1833,7 @@ pub fn luma_median(grid: &[f32]) -> f64 {
     crate::stats::median_f64(&mut lum)
 }
 
-/// Rec. 709 luma in float32, NumPy's order for `LUMA_R * r + LUMA_G * g + LUMA_B * b` (NEP 50).
+/// Luma in float32, NumPy's order for `LUMA_R * r + LUMA_G * g + LUMA_B * b` (NEP 50).
 #[inline(always)]
 fn luma_f32(p: &[f32; 3]) -> f32 {
     LUMA_R as f32 * p[0] + LUMA_G as f32 * p[1] + LUMA_B as f32 * p[2]

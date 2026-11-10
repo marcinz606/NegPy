@@ -5,6 +5,7 @@ from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.styles.templates import field_row, hint_label, section_subheader, wrap_tooltip
 from negpy.desktop.view.widgets.segmented_choice import SegmentedChoice
 from negpy.desktop.view.widgets.step_combo import StepCombo
+from negpy.features.exposure.models import EXPOSURE_CONSTANTS
 from negpy.features.hdr.models import hdr_active
 from negpy.desktop.session import camera_raw_preview
 from negpy.features.process.models import DemosaicMode, ProcessMode
@@ -16,6 +17,13 @@ _TIP = tr("How the camera's raw data becomes pixels: Auto is fast on screen and 
 _HIGHLIGHT_TIP = tr(
     "Rebuilds blown highlights in a camera RAW: Blend suits sun and sky, and Reconstruct is stronger but can get the color wrong."
 )
+
+
+def clip_hint_due(scan_clip) -> bool:
+    """Whether the Scan clip readout shows a channel clipped past its warning share."""
+    if not scan_clip:
+        return False
+    return max(float(v) for v in scan_clip) > float(EXPOSURE_CONSTANTS["scan_clip_warn"])
 
 
 class DemosaicSidebar(BaseSidebar):
@@ -79,11 +87,42 @@ class DemosaicSidebar(BaseSidebar):
         self.highlight_merged_hint.setVisible(False)
         self.layout.addWidget(self.highlight_merged_hint)
 
+        self._scan_clip = None
+        self._scan_clip_hash = None
+        self.highlight_clip_hint = hint_label(tr("Clipped scan: highlights can turn pink. Set Recovery to Blend."), "warning")
+        self.highlight_clip_hint.setToolTip(
+            wrap_tooltip(
+                tr(
+                    "Part of this frame is at the sensor limit, which can tint highlights pink. Blend or Reconstruct can bring back detail and color."
+                )
+            )
+        )
+        self.highlight_clip_hint.setVisible(False)
+        self.layout.addWidget(self.highlight_clip_hint)
+
     def _connect_signals(self) -> None:
         self.preview_combo.currentTextChanged.connect(lambda name: self._on_changed("demosaic_preview", name))
         self.export_combo.currentTextChanged.connect(lambda name: self._on_changed("demosaic_export", name))
         self.highlight_combo.currentIndexChanged.connect(self._on_highlight_reconstruction_changed)
         self.linear_raw_btn.currentChanged.connect(self._on_linear_raw_changed)
+        self.controller.metrics_available.connect(self._on_metrics)
+
+    def _on_metrics(self, metrics: dict) -> None:
+        if "scan_clip_fractions" in metrics:
+            self._scan_clip = metrics["scan_clip_fractions"]
+            self._scan_clip_hash = self.state.current_file_hash
+            self._sync_clip_hint()
+
+    def _sync_clip_hint(self) -> None:
+        conf = self.state.config.process
+        show = (
+            conf.process_mode == ProcessMode.E6
+            and self.highlight_combo.isEnabled()
+            and highlight_bucket(conf.highlight_reconstruction) == 0
+            and self._scan_clip_hash == self.state.current_file_hash
+            and clip_hint_due(self._scan_clip)
+        )
+        self.highlight_clip_hint.setVisible(show)
 
     def _on_linear_raw_changed(self, _index: int) -> None:
         # linear_raw switches use_camera_wb, so it is a source change: set_roll_default's
@@ -153,6 +192,7 @@ class DemosaicSidebar(BaseSidebar):
             self.highlight_combo.setEnabled(camera_raw_preview(self.state) and not merged)
             self.highlight_combo.setCurrentIndex(highlight_bucket(conf.highlight_reconstruction))
             self.highlight_merged_hint.setVisible(is_e6 and merged)
+            self._sync_clip_hint()
         finally:
             self.block_signals(False)
 

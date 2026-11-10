@@ -35,8 +35,8 @@ class TestRawHandlers(unittest.TestCase):
 
         with wrapper as raw:
             processed = raw.postprocess(gamma=(1, 1), output_bps=16)
-            self.assertEqual(processed.dtype, np.uint16)
-            self.assertAlmostEqual(np.mean(processed), 32767, delta=100)
+            self.assertEqual(processed.dtype, np.float32)
+            np.testing.assert_array_equal(processed, data)
 
     def test_xtrans_stays_above_ppg_for_3_pass_markesteijn(self):
         # LibRaw reads this only as a pass count for a 6x6 CFA: PPG or below drops

@@ -1,7 +1,7 @@
-import numpy as np
 from negpy.domain.interfaces import PipelineContext
 from negpy.domain.types import ImageBuffer
 from negpy.features.geometry.models import GeometryConfig
+from negpy.kernel.image.logic import apply_geometry_orientation
 from negpy.features.geometry.logic import (
     apply_fine_rotation,
     apply_keystone,
@@ -23,14 +23,7 @@ class GeometryProcessor:
     def process(self, image: ImageBuffer, context: PipelineContext) -> ImageBuffer:
         img = image
 
-        if self.config.rotation != 0:
-            img = np.rot90(img, k=self.config.rotation)
-
-        if self.config.flip_horizontal:
-            img = np.ascontiguousarray(np.fliplr(img))
-
-        if self.config.flip_vertical:
-            img = np.ascontiguousarray(np.flipud(img))
+        img = apply_geometry_orientation(img, self.config.rotation, self.config.flip_horizontal, self.config.flip_vertical)
 
         if self.config.fine_rotation != 0.0:
             img = apply_fine_rotation(img, self.config.fine_rotation)

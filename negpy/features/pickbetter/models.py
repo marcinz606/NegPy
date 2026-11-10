@@ -17,7 +17,7 @@ class PickParam:
 
     `strong_step` is the bold step a first selection moves; `floor` is the smallest step;
     `lo`/`hi` clamp a candidate to its slider range. `compound` marks a control spanning a
-    field pair (Temperature moves wb_magenta/wb_yellow; its "value" is Kelvin).
+    field pair (Temperature moves wb_magenta/wb_yellow on a print and wb_cyan/wb_yellow on a slide; its "value" is Kelvin).
     """
 
     field: str

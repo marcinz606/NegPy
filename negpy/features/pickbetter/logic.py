@@ -3,6 +3,8 @@ from dataclasses import replace
 
 from negpy.domain.models import WorkspaceConfig
 from negpy.features.exposure.logic import kelvin_to_wb, wb_to_kelvin
+from negpy.features.process.path import RenderPath, render_path
+from negpy.features.transparency.logic import slide_kelvin_to_wb, slide_wb_to_kelvin
 from negpy.kernel.system.i18n import tr
 from negpy.features.pickbetter.models import PICK_PARAMS, PickBetterProgress, PickParam, Phase
 
@@ -30,6 +32,8 @@ def _clamp(value: float, param: PickParam) -> float:
 def param_value(config: WorkspaceConfig, param: PickParam) -> float:
     """Read a control's current value: the field itself, or Kelvin for the compound Temperature"""
     if param.compound:
+        if render_path(config.process) is not RenderPath.PRINT:
+            return slide_wb_to_kelvin(config.exposure.wb_cyan, config.exposure.wb_yellow)
         return wb_to_kelvin(config.exposure.wb_magenta, config.exposure.wb_yellow)
     return float(getattr(config.exposure, param.field))
 
@@ -38,9 +42,12 @@ def set_param(config: WorkspaceConfig, param: PickParam, value: float) -> Worksp
     """Return a config with the control set to `value`, clamped to its slider range.
 
     A single-field control writes its field; the compound Temperature moves wb_magenta/
-    wb_yellow along the Planckian direction to land on the Kelvin value.
+    wb_yellow (wb_cyan/wb_yellow on a slide) along the Planckian direction to land on the Kelvin value.
     """
     value = _clamp(value, param)
+    if param.compound and render_path(config.process) is not RenderPath.PRINT:
+        c2, y2 = slide_kelvin_to_wb(value, config.exposure.wb_cyan, config.exposure.wb_yellow)
+        return replace(config, exposure=replace(config.exposure, wb_cyan=c2, wb_yellow=y2))
     if param.compound:
         m2, y2 = kelvin_to_wb(value, config.exposure.wb_magenta, config.exposure.wb_yellow)
         return replace(config, exposure=replace(config.exposure, wb_magenta=m2, wb_yellow=y2))

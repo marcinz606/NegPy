@@ -32,6 +32,7 @@ from negpy.desktop.view.confirm import (
     confirm_load_roll,
     warn_invalid_roll_name,
 )
+from negpy.desktop.view.widgets.file_dialogs import last_open_folder
 from negpy.desktop.view.widgets.rename_roll_dialog import RenameRollDialog
 from negpy.desktop.view.keyboard_shortcuts import _unload_all, restore_removed_frames
 from negpy.desktop.view.shortcut_registry import label_with_shortcut
@@ -43,6 +44,14 @@ from negpy.kernel.system.text import count_of
 from negpy.services.assets import rolls
 from negpy.services.assets.composites import frame_count, saved_composites
 from negpy.services.assets.library import folder_counts, folder_image_paths, folder_label
+from negpy.services.assets.rehome import (
+    RELINK_FOLDER_TAKEN,
+    RELINK_NOT_A_FOLDER,
+    RELINK_NOT_A_FOLDER_ROLL,
+    entry_folder_missing,
+    folder_fits_roll,
+    folder_roll_missing,
+)
 from negpy.services.assets.triplets import applied_triplets
 from negpy.services.assets.presets import is_valid_preset_name
 from negpy.services.assets.gear import GearProfiles
@@ -72,6 +81,11 @@ _ROLL_ID_ROLE = Qt.ItemDataRole.UserRole
 _MISSING_ROLE = Qt.ItemDataRole.UserRole + 1
 _NAME_ROLE = Qt.ItemDataRole.UserRole + 2
 _FOLDER_ROLE = Qt.ItemDataRole.UserRole + 3
+_RELINK_MESSAGES = {
+    RELINK_FOLDER_TAKEN: tr("Another roll already uses that folder."),
+    RELINK_NOT_A_FOLDER: tr("That folder is not available."),
+    RELINK_NOT_A_FOLDER_ROLL: tr("This roll no longer exists as a folder roll."),
+}
 # The line under a roll's name (count, film mode, stock, scenes, date), or a folder row's roll count.
 _DETAIL_ROLE = Qt.ItemDataRole.UserRole + 4
 # The film-mode dot ahead of that line; "" for none.
@@ -244,6 +258,7 @@ class LibraryTree(QWidget):
         self._count_timer.setInterval(0)
         self._count_timer.timeout.connect(self.refresh_active_count)
         controller.session.files_changed.connect(self._count_timer.start)
+        controller.roll_folder_missing.connect(self.locate_folder)
         self._checking = False
         self._disk_check: _DiskCheck | None = None
         app = QApplication.instance()
@@ -652,7 +667,7 @@ class LibraryTree(QWidget):
     def _make_item(self, roll_id: str, entry: dict, label: str) -> QTreeWidgetItem:
         is_folder = entry.get("kind") == "folder"
         folder_path = entry.get("folder_path", "")
-        missing = is_folder and not os.path.isdir(folder_path)
+        missing = entry_folder_missing(entry)
         item = QTreeWidgetItem([label])
         item.setData(0, _ROLL_ID_ROLE, roll_id)
         item.setData(0, _NAME_ROLE, entry.get("name", ""))
@@ -671,7 +686,7 @@ class LibraryTree(QWidget):
         folder_path = entry.get("folder_path", "")
         if missing:
             item.setToolTip(0, tr("Folder not found on disk: {path}", path=folder_path))
-            item.setToolTip(1, tr("The folder is not on disk, so move it back or delete the roll."))
+            item.setToolTip(1, tr("The folder is not on disk. Right-click the roll and choose Locate Folder…, or delete the roll."))
             return
         item.setToolTip(1, "")
         item.setToolTip(
@@ -801,6 +816,10 @@ class LibraryTree(QWidget):
                 analyze_action.setToolTip(BATCH_ANALYSIS_TOOLTIP if is_active else BATCH_ANALYSIS_DISABLED_TOOLTIP)
                 analyze_action.triggered.connect(self.controller.request_batch_normalization)
                 menu.addAction(tr("Rename…")).triggered.connect(lambda: self._rename_roll(roll_id, name))
+                if folder_roll_missing(self.repo, roll_id):
+                    locate_action = menu.addAction(tr("Locate Folder…"))
+                    locate_action.setToolTip(tr("Point this roll at its folder after the folder was renamed or moved"))
+                    locate_action.triggered.connect(lambda: self.locate_folder(roll_id))
                 choice, reason = self.controller.save_choice(roll_id)
                 if choice != "hidden":
                     # No shortcut label: the shortcut acts on the open roll, not the one clicked here.
@@ -818,6 +837,39 @@ class LibraryTree(QWidget):
         menu.addAction(tr("Import Folder as a Roll…")).triggered.connect(self.prompt_import_folder)
         menu.addAction(tr("Import Subfolders as Rolls…")).triggered.connect(self.prompt_import_subfolders)
         menu.exec(self.tree.viewport().mapToGlobal(pos))
+
+    def locate_open_roll_folder(self) -> None:
+        """The shortcut: locate the open roll's folder when it is gone."""
+        roll_id = self.controller.state.active_roll_id
+        if roll_id and folder_roll_missing(self.repo, roll_id):
+            self.locate_folder(roll_id)
+
+    def locate_folder(self, roll_id: str) -> None:
+        """Ask for the renamed or moved folder of a roll, then relink and open it."""
+        self.reload()
+        entry = rolls.roll_for_id(self.repo, roll_id) or {}
+        old_path = entry.get("folder_path") or ""
+        start = os.path.dirname(old_path.rstrip("/\\"))
+        folder = QFileDialog.getExistingDirectory(
+            self,
+            tr("Locate Folder for “{name}”", name=entry.get("name", "")),
+            start if os.path.isdir(start) else last_open_folder(self.repo),
+        )
+        if not folder:
+            return
+        folder = os.path.normpath(folder)
+        if not folder_counts(folder)[0]:
+            QMessageBox.warning(self, tr("Locate Folder"), tr("That folder holds no supported images."))
+            return
+        if not folder_fits_roll(self.repo, roll_id, folder):
+            QMessageBox.warning(self, tr("Locate Folder"), tr("That folder does not hold the photos this roll has edits for."))
+            return
+        reason = self.controller.relink_roll(roll_id, folder)
+        if reason:
+            QMessageBox.warning(self, tr("Locate Folder"), _RELINK_MESSAGES.get(reason, _RELINK_MESSAGES[RELINK_NOT_A_FOLDER_ROLL]))
+            return
+        self.reload()
+        self.rolls_changed.emit()
 
     def _rename_roll(self, roll_id: str, current_name: str) -> None:
         entry = rolls.roll_for_id(self.repo, roll_id)

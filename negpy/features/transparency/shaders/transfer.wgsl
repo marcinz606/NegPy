@@ -234,7 +234,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 
     // B&W: luma after the curve, so per-channel trims cannot tint. Mirrors TransferProcessor.
     if (params.mono.w != 0.0) {
-        let l = dot(lin, vec3<f32>(0.2126, 0.7152, 0.0722));
+        let l = dot(lin, vec3<f32>(0.2974, 0.6273, 0.0753));
         lin = vec3<f32>(l, l, l);
     }
 

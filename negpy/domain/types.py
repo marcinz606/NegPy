@@ -12,11 +12,12 @@ ROI: TypeAlias = Tuple[int, int, int, int]
 # (Height, Width)
 Dimensions: TypeAlias = Tuple[int, int]
 
-# Rec. 709 Luma
-LUMA_COEFFS = np.array([0.2126, 0.7152, 0.0722], dtype=np.float32)
-LUMA_R = 0.2126
-LUMA_G = 0.7152
-LUMA_B = 0.0722
+# Luminance row of Adobe RGB (1998), the working space, rounded so that the weights sum to 1:
+# a gray's luma is its own value.
+LUMA_COEFFS = np.array([0.2974, 0.6273, 0.0753], dtype=np.float32)
+LUMA_R = 0.2974
+LUMA_G = 0.6273
+LUMA_B = 0.0753
 
 # Histogram types
 HistogramData: TypeAlias = Tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]

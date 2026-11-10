@@ -43,6 +43,7 @@ from negpy.features.process.path import RenderPath, render_path
 from negpy.features.transparency.logic import (
     TRANSFER_DENSITY_RANGE,
     apply_transfer_curve,
+    contrast_free_cmy,
     fade_white_grid,
     density_stage,
     measure_transfer_neutral_axis,
@@ -204,9 +205,12 @@ class TransferProcessor:
             context.metrics.get("highlight_point"),
         )
         final_bounds = context.metrics.get("final_bounds")
-        cmy_offsets = filtration_offsets(
-            (self.config.wb_cyan, self.config.wb_magenta, self.config.wb_yellow),
-            final_bounds,
+        cmy_offsets = contrast_free_cmy(
+            filtration_offsets(
+                (self.config.wb_cyan, self.config.wb_magenta, self.config.wb_yellow),
+                final_bounds,
+            ),
+            contrast,
         )
         cmy_max = EXPOSURE_CONSTANTS["cmy_max_density"]
         shadow_cmy = (

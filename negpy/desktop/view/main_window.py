@@ -161,7 +161,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.controller = controller
         self.state = controller.state
-        self._export_size_zoom_pending = False
+        self._export_size_shape: Optional[tuple[int, ...]] = None
 
         self._restore_window_geometry()
         self.setAcceptDrops(True)
@@ -625,6 +625,18 @@ class MainWindow(QMainWindow):
         self.controller.session.repo.save_global_setting("panel_right_visible", True)
         self.canvas.hud.showMessage(tr("Panel layout reset"), timeout=1500)
 
+    def _sync_analysis_plate(self) -> None:
+        """One chart stack serves the Analysis card and the canvas plate: it moves to the one in view."""
+        plate = self.canvas.analysis_plate
+        wanted = self.right_panel.analysis_overlay_wanted()
+        if wanted == plate.holds_charts():
+            return
+        if wanted:
+            plate.hold(self.right_panel.chart_stack)
+        else:
+            plate.release()
+            self.right_panel.chart_well.take_back()
+
     def _connect_signals(self) -> None:
         """Wire controller and view."""
         browser = self.file_browser
@@ -717,6 +729,9 @@ class MainWindow(QMainWindow):
         self.canvas.overlay.zone_shares_changed.connect(self.toolbar.set_zone_shares)
         self.canvas.overlay.zone_pointer_changed.connect(self.toolbar.set_zone_pointer)
         self.controller.clipping_overlay_changed.connect(lambda _on: self.canvas.overlay.update())
+        self.right_panel.analysis_overlay_changed.connect(self._sync_analysis_plate)
+        self.canvas.analysis_plate.cycle_requested.connect(self.right_panel.cycle_analysis_view)
+        self._sync_analysis_plate()
         self.controller.zone_highlight_changed.connect(self.canvas.overlay.update)
         self.controller.grain_focuser_changed.connect(lambda _on: self.canvas.overlay.update())
         self.controller.export_view_ready.connect(self.canvas.overlay.update)
@@ -863,7 +878,7 @@ class MainWindow(QMainWindow):
         self._refresh_image_info()
 
     def _on_export_size_view_changed(self, on: bool) -> None:
-        self._export_size_zoom_pending = on
+        self._export_size_shape = None
 
     def _on_image_updated(self) -> None:
         """Refreshes canvas when a new render pass completes."""
@@ -916,9 +931,10 @@ class MainWindow(QMainWindow):
             splash=bool(shown("splash")), proofed=bool(shown("proof", True))
         )
         self.canvas.update_buffer(buffer, display_cs, content_rect=content_rect, monitor_icc_bytes=monitor_bytes, proof=proof)
-        # The first export frame opens at 100%: Export Size is for judging pixels.
-        if self._export_size_zoom_pending and shown("export_view"):
-            self._export_size_zoom_pending = False
+        # An export frame of a new size opens at 100%: Export Size is for judging pixels. An edit
+        # that keeps the size keeps the zoom and pan.
+        if shown("export_view") and buffer.shape[:2] != self._export_size_shape:
+            self._export_size_shape = buffer.shape[:2]
             self.canvas.zoom_to_percent(100.0)
 
     def _refresh_image_info(self) -> None:

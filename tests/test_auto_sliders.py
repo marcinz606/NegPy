@@ -5,7 +5,7 @@ import pytest
 
 from negpy.desktop.auto_sliders import shown_masking, stored_masking
 from negpy.domain.models import WorkspaceConfig
-from negpy.features.exposure.auto_sliders import print_shown_values, print_stored_value
+from negpy.features.exposure.auto_sliders import grade_at_softest, print_shown_values, print_stored_value
 from negpy.features.exposure.logic import (
     auto_highlight_from_metrics,
     auto_shadow_from_metrics,
@@ -91,6 +91,29 @@ def test_stored_value_inverts_shown(field):
     exposure = _edited()
     shown = print_shown_values(exposure, MODE, metrics)[field]
     assert print_stored_value(exposure, MODE, metrics, field, shown) == pytest.approx(getattr(exposure, field), abs=1e-6)
+
+
+# A flat negative (DSC_4822): Grade reaches the softest slope well before the soft end.
+_FLAT = dict(metered_anchor=0.507, textural_range=0.221, norm_density_range=0.509, shadow_point=1.062, highlight_point=0.15)
+
+
+@pytest.mark.parametrize("auto_grade", [True, False])
+def test_flat_negative_reaches_the_softest_grade(auto_grade):
+    exposure = ExposureConfig(paper_profile="pakon", auto_normalize_contrast=auto_grade, grade=170.0)
+    assert grade_at_softest(exposure, MODE, _metrics(**_FLAT))
+
+
+def test_normal_negative_can_go_softer():
+    assert not grade_at_softest(ExposureConfig(), MODE, _metrics())
+
+
+def test_slider_at_its_soft_end_is_no_warning():
+    exposure = ExposureConfig(auto_normalize_contrast=False, grade=180.0)
+    assert not grade_at_softest(exposure, MODE, _metrics(**_FLAT))
+
+
+def test_unmetered_frame_is_no_warning():
+    assert not grade_at_softest(ExposureConfig(), MODE, {})
 
 
 def test_off_or_unmetered_autos_show_nothing():

@@ -701,3 +701,57 @@ def measure_transfer_neutral_axis(grid: np.ndarray, positive: bool) -> Optional[
     if window is None:
         return None
     return measure_neutral_axis_from_log(grid, LogNegativeBounds(*window), None, 0.0, exclude_subjects=False)
+
+
+# Slider units per mired. A Planckian shift from daylight raises red and lowers blue about
+# twice as much in log density, green fixed; the slider takes half that effect so the
+# Kelvin range fits the filter sliders. The Kelvin readout is nominal.
+SLIDE_TEMP_REF_KELVIN = 5500.0
+_SLIDE_K_CYAN = 0.0031
+_SLIDE_K_YELLOW = 0.0065
+_SLIDE_TEMP_MIN_KELVIN, _SLIDE_TEMP_MAX_KELVIN = 3000.0, 12000.0
+
+
+def slide_wb_to_kelvin(cyan: float, yellow: float) -> float:
+    """Slide Temperature of a (cyan, yellow) pair: its projection onto the Planckian
+    direction, in the mired domain. Magenta is the tint axis and stays out of it."""
+    kc, ky = _SLIDE_K_CYAN, _SLIDE_K_YELLOW
+    dmu = (-kc * cyan + ky * yellow) / (kc * kc + ky * ky)
+    mu = min(max(1e6 / SLIDE_TEMP_REF_KELVIN + dmu, 1e6 / _SLIDE_TEMP_MAX_KELVIN), 1e6 / _SLIDE_TEMP_MIN_KELVIN)
+    return float(1e6 / mu)
+
+
+def slide_kelvin_to_wb(kelvin: float, cyan: float, yellow: float) -> Tuple[float, float]:
+    """Moves (cyan, yellow) along the Planckian direction to `kelvin`, keeping the
+    off-locus component. Warming lowers blue and raises red; green does not move."""
+    kc, ky = _SLIDE_K_CYAN, _SLIDE_K_YELLOW
+    kelvin = min(max(kelvin, _SLIDE_TEMP_MIN_KELVIN), _SLIDE_TEMP_MAX_KELVIN)
+    dmu_cur = (-kc * cyan + ky * yellow) / (kc * kc + ky * ky)
+    d = (1e6 / kelvin - 1e6 / SLIDE_TEMP_REF_KELVIN) - dmu_cur
+    return float(min(max(cyan - kc * d, -1.0), 1.0)), float(min(max(yellow + ky * d, -1.0), 1.0))
+
+
+def contrast_free_cmy(cmy_offsets: Tuple[float, float, float], contrast: float) -> Tuple[float, float, float]:
+    """Global filtration divided by the curve's contrast, which scales every density offset
+    made before it. The filtration then prints the same gain at every Grade."""
+    k = max(float(contrast), 1e-6)
+    return (cmy_offsets[0] / k, cmy_offsets[1] / k, cmy_offsets[2] / k)
+
+
+def transfer_total_contrast(exposure: ExposureConfig, metrics: Mapping[str, Any]) -> float:
+    """The contrast the slide curve prints with: Grade plus any metered auto term."""
+    return _transfer_totals(exposure, metrics)[2]
+
+
+def slide_pick_wb(sampled_norm_rgb: Any, channel_ranges: Tuple[float, float, float], contrast: float = 1.0) -> Tuple[float, float, float]:
+    """(cyan, magenta, yellow) that print a picked patch gray, unclipped: Cyan and Yellow along
+    the Temperature direction, Magenta as the Tint remainder. The sample is in normalized log
+    density, `channel_ranges` scale it to absolute density, and the curve's `contrast` scales it
+    the same way it scales the sample when printed."""
+    kc, ky = _SLIDE_K_CYAN, _SLIDE_K_YELLOW
+    cmy_max = float(EXPOSURE_CONSTANTS["cmy_max_density"])
+    k = max(float(contrast), 1e-6)
+    o = [-k * float(sampled_norm_rgb[ch]) * channel_ranges[ch] / cmy_max for ch in range(3)]
+    a = (o[2] - o[0]) / (kc + ky)
+    tint = o[1] - o[0] - kc * a
+    return -kc * a, tint, ky * a

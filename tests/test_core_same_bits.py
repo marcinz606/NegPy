@@ -99,9 +99,7 @@ _CASES = {
     ),
     "skin_chroma_rein": lambda: negpy_core.skin_chroma_rein(_LAB, np.float32(0.6)),
     "matmul_3x3": lambda: negpy_core.matmul_3x3(_IMG3, _M),
-    "gamut_aware_chroma_scale": lambda: negpy_core.gamut_aware_chroma_scale(
-        _LAB, np.float32(1.8), _M.T.copy(), np.array([0.95047, 1.0, 1.08883], np.float32), np.float32(0.008856), np.float32(7.787), 10
-    ),
+    "saturation": lambda: negpy_core.saturation(_IMG3, np.float32(1.6), np.float32(0.8), *WORKING_LAB),
     "print_curve": lambda: apply_characteristic_curve(
         _IMG3 * 0.8 - 0.1, (0.45, 2.1), (0.5, 2.0), (0.55, 1.9), toe=0.3, shoulder=0.2, midtone_gamma=0.2, shadow_density=-0.1, bpc=True
     ),
@@ -169,6 +167,9 @@ _CASES = {
         _IMG1, *np.meshgrid(np.arange(70, dtype=np.float32) * 0.9 - 2, np.arange(90, dtype=np.float32) * 0.95 - 1), "nearest", "constant"
     ),
     "remap_radial": lambda: negpy_core.remap_radial(_IMG3, (65.0, 48.0), 0.93, -0.05, 1.0 / 6600.0),
+    "uv_grid_fine_rotation": lambda: negpy_core.affine_uv_grid(
+        301, 457, np.array([[0.998, 0.047, -10.5], [-0.047, 0.998, 11.25]]), (0.0, 1.0), (0.0021, -0.0001), (0.0003, -0.0033)
+    ),
 }
 
 _HASHES = {
@@ -203,7 +204,7 @@ _HASHES = {
     "lab_to_rgb": "34016e7f9aebcfdf780b67b96b128041c6ba1ac2a427f4e87b5413dcc7345eef",
     "skin_chroma_rein": "6def89b9f456f16abf406c351745bbb791f15bc69e5b03f2e478ed7391839b01",
     "matmul_3x3": "d80c524d23c1bc6b7d9592b638a5fb84d4b51691efac9b71b40fbf529e67c019",
-    "gamut_aware_chroma_scale": "ef1a9474817c0bca19e3c847a4667ba47ba75829722a1c7939a77e135d8b7da4",
+    "saturation": "300727a8b542117598f44a4b6e3c770e637128a48fe5e90d75e750cc80a2b49b",
     "print_curve": "c06516de4316987b8cb37dcf977915373302d36b0bd6c1018e3e4bfba0929b09",
     "chemical_toning": "7ddd3949c04bd5af38177bfcd6576888092bf73ad173206c34b153d6cce5d648",
     "sensor_log_unmix": "f7eb8efe1bbcfe884fd2e849e99d0546fac2f4829d3fb558d54a0128e681e53b",
@@ -215,13 +216,14 @@ _HASHES = {
     "transfer_curve": "afdb5891162dca5abe4530bd098469b26a0be16a41df32f4f2928ddb8d37b943",
     "usm_sharpen": "7267d2a3976c9381eadde01fe11ea60d46345b4747283e6ac68a2aa4a025d0a8",
     "sharpen_grain": "4dcdc651f4aa9dca4a8678ad0e3db727332b8fa7b4ede77889b88d506df6e506",
-    "sabattier": "f8956f67786c7c1d0e628af4b82fb12b6dde42e70da2504585f5bf20e7fbb461",
-    "lith": "98dc05c62e191da2ad00c1f2327c48beff5af7e882be64cac5302cb0ea5099e5",
+    "sabattier": "e709eb4dd942340d0ac7606ce77a4b0242205cdadad92f33e8a2239687263156",
+    "lith": "48e635a93b5437e834cbdf2e4a8ef4cea88aab4093acfc62fff795c17ab59dbf",
     "carrier": "97c9d045201ba345010f91b09ea07699fecc4e009d7738dc8591295b59e6081c",
     "warp_affine": "83562b3183484dcbf80fc65c4fb2f241d3b13ec9793cf43fd22bf11ea44d9e1d",
     "warp_perspective": "61e89302e793e24f1ad131b661e95186d7d9a82e8331a96164e338bec3ec1420",
     "warp_affine_cubic_constant": "a3d3d1a3d6c5e0e77686cfd37850199aa880943936e83edf8ada48307501cd69",
     "remap_nearest": "16ebb2a1c29640f25e4a490f6edd8817d8dc1f652b6aa001f72aa2ca34d33ac0",
+    "uv_grid_fine_rotation": "9a648b4385ec386b2d190169b4ee3619d9b9ac54f8bb7cf4903f7f94b99fa762",
     "remap_radial": "a23f3b21f15cb5d9db26cc532ec920dc8b194d73515a786d9febc93ae17370e0",
 }
 

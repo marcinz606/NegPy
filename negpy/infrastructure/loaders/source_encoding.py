@@ -130,17 +130,13 @@ def parse_profile(icc: Optional[bytes], samples: int) -> Optional[ProfileDecode]
 
 def _apply_curves(img: np.ndarray, curves: tuple[np.ndarray, ...]) -> np.ndarray:
     """Per-channel lookup: exact for integer samples, interpolated for float ones."""
-    out = np.empty(img.shape[:2] + (3,), dtype=np.float32)
+    table = np.stack(curves).astype(np.float32, copy=False)
     if img.dtype in (np.uint8, np.uint16):
-        for ch in range(3):
-            out[..., ch] = curves[ch][img[..., ch]]
-        return out
+        return negpy_core.decode_curves(np.ascontiguousarray(img), table)
     grid = np.linspace(0.0, 1.0, curves[0].shape[0], dtype=np.float32)
     top = float(np.iinfo(img.dtype).max) if np.issubdtype(img.dtype, np.integer) else 1.0
     flat = np.clip(img.astype(np.float32) / np.float32(top), 0.0, 1.0)
-    for ch in range(3):
-        out[..., ch] = np.interp(flat[..., ch], grid, curves[ch])
-    return out
+    return negpy_core.decode_curves(flat, table, grid)
 
 
 def _to_working(source_d50: np.ndarray) -> Optional[np.ndarray]:
@@ -206,13 +202,10 @@ def _into_gamut(rgb: np.ndarray) -> np.ndarray:
     hue where a per-channel clip would turn it. An in-range image passes through."""
     if rgb.min() >= 0.0 and rgb.max() <= 1.0:
         return rgb
-    y = np.clip(rgb @ _WORKING_COLORANTS_D50[1].astype(np.float32), 0.0, 1.0)[..., None]
-    lo = rgb.min(axis=-1, keepdims=True)
-    hi = rgb.max(axis=-1, keepdims=True)
-    with np.errstate(divide="ignore", invalid="ignore"):
-        t = np.minimum(np.where(lo < 0.0, y / (y - lo), 1.0), np.where(hi > 1.0, (1.0 - y) / (hi - y), 1.0))
-    t = np.clip(np.nan_to_num(t, nan=0.0), 0.0, 1.0)
-    return np.clip(y + t * (rgb - y), 0.0, 1.0)
+    rgb = np.ascontiguousarray(rgb, dtype=np.float32)
+    # BLAS sums the luminance in an order that depends on the CPU, so it stays in NumPy.
+    y = rgb @ _WORKING_COLORANTS_D50[1].astype(np.float32)
+    return negpy_core.into_gamut(rgb, np.ascontiguousarray(y))
 
 
 # A source matrix with no entry below this maps the source's cube into the working space's: the

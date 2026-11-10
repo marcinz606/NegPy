@@ -29,6 +29,7 @@ from negpy.infrastructure.scanners.base import (
     TransientScanError,
 )
 from negpy.infrastructure.scanners.params import (
+    ANALOG_GAIN_EV_RANGE,
     FILM_TYPES,
     ScanMode,
     ScanParams,
@@ -110,6 +111,7 @@ def _caps_for(caps: Any) -> ScannerCapabilities:
         # line at a time.
         superfine=bool(caps.multi_line),
         exposure_lock=True,
+        analog_gain=True,
     )
 
 
@@ -154,6 +156,9 @@ def _validate_params(params: ScanParams) -> None:
     if (params.capture_ir or params.clean) and not film_passes_infrared(params.film_type):
         label = FILM_TYPES[params.film_type][0]
         raise RuntimeError(f"{label} blocks infrared, so IR and ICE have nothing to read on it")
+    lo, hi = ANALOG_GAIN_EV_RANGE
+    if not all(lo <= ev <= hi for ev in (params.analog_gain_ev, *params.channel_gain_ev)):
+        raise RuntimeError(f"Analog Gain must be {lo:+.1f}..{hi:+.1f} EV")
     # `depth` and `autofocus` carry no request here: every scan comes back 16-bit and focuses
     # itself, so honouring the defaults silently is the truth, not a skipped option.
 
@@ -188,6 +193,16 @@ def _crop_frame(
     new_left = left + int(round(min(x1, x2) * width))
     new_right = left + int(round(max(x1, x2) * width))
     return (new_top, new_left, max(new_bottom, new_top + 1), max(new_right, new_left + 1))
+
+
+def gained_exposures(exposures: dict[str, int], gain_ev: float, channel_gain_ev: tuple[float, float, float]) -> dict[str, int]:
+    """`exposures` with Analog Gain applied: each color channel times 2 ** (gain_ev + its own).
+    Infrared keeps its exposure, because dust detection reads it against its own metering."""
+    out = {str(k): int(v) for k, v in exposures.items()}
+    for channel, ev in zip(("red", "green", "blue"), channel_gain_ev):
+        if channel in out:
+            out[channel] = max(1, int(round(out[channel] * 2.0 ** (gain_ev + ev))))
+    return out
 
 
 def _stack_rgb(colors: dict[str, np.ndarray]) -> np.ndarray:
@@ -465,10 +480,18 @@ class NkscanBackend:
         rect = self._resolve_frame(session, device_id, params, report)
         optical = int(session.capabilities.optical_dpi)
         detected = rect
-        rect = self.nudged(device_id, rect, params.frame_offset_mm, optical)
-        rect = _crop_frame(rect, params.window)
+        nudged = self.nudged(device_id, rect, params.frame_offset_mm, optical)
+        rect = _crop_frame(nudged, params.window)
         logger.info("Frame %s detected %s, scanning %s (%+0.2f mm)", params.frame, detected, rect, params.frame_offset_mm)
+        metering = self.metering(device_id, params.film_type, params.film_format)
+        exposures = exposures if exposures is not None else params.exposures
         with self._mapped_errors():
+            if params.has_analog_gain:
+                if exposures is None:
+                    # Metered as `meter` does, on the whole frame: the gain scales what the scan would have used.
+                    exposures = session.meter_frame(nudged, infrared=bool(params.capture_ir or params.clean), progress=report, **metering)
+                exposures = gained_exposures(exposures, params.analog_gain_ev, params.channel_gain_ev)
+                logger.info("Analog Gain %+0.1f EV, R/G/B %s EV: exposures %s", params.analog_gain_ev, params.channel_gain_ev, exposures)
             result = self.scan_frame(
                 session,
                 rect,
@@ -477,9 +500,9 @@ class NkscanBackend:
                 superfine=bool(params.superfine),
                 infrared=bool(params.capture_ir),
                 clean=bool(params.clean),
-                exposures=exposures if exposures is not None else params.exposures,
+                exposures=exposures,
                 progress=report,
-                **self.metering(device_id, params.film_type, params.film_format),
+                **metering,
             )
         if cancel.is_set():
             raise RuntimeError("Scan cancelled")

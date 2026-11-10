@@ -1,6 +1,7 @@
 import unittest
 import cv2
 import numpy as np
+from negpy.domain.types import LUMA_B, LUMA_G, LUMA_R
 from negpy.features.toning.logic import (
     TONING_CONSTANTS,
     apply_chemical_toning,
@@ -124,7 +125,7 @@ class TestChemicalToning(unittest.TestCase):
         The B channel alone lightens (that's the hue), so assert on luma."""
         dark = self._gray(0.05)
         res = apply_chemical_toning(dark, blue_strength=1.0)
-        luma = 0.2126 * res[0, 0, 0] + 0.7152 * res[0, 0, 1] + 0.0722 * res[0, 0, 2]
+        luma = LUMA_R * res[0, 0, 0] + LUMA_G * res[0, 0, 1] + LUMA_B * res[0, 0, 2]
         self.assertLess(float(luma), 0.05)
 
     def test_blue_cools_image(self):
@@ -211,7 +212,7 @@ class TestChemicalToning(unittest.TestCase):
         """The bleach component lifts luma where the toner converts."""
         mid = self._gray(0.5)
         res = apply_chemical_toning(mid, vanadium_strength=1.0)
-        luma = 0.2126 * res[0, 0, 0] + 0.7152 * res[0, 0, 1] + 0.0722 * res[0, 0, 2]
+        luma = LUMA_R * res[0, 0, 0] + LUMA_G * res[0, 0, 1] + LUMA_B * res[0, 0, 2]
         self.assertGreater(float(luma), 0.5)
 
     def test_vanadium_monotone_with_strength(self):

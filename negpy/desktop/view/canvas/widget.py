@@ -9,6 +9,7 @@ from PyQt6.QtCore import QEvent, QRectF, QSize, pyqtSignal, Qt, QPointF
 from negpy.desktop.session import ToolMode, AppState
 from negpy.desktop.view.canvas.gpu_widget import GPUCanvasWidget
 from negpy.desktop.view.canvas.hud import CanvasHud
+from negpy.desktop.view.canvas.analysis_plate import AnalysisPlate
 from negpy.desktop.view.canvas.navigator import CanvasNavigator, visible_part
 from negpy.desktop.view.canvas.overlay import CanvasOverlay
 from negpy.desktop.view.widgets.granular_settings_dialog import open_paste_dialog, open_sync_bounds_dialog
@@ -216,6 +217,7 @@ class ImageCanvas(QWidget):
         self.hud = CanvasHud(self)
         self.navigator = CanvasNavigator(self)
         self.navigator.center_requested.connect(self.center_on)
+        self.analysis_plate = AnalysisPlate(self)
 
         self.grabGesture(Qt.GestureType.PinchGesture)
 
@@ -231,14 +233,19 @@ class ImageCanvas(QWidget):
         self.navigator.setGeometry(
             self.width() - nav.width() - _NAVIGATOR_INSET, self.height() - nav.height() - _NAVIGATOR_INSET, nav.width(), nav.height()
         )
+        plate = self.analysis_plate
+        plate.move(_NAVIGATOR_INSET, self.height() - plate.height() - _NAVIGATOR_INSET)
         self._raise_floating_widgets()
 
     def _raise_floating_widgets(self) -> None:
         self.navigator.raise_()
+        self.analysis_plate.raise_()
 
     def set_tool_mode(self, mode: ToolMode) -> None:
         self.setCursor(_cursor_for_tool(mode))
         self.overlay.set_tool_mode(mode)
+        # The crop handles reach the corner the plate sits in.
+        self.analysis_plate.set_blocked(mode == ToolMode.CROP_MANUAL)
 
     def clear_keystone_lines(self) -> None:
         self.overlay.clear_keystone_lines()

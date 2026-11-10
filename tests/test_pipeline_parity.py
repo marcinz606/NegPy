@@ -88,7 +88,7 @@ def _make_curved_negative(h: int = 320, w: int = 320) -> np.ndarray:
     for ch in range(3):
         log[:, :, ch] = (-0.2 + mask[ch] - gamma[ch] * E - curv[ch] * E * E)[:, None]
     gx = slice(int(0.82 * w), w)
-    log[:, gx, 1], log[:, gx, 0], log[:, gx, 2] = -0.22, -0.50, -0.62
+    log[:, gx, 1], log[:, gx, 0], log[:, gx, 2] = -0.22, -0.42, -0.62
     return (10.0**log).astype(np.float32)
 
 
@@ -355,6 +355,17 @@ class TestExposureParity:
         self._run_and_compare(s)
 
     @pytest.mark.parametrize("positive", [False, True])
+    def test_slide_filtration_at_another_grade(self, positive):
+        # Both engines divide the global filtration by the same post-auto contrast.
+        base = _make_base_settings()
+        process = replace(base.process, process_mode=ProcessMode.E6, positive_source=positive)
+        s = replace(base, process=process, exposure=ExposureConfig(grade=70.0, wb_cyan=0.3, wb_yellow=0.5))
+        cpu, gpu = self._render_both(s)
+        plain, _ = self._render_both(replace(s, exposure=ExposureConfig(grade=70.0)))
+        assert float(np.abs(cpu - plain).mean()) > 1e-3
+        _assert_mostly_close(cpu, gpu, atol=2e-2, rtol=2e-2, max_violation_frac=0.01)
+
+    @pytest.mark.parametrize("positive", [False, True])
     def test_slide_fade_restoration(self, positive):
         # Both engines compose the fade after the unmix; a fade one of them drops moves the render past this tolerance.
         base = _make_base_settings()
@@ -497,11 +508,10 @@ class TestLabParity:
         self._run_and_compare(s)
 
     def test_saturation_gamut_aware_knee_tight_parity(self):
-        """Dedicated, tight-tolerance regression guard for gamut_aware_chroma_scale
-        (kernel/image/logic.py) specifically -- a real bug here (the CPU/GPU gamut
-        check using the wrong RGB<->XYZ matrix direction) previously produced a
-        CPU/GPU max diff of ~0.06 on deeply saturated content, invisible to this
-        class's own much looser default tolerance (atol/rtol=1.5e-1). Uses a
+        """Tight-tolerance guard for the Saturation gamut knee (oklab_chroma_block in
+        negpy_core and its lab.wgsl mirror). A wrong matrix direction in one engine's
+        gamut check gives a CPU/GPU max diff of about 0.06 on deeply saturated content,
+        invisible to this class's looser default tolerance (atol/rtol=1.5e-1). Uses a
         strongly color-biased synthetic frame (unlike _make_synthetic_image's
         gentler gradient) specifically to drive real pixels into the gamut-aware
         knee, not just the byte-exact identity/no-knee fast path."""

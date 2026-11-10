@@ -305,3 +305,25 @@ def test_confirmed_target_change_warns_but_no_change_does_not(qapp, monkeypatch)
 
     sidebar._on_targets_finished(_Same(), int(QDialog.DialogCode.Accepted))
     assert len(warned) == 0
+
+
+def test_flat_negative_shows_the_softest_grade_hint(qapp):
+    controller = MagicMock()
+    controller.state = AppState()
+    controller.state.current_file_hash = "flat"
+    sidebar = ToneSidebar(controller)
+    sidebar.sync_ui()
+    assert sidebar.grade_softest_hint.isHidden()
+
+    flat = {"metered_anchor": 0.507, "textural_range": 0.221, "norm_density_range": 0.509, "shadow_point": 1.062, "highlight_point": 0.15}
+    controller.state.auto_meters["flat"] = flat
+    sidebar.sync_ui()
+    assert sidebar.grade_softest_hint.isHidden()
+
+    cfg = controller.state.config
+    controller.state.config = replace(cfg, exposure=replace(cfg.exposure, grade=170.0))
+    sidebar.sync_ui()
+    assert not sidebar.grade_softest_hint.isHidden()
+
+    sidebar.ch_btn.setCurrentIndex(1)
+    assert sidebar.grade_softest_hint.isHidden()
