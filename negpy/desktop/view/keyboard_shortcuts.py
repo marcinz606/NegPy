@@ -621,6 +621,7 @@ class ShortcutManager:
             "reset_roll": lambda: _reset_roll(self.window, controller),
             "close_roll": lambda: _unload_all(self.window, controller),
             "remove_from_roll": lambda: remove_from_roll(self.window, controller),
+            "locate_roll_folder": lambda: self.window.right_panel.library_tree.locate_open_roll_folder(),
             "restore_removed_frames": lambda: restore_removed_frames(self.window, controller),
             "reset_tab": lambda: _fire_tab_header(right, "reset"),
             "reset_tab_to_roll": lambda: _fire_tab_header(right, "revert"),

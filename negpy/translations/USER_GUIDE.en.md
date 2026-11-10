@@ -116,10 +116,10 @@ The **Library** tab (`Ctrl+L`) lists your **rolls**. A roll is a named group of 
 
 *   **+**: **Import Folder as a Roll…** makes one roll of a folder and opens it. **Import Subfolders as Rolls…** makes a roll of each subfolder that holds images.
 *   **Double-click** a roll (or press Enter) to open it in the Film Strip.
-*   **⋮** or right-click a roll: **Open**, **Unload All…** (the open roll), **Roll Analysis**, **Rename…**, **Save to Folder Roll**, **Restore Removed Frames…** and **Delete…**. Restore Removed Frames brings back the frames that Remove from Roll took out of a folder roll; the line under the roll's name counts them. Delete keeps the files and their shared edits. It loses the roll's settings, baseline, film base, scenes, card locks and the edits made only in that roll, and Refresh does not add a deleted folder roll again.
+*   **⋮** or right-click a roll: **Open**, **Unload All…** (the open roll), **Roll Analysis**, **Rename…**, **Locate Folder…**, **Save to Folder Roll**, **Restore Removed Frames…** and **Delete…**. Restore Removed Frames brings back the frames that Remove from Roll took out of a folder roll. Delete keeps the files and their shared edits. It loses the roll's settings, baseline, film base, scenes, card locks and the edits made only in that roll, and Refresh does not add a deleted folder roll again.
 *   **Filter rolls…** and **Sort** help you find a roll. **⋮ → Refresh** finds new subfolders and recounts the frames. **⋮ → Discovery Filters…** lists folder names to skip (`export` at first).
 
-A roll whose folder is gone shows **folder missing**. A folder name that matches your gear ("penf" for "Pen F") opens Roll Settings filled in.
+A roll whose folder was renamed or moved outside NegPy shows **folder missing**. **Locate Folder…** points it at the new folder. A folder name that matches your gear ("penf" for "Pen F") opens Roll Settings filled in.
 
 A folder roll holds only the files in its folder. A file you add from another folder stays for this session only.
 

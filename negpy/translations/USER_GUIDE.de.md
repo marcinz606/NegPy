@@ -2,17 +2,17 @@
 
 NegPy ist eine virtuelle Dunkelkammer, die Filmscans zu fertigen Bildern macht. Deine Originaldateien bleiben unverändert. NegPy speichert deine Bearbeitungen in einer lokalen Datenbank. Wähle die Sprache unter Einstellungen → Oberfläche → Sprache und starte NegPy neu. Die Option „Systemstandard“ folgt der Systemsprache und nutzt Englisch, wenn NegPy diese Sprache nicht kennt. Fehlt eine Übersetzung für einen Bereich, zeigt NegPy den englischen Text.
 
-<!-- panel:library src:35989d38 -->
+<!-- panel:library src:9a5d5d3a -->
 ### Bibliothek
 
 Der Tab **Bibliothek** (`Ctrl+L`) listet deine **Rollen**. Eine Rolle ist eine benannte Gruppe von Bildern, meist ein Film: eine **Ordnerrolle** oder eine **virtuelle Rolle**. Beim Import merkt sich NegPy den Ordner. NegPy verschiebt, benennt oder löscht deine Dateien nie.
 
 *   **+**: **Ordner als Rolle importieren…** macht aus einem Ordner eine Rolle und öffnet sie. **Unterordner als Rollen importieren…** macht aus jedem Unterordner mit Bildern eine Rolle.
 *   **Doppelklicke** auf eine Rolle (oder drücke Enter), um sie im Filmstreifen zu öffnen.
-*   **⋮** oder Rechtsklick auf eine Rolle: **Öffnen**, **Alle entladen…** (die geöffnete Rolle), **Rollenanalyse**, **Umbenennen…**, **In Ordnerrolle speichern**, **Entfernte Bilder wiederherstellen…** und **Löschen…**. Entfernte Bilder wiederherstellen holt die Bilder zurück, die Aus Rolle entfernen aus einer Ordnerrolle genommen hat. Die Zeile unter dem Namen der Rolle zählt sie. Löschen behält die Dateien und ihre gemeinsamen Bearbeitungen. Es verliert die Einstellungen, die Basislinie, die Filmbasis, die Szenen, die Kartensperren und die nur in dieser Rolle gemachten Bearbeitungen der Rolle. Aktualisieren fügt eine gelöschte Ordnerrolle nicht wieder hinzu.
+*   **⋮** oder Rechtsklick auf eine Rolle: **Öffnen**, **Alle entladen…** (die geöffnete Rolle), **Rollenanalyse**, **Umbenennen…**, **Ordner suchen…**, **In Ordnerrolle speichern**, **Entfernte Bilder wiederherstellen…** und **Löschen…**. Entfernte Bilder wiederherstellen holt die Bilder zurück, die Aus Rolle entfernen aus einer Ordnerrolle genommen hat. Löschen behält die Dateien und ihre gemeinsamen Bearbeitungen. Es verliert die Einstellungen, die Basislinie, die Filmbasis, die Szenen, die Kartensperren und die nur in dieser Rolle gemachten Bearbeitungen der Rolle. Aktualisieren fügt eine gelöschte Ordnerrolle nicht wieder hinzu.
 *   **Rollen filtern…** und **Sortieren** helfen dir beim Finden einer Rolle. **⋮ → Aktualisieren** findet neue Unterordner und zählt die Bilder neu. **⋮ → Suchfilter…** listet Ordnernamen, die übersprungen werden (zuerst `export`).
 
-Eine Rolle, deren Ordner fehlt, zeigt **Ordner fehlt**. Passt ein Ordnername zu deiner Ausrüstung ("penf" für "Pen F"), öffnen sich die Rolleneinstellungen schon ausgefüllt.
+Eine Rolle, deren Ordner fehlt, zeigt **Ordner fehlt**. **Ordner suchen…** verknüpft sie mit dem neuen Ordner. Passt ein Ordnername zu deiner Ausrüstung ("penf" für "Pen F"), öffnen sich die Rolleneinstellungen schon ausgefüllt.
 
 Eine Ordnerrolle enthält nur die Dateien ihres Ordners. Eine Datei, die du aus einem anderen Ordner hinzufügst, bleibt nur für diese Sitzung.
 
