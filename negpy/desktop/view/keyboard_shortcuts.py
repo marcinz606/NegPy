@@ -562,6 +562,7 @@ class ShortcutManager:
             "toggle_zones": controller.toggle_zones_overlay,
             "toggle_clipping_overlay": controller.toggle_clipping_overlay,
             "toggle_zone_hover_highlight": controller.toggle_zone_hover_highlight,
+            "toggle_analysis_overlay": right.analysis_overlay_btn.toggle,
             "toggle_parade_overlay": lambda: _toggle_if_live(right.parade_overlay_btn),
             "toggle_scan_parade_base": lambda: _toggle_if_live(right.scan_base_btn),
             "toggle_test_strip": controller.toggle_test_strip,

@@ -185,14 +185,14 @@ This readout describes the current frame while you edit.
 
 #### Chart
 
-Pick a chart view:
-
 *   **Curve**: the paper's curve, from the negative (across) to the print (up). Steeper means more contrast. The gray histogram is the negative, the colored one the print.
 *   **Waveform**: print brightness across the frame.
 *   **Parade**: red, green and blue side by side; a gray subject sits at one height in all three. **Parade Overlay** puts the three on one plot.
 *   **Vectorscope**: the print's colors around a center point. A cluster off center is a color cast.
 
 **Log** shows small areas, like clipping.
+
+**Analysis Overlay**: the chart on the picture while the card is closed.
 
 #### Clipping
 
@@ -210,7 +210,7 @@ The **Readouts** fold holds numbers about the scan. An amber value is a warning;
 
 **Film Base** (the crosshair): click the clear film between frames to set the base the readouts measure from.
 
-*   **Negative**: the negative's density range (Δ). Hover for flat, normal or contrasty.
+*   **Negative**: the negative's density range (Δ).
 *   **Exposure**: bright (positive) or dark (negative) frame, in stops.
 *   **Clipping**: share of the print that is pure black, then pure white.
 *   **Scan clip**: share of each channel at the scanner's maximum. No edit fixes it; expose the scan lower.
