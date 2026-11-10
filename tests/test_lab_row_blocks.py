@@ -2,17 +2,17 @@ import numpy as np
 import pytest
 
 from negpy.features.lab.logic import apply_saturation, apply_usm_sharpening, _usm_sharpening_block
-from negpy.kernel.image.logic import gamut_aware_chroma_scale, lab_to_rgb_working, rgb_to_lab_working, skin_chroma_rein
+from negpy.kernel.image.logic import lab_to_rgb_working, rgb_to_lab_working, skin_chroma_rein
 
 
 def _saturation_oracle(img, saturation, skin):
-    """The NumPy-era saturation stage: separate Lab kernels over 1 MP row blocks."""
+    """The stage over short row slices. At saturation 1.0 the separate Lab kernels, the NumPy-era stage."""
+    if saturation != 1.0:
+        return np.concatenate([apply_saturation(img[start : start + 37], saturation, skin) for start in range(0, img.shape[0], 37)])
     rows = max(1, 1048576 // img.shape[1])
     out = np.empty(img.shape, dtype=np.float32)
     for start in range(0, img.shape[0], rows):
         lab = rgb_to_lab_working(img[start : start + rows])
-        if saturation != 1.0:
-            lab = gamut_aware_chroma_scale(lab, saturation)
         if skin > 0.0:
             lab = skin_chroma_rein(lab, skin)
         out[start : start + rows] = np.clip(lab_to_rgb_working(lab), 0.0, 1.0)

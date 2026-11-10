@@ -79,6 +79,7 @@ from negpy.features.exposure.placement import limited_mask_params
 from negpy.features.local.logic import compute_local_maps, limited_masks
 from negpy.features.local.models import MAX_KEYED_MASKS
 from negpy.features.transparency.logic import (
+    contrast_free_cmy,
     slide_exposure,
     slide_mono_weights,
     density_stage,
@@ -2040,9 +2041,12 @@ class GPUEngine:
             t_e, t_exp0, t_contrast0, textural_range, metered_anchor, shadow_point, highlight_point
         )
         t_tw3, t_sw3 = transfer_widths(t_e)
-        t_cmy = filtration_offsets(
-            (t_e.wb_cyan, t_e.wb_magenta, t_e.wb_yellow),
-            LogNegativeBounds(floors=adj_floors, ceils=adj_ceils),
+        t_cmy = contrast_free_cmy(
+            filtration_offsets(
+                (t_e.wb_cyan, t_e.wb_magenta, t_e.wb_yellow),
+                LogNegativeBounds(floors=adj_floors, ceils=adj_ceils),
+            ),
+            t_contrast,
         )
         t_sh_c, t_hi_c, t_zone_k = zone_geometry()
         t_wb_c, t_wb_k = wb_split_geometry()

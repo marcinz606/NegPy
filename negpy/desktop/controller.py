@@ -171,7 +171,9 @@ from negpy.features.exposure.papers import DEFAULT_PROFILE_KEY, profiles_for_mod
 from negpy.features.exposure.logic import (
     calculate_wb_shifts,
     calculate_wb_shifts_from_log,
+    channel_density_ranges,
 )
+from negpy.features.transparency.logic import slide_pick_wb, transfer_total_contrast
 from negpy.features.altprocess.models import AltProcess, AltProcessConfig
 from negpy.features.finish.models import FinishConfig
 from negpy.features.geometry.logic import (
@@ -5993,7 +5995,10 @@ class AppController(QObject):
 
         exp = self.state.config.exposure
         bounds = metrics.get("final_bounds") or metrics.get("log_bounds")  # CPU/GPU key names
-        if is_log:
+        slide_pick = is_log and render_path(self.state.config.process) is not RenderPath.PRINT
+        if slide_pick:
+            new_c, new_m, new_y = slide_pick_wb(sampled[:3], channel_density_ranges(bounds), transfer_total_contrast(exp, metrics))
+        elif is_log:
             new_m, new_y = calculate_wb_shifts_from_log(sampled[:3], bounds)
         else:
             delta_m, delta_y = calculate_wb_shifts(sampled[:3])
@@ -6005,7 +6010,7 @@ class AppController(QObject):
         if region == 0:
             new_exp = replace(
                 exp,
-                wb_cyan=0.0,
+                wb_cyan=float(np.clip(new_c, -1.0, 1.0)) if slide_pick else 0.0,
                 wb_magenta=float(np.clip(new_m, -1.0, 1.0)),
                 wb_yellow=float(np.clip(new_y, -1.0, 1.0)),
             )
@@ -6018,15 +6023,16 @@ class AppController(QObject):
                 ("highlight_cyan", "highlight_magenta", "highlight_yellow"),
             )[region - 1]
             rng_m = rng_y = 1.0
-            if is_log and bounds is not None:
+            if is_log and bounds is not None and not slide_pick:
                 rng_m = max(abs(bounds.ceils[1] - bounds.floors[1]), 1e-6)
                 rng_y = max(abs(bounds.ceils[2] - bounds.floors[2]), 1e-6)
             dm = (new_m - exp.wb_magenta) / rng_m
             dy = (new_y - exp.wb_yellow) / rng_y
+            dc = (new_c - exp.wb_cyan) if slide_pick else 0.0
             new_exp = replace(
                 exp,
                 **{
-                    c_field: 0.0,
+                    c_field: float(np.clip(dc, -1.0, 1.0)),
                     m_field: float(np.clip(dm, -1.0, 1.0)),
                     y_field: float(np.clip(dy, -1.0, 1.0)),
                 },

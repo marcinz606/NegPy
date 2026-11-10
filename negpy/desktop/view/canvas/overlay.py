@@ -88,6 +88,7 @@ _LASSO_SNAP_PX = 12.0
 _CROP_HANDLE_PX = 10.0
 _EDGE_HANDLE_LENGTH_PX = 14.0
 _EDGE_HANDLE_THICKNESS_PX = 4.0
+_EDGE_HANDLE_VIEWPORT_GAP_PX = _CROP_HANDLE_PX - _EDGE_HANDLE_LENGTH_PX / 2.0
 _AUTO_PAN_EDGE_ZONE_FRACTION = 0.02
 _AUTO_PAN_INTERVAL_MS = 16
 _AUTO_PAN_MAX_SPEED_PX_S = 1200.0
@@ -256,7 +257,12 @@ def _draw_dashed_frame(painter: QPainter, rect: QRectF) -> None:
         painter.drawRect(rect)
 
 
-def draw_resize_handles(painter: QPainter, corners: Dict[str, QPointF], edges: Optional[Dict[str, QPointF]] = None) -> None:
+def draw_resize_handles(
+    painter: QPainter,
+    corners: Dict[str, QPointF],
+    edges: Optional[Dict[str, QPointF]] = None,
+    viewport: Optional[QRectF] = None,
+) -> None:
     handle_pen = QPen(QColor(THEME.mark_photo), 1.5, Qt.PenStyle.SolidLine)
     handle_pen.setCosmetic(True)
     painter.setPen(handle_pen)
@@ -278,6 +284,13 @@ def draw_resize_handles(painter: QPainter, corners: Dict[str, QPointF], edges: O
                 _EDGE_HANDLE_THICKNESS_PX,
                 _EDGE_HANDLE_LENGTH_PX,
             )
+        if viewport is not None:
+            if name in ("top", "bottom"):
+                y = min(max(rect.y(), viewport.top()), viewport.bottom() - rect.height())
+                rect.moveTop(y)
+            else:
+                x = min(max(rect.x(), viewport.left()), viewport.right() - rect.width())
+                rect.moveLeft(x)
         painter.drawRect(rect)
 
 
@@ -2529,18 +2542,88 @@ class CanvasOverlay(QWidget):
     def _hit_test_crop_corner(self, pos: QPointF, corners: Dict[str, QPointF]) -> Optional[str]:
         return hit_resize_handle(pos, corners)
 
-    def _crop_edge_midpoint_screen_points(self) -> Optional[Dict[str, QPointF]]:
+    def _crop_edge_handle_screen_points(self) -> Optional[Dict[str, QPointF]]:
         if self._crop_rect_norm is None or self._view_rect.isEmpty() or self.state.config.geometry.autocrop_ratio != "Free":
             return None
         corners = self._crop_corner_screen_points()
         if corners is None:
             return None
-        return {
-            "top": (corners["tl"] + corners["tr"]) / 2.0,
-            "bottom": (corners["bl"] + corners["br"]) / 2.0,
-            "left": (corners["tl"] + corners["bl"]) / 2.0,
-            "right": (corners["tr"] + corners["br"]) / 2.0,
+
+        edge_ends = {
+            "top": (corners["tl"], corners["tr"]),
+            "bottom": (corners["bl"], corners["br"]),
+            "left": (corners["tl"], corners["bl"]),
+            "right": (corners["tr"], corners["br"]),
         }
+        rotation_handles = self._crop_rotation_handle_points() or {}
+        # Reserve corner and rotation grab areas before placing edge handles.
+        reserved = [
+            *((point, _CROP_HANDLE_PX) for point in corners.values()),
+            *((point, _ROT_HANDLE_RADIUS_PX) for point in rotation_handles.values()),
+        ]
+        result = {}
+
+        for name, (start, end) in edge_ends.items():
+            horizontal = name in ("top", "bottom")
+            fixed = start.y() if horizontal else start.x()
+            limit = float(self.width() if horizontal else self.height())
+            fixed_limit = float(self.height() if horizontal else self.width())
+            if fixed < 0.0 or fixed > fixed_limit:
+                continue
+
+            # Only the part of an edge inside the viewport can hold its handle.
+            start_along = start.x() if horizontal else start.y()
+            end_along = end.x() if horizontal else end.y()
+            midpoint = (start_along + end_along) / 2.0
+            visible_low = max(0.0, min(start_along, end_along))
+            visible_high = min(limit, max(start_along, end_along))
+            if visible_low > visible_high:
+                continue
+
+            # Prefer a visible bar with a small border gap, then relax the gap if needed.
+            inset = _CROP_HANDLE_PX
+            for margin in (inset, 0.0):
+                low = max(visible_low, margin)
+                high = min(visible_high, limit - margin)
+                if low > high:
+                    continue
+                available = [(low, high)]
+
+                # Keep edge handles clear of corner and rotation-handle grab radii.
+                for point, other_radius in reserved:
+                    across = (fixed - point.y()) if horizontal else (fixed - point.x())
+                    combined_radius = _CROP_HANDLE_PX + other_radius
+                    if abs(across) > combined_radius:
+                        continue
+                    along = point.x() if horizontal else point.y()
+                    half_width = math.sqrt(max(0.0, combined_radius**2 - across**2))
+                    blocked_start = along - half_width - 1e-3
+                    blocked_end = along + half_width + 1e-3
+                    remaining = []
+                    for low, high in available:
+                        if blocked_end < low or blocked_start > high:
+                            remaining.append((low, high))
+                        else:
+                            if blocked_start > low:
+                                remaining.append((low, min(high, blocked_start)))
+                            if blocked_end < high:
+                                remaining.append((max(low, blocked_end), high))
+                    available = remaining
+                    if not available:
+                        break
+
+                if not available:
+                    continue
+
+                # Keep the midpoint when possible; otherwise use the nearest safe position.
+                along = min(
+                    (min(max(midpoint, low), high) for low, high in available),
+                    key=lambda value: (abs(value - midpoint), value),
+                )
+                result[name] = QPointF(along, fixed) if horizontal else QPointF(fixed, along)
+                break
+
+        return result
 
     def _hit_test_crop_edge(self, pos: QPointF, edges: Dict[str, QPointF]) -> Optional[str]:
         return hit_resize_handle(pos, edges)
@@ -2602,7 +2685,7 @@ class CanvasOverlay(QWidget):
         if corner is not None:
             self.setCursor(resize_cursor(corner))
             return
-        edges = self._crop_edge_midpoint_screen_points()
+        edges = self._crop_edge_handle_screen_points()
         edge = self._hit_test_crop_edge(pos, edges) if edges else None
         if edge is not None:
             self.setCursor(resize_cursor(edge))
@@ -2719,7 +2802,12 @@ class CanvasOverlay(QWidget):
 
         self._draw_crop_guides(painter, QRectF(corners["tl"], corners["br"]))
 
-        draw_resize_handles(painter, corners, self._crop_edge_midpoint_screen_points())
+        draw_resize_handles(
+            painter,
+            corners,
+            self._crop_edge_handle_screen_points(),
+            QRectF(0.0, 0.0, float(self.width()), float(self.height())),
+        )
 
         self._draw_rotation_handles(painter, corners)
 
@@ -3444,7 +3532,7 @@ class CanvasOverlay(QWidget):
             self.setCursor(Qt.CursorShape.SizeFDiagCursor if corner in ("tl", "br") else Qt.CursorShape.SizeBDiagCursor)
             return
 
-        edges = self._crop_edge_midpoint_screen_points()
+        edges = self._crop_edge_handle_screen_points()
         edge = self._hit_test_crop_edge(pos, edges) if edges else None
         if edge is not None:
             self._crop_drag_mode = "edge"

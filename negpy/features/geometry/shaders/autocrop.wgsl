@@ -2,7 +2,7 @@
 @group(0) @binding(1) var<storage, read_write> row_sums: array<atomic<u32>>;
 @group(0) @binding(2) var<storage, read_write> col_sums: array<atomic<u32>>;
 
-const LUMA_COEFFS = vec3<f32>(0.2126, 0.7152, 0.0722);
+const LUMA_COEFFS = vec3<f32>(0.2974, 0.6273, 0.0753);
 
 @compute @workgroup_size(16, 16)
 fn main(@builtin(global_invocation_id) gid: vec3<u32>) {

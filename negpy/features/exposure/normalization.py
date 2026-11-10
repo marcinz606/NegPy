@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 
 # Bump in any change that alters the bounds a frame measures for unchanged settings. Saved
 # per-frame bounds from an older version are dropped at startup (migrations/bounds.py).
-BOUNDS_VERSION = 4
+BOUNDS_VERSION = 5
 
 # Contrast Mask blur sigma, per-cent of the analysis grid's short side. Of the grid, not of
 # the render, so preview and export mask alike. Near the Frontier HyperTone blur's spread.
@@ -327,7 +327,7 @@ def base_scan_density(base_log: Optional[Tuple[float, float, float]], unmix: Opt
 
 def luminance_density_range(bounds: LogNegativeBounds) -> float:
     """
-    Single global density range as a Rec.709 luminance weighting of the
+    Single global density range as a luminance weighting of the
     per-channel ranges. Replaces the green-only range so frames with a strong
     single-channel cast don't swing the slope as hard, while green still
     dominates so calibrated grade behaviour barely shifts. abs() keeps it
