@@ -198,6 +198,19 @@ def test_crop_corner_anchor_tracks_pan_and_crop_move_uses_press_anchor():
     overlay._end_crop_drag()
 
 
+def test_crop_edge_drag_keeps_its_axis_after_auto_pan():
+    overlay = _overlay()
+    overlay.mousePressEvent(_mouse_event(QEvent.Type.MouseButtonPress, QPointF(40, 80)))
+    assert overlay._crop_drag_mode == "edge"
+    assert overlay._crop_edge_which == "left"
+
+    overlay.parent().pan_by_viewport_delta(-20, 0)
+    overlay._update_tracked_gesture(QPointF(60, 80), Qt.KeyboardModifier.NoModifier)
+
+    assert overlay._crop_rect_norm == pytest.approx((0.4, 0.2, 0.8, 0.8))
+    overlay._end_crop_drag()
+
+
 def test_crop_draw_anchor_tracks_pan():
     overlay = _overlay(crop_rect=None)
     overlay.mousePressEvent(_mouse_event(QEvent.Type.MouseButtonPress, QPointF(50, 50)))
