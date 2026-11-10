@@ -542,10 +542,15 @@ class ExportSidebar(BaseSidebar):
         if hasattr(self, "form"):
             self._refresh_export_enabled()
 
+    def _launch_recipe(self):
+        """The open frame's ``(recipe, preset)`` from a command-line launch, or None."""
+        found = self.controller.current_launch_recipe()
+        return found if isinstance(found, tuple) else None
+
     def _sync_presets_enabled(self) -> None:
         """Presets are off in Linear and for a frame a command-line launch opened."""
         linear_on = self.intent_btn.currentIndex() == 2
-        recipe_on = self.controller.current_launch_recipe() is not None
+        recipe_on = self._launch_recipe() is not None
         for widget in (self.manage_presets_btn, self.export_presets_group, *self._preset_toggles):
             widget.setEnabled(not linear_on and not recipe_on)
         self.presets_linear_hint.setVisible(linear_on and not recipe_on)
@@ -553,7 +558,7 @@ class ExportSidebar(BaseSidebar):
 
     def _sync_launch_recipe(self) -> None:
         """Hide what the open frame's command-line recipe sets, and say what it sets."""
-        found = self.controller.current_launch_recipe()
+        found = self._launch_recipe()
         groups = recipe_groups(*found) if found else frozenset()
         self.form.set_hidden_groups(groups - {GROUP_INTENT})
         self._intent_header.setVisible(GROUP_INTENT not in groups)
@@ -1396,7 +1401,7 @@ class ExportSidebar(BaseSidebar):
                 self._refresh_linear_expansion_combo()
         else:
             blocked = self.form.is_export_blocked()
-            if self.controller.current_launch_recipe() is not None:
+            if self._launch_recipe() is not None:
                 conf = self.controller.recipe_export_config()
                 blocked = not self.state.flat_output and export_blocked(conf.export_fmt, conf.export_color_space)
             self.export_main_btn.setEnabled(not blocked)
