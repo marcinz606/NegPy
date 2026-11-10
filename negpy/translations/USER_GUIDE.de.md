@@ -51,14 +51,12 @@ Ein einfaches Wort passt auf den Dateinamen. Begriffe der Form `field:value` pas
 
 Begriffe lassen sich kombinieren: `film:portra iso:>=400 -rejected:`. Metadaten-Begriffe passen nur auf Bilder, deren Metadaten du ausgefüllt hast. **Suche nach Bedeutung** (aktiviere sie unter Einstellungen → Leistung) findet Bilder über eine Beschreibung, zum Beispiel "ein Hund am Strand".
 
-<!-- panel:analysis src:cf165609 -->
+<!-- panel:analysis src:7afa1351 -->
 ## 3. Analyse-Anzeige
 
 Diese Anzeige beschreibt das aktuelle Bild, während du bearbeitest.
 
 #### Diagramm
-
-Wähle eine Diagrammansicht:
 
 *   **Kurve**: die Kurve des Papiers, vom Negativ (quer) zum Abzug (nach oben). Steiler bedeutet mehr Kontrast. Das graue Histogramm zeigt das Negativ, das farbige den Abzug.
 *   **Waveform**: Helligkeit des Abzugs über die Bildbreite.
@@ -66,6 +64,8 @@ Wähle eine Diagrammansicht:
 *   **Vektorskop**: die Farben des Abzugs rund um einen Mittelpunkt. Eine Gruppe neben der Mitte ist ein Farbstich.
 
 **Log** zeigt kleine Bereiche, wie Beschneidung.
+
+**Analyse-Überlagerung**: das Diagramm auf dem Bild, solange die Karte geschlossen ist.
 
 #### Beschneidung
 
@@ -83,7 +83,7 @@ Die Falte **Messwerte** enthält Zahlen zum Scan. Ein bernsteinfarbener Wert ist
 
 **Filmbasis** (das Fadenkreuz): Klicke auf den klaren Film zwischen den Bildern, um die Basis festzulegen, von der die Messwerte messen.
 
-*   **Negativ**: der Dichteumfang des Negativs (Δ). Der Mauszeiger zeigt flach, normal oder kontrastreich.
+*   **Negativ**: der Dichteumfang des Negativs (Δ).
 *   **Belichtung**: helles (positiv) oder dunkles (negativ) Bild, in Blenden.
 *   **Beschneidung**: Anteil des Abzugs in reinem Schwarz, dann in reinem Weiß.
 *   **Scan-Beschneidung**: Anteil jedes Kanals am Maximum des Scanners. Keine Bearbeitung behebt das. Belichte den Scan niedriger.

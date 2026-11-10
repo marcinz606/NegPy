@@ -625,6 +625,18 @@ class MainWindow(QMainWindow):
         self.controller.session.repo.save_global_setting("panel_right_visible", True)
         self.canvas.hud.showMessage(tr("Panel layout reset"), timeout=1500)
 
+    def _sync_analysis_plate(self) -> None:
+        """One chart stack serves the Analysis card and the canvas plate: it moves to the one in view."""
+        plate = self.canvas.analysis_plate
+        wanted = self.right_panel.analysis_overlay_wanted()
+        if wanted == plate.holds_charts():
+            return
+        if wanted:
+            plate.hold(self.right_panel.chart_stack)
+        else:
+            plate.release()
+            self.right_panel.chart_well.take_back()
+
     def _connect_signals(self) -> None:
         """Wire controller and view."""
         browser = self.file_browser
@@ -717,6 +729,9 @@ class MainWindow(QMainWindow):
         self.canvas.overlay.zone_shares_changed.connect(self.toolbar.set_zone_shares)
         self.canvas.overlay.zone_pointer_changed.connect(self.toolbar.set_zone_pointer)
         self.controller.clipping_overlay_changed.connect(lambda _on: self.canvas.overlay.update())
+        self.right_panel.analysis_overlay_changed.connect(self._sync_analysis_plate)
+        self.canvas.analysis_plate.cycle_requested.connect(self.right_panel.cycle_analysis_view)
+        self._sync_analysis_plate()
         self.controller.zone_highlight_changed.connect(self.canvas.overlay.update)
         self.controller.grain_focuser_changed.connect(lambda _on: self.canvas.overlay.update())
         self.controller.export_view_ready.connect(self.canvas.overlay.update)

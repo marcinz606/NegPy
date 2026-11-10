@@ -2,7 +2,7 @@ from negpy.kernel.system.i18n import tr
 from typing import Any, Dict, Optional
 
 import numpy as np
-from PyQt6.QtCore import QPoint, Qt, QTimer
+from PyQt6.QtCore import QPoint, Qt, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
     QApplication,
     QHBoxLayout,
@@ -103,6 +103,8 @@ class RightPanel(QWidget):
     """Right sidebar panel: a flat tab switcher across Library / Roll / Frame / Metadata / Export /
     Scan, in the order an edit moves through them. Analysis is pinned above Roll and Frame. Metadata
     pins its Preview above its own sub-tabs, and Export pins its Export button below its own."""
+
+    analysis_overlay_changed = pyqtSignal()
 
     def __init__(self, controller: AppController, library_tree: Optional[LibraryTree] = None):
         super().__init__()
@@ -303,7 +305,8 @@ class RightPanel(QWidget):
         chart_row.addWidget(self.scale_btn)
 
         analysis_layout.addLayout(chart_row)
-        analysis_layout.addWidget(ChartWell(self.chart_stack, self.step_wedge, self.zone_strip), 1)
+        self.chart_well = ChartWell(self.chart_stack, self.step_wedge, self.zone_strip)
+        analysis_layout.addWidget(self.chart_well, 1)
         analysis_layout.addWidget(self.zone_placement, 0)
         self.film_base_btn = tool_toggle("fa5s.crosshairs", "", _FILM_BASE_TIP)
         self.film_base_btn.setFixedWidth(ICON_BUTTON_WIDTH)
@@ -327,6 +330,10 @@ class RightPanel(QWidget):
         self.zone_highlight_btn = self.analysis_section.add_header_toggle("fa5s.highlighter", tr("Zone Highlight"))
         self.zone_highlight_btn.setChecked(self.controller.state.zone_hover_highlight)
         self.zone_highlight_btn.toggled.connect(self.controller.toggle_zone_hover_highlight)
+        self.analysis_overlay_btn = self.analysis_section.add_header_toggle("mdi6.picture-in-picture-bottom-right", tr("Analysis Overlay"))
+        self.analysis_overlay_btn.setChecked(bool(repo.get_global_setting("analysis_overlay", False)))
+        self.analysis_overlay_btn.toggled.connect(self._on_analysis_overlay)
+        self.analysis_section.expanded_changed.connect(lambda _on: self.analysis_overlay_changed.emit())
         self._refresh_zone_strip_hint()
 
         # Tab content widgets
@@ -620,6 +627,18 @@ class RightPanel(QWidget):
         self._sync_parade_tools()
         self._sync_scale_btn()
 
+    def cycle_analysis_view(self) -> None:
+        self.view_btn.setCurrentIndex((self.view_btn.currentIndex() + 1) % self.view_btn.count())
+
+    def _on_analysis_overlay(self, on: bool) -> None:
+        self.controller.session.repo.save_global_setting("analysis_overlay", on)
+        self.analysis_overlay_changed.emit()
+
+    def analysis_overlay_wanted(self) -> bool:
+        """The canvas shows the chart only while this panel does not."""
+        card_open = not self.analysis_section.isHidden() and self.analysis_section.toggle_button.isChecked()
+        return self.analysis_overlay_btn.isChecked() and not card_open
+
     def _on_parade_overlay(self, on: bool) -> None:
         self.controller.session.repo.save_global_setting("parade_overlay", on)
         self._sync_parade_overlay()
@@ -724,6 +743,11 @@ class RightPanel(QWidget):
                 tr("Zone Highlight: hover a zone strip cell to show that zone alone on the frame"), "toggle_zone_hover_highlight"
             )
         )
+        self.analysis_overlay_btn.setToolTip(
+            tooltip_with_shortcut(
+                tr("Analysis Overlay: show the chart in a corner of the picture while this card is closed"), "toggle_analysis_overlay"
+            )
+        )
 
     def _connect_signals(self) -> None:
         self.controller.image_updated.connect(self._update_analysis)
@@ -824,6 +848,7 @@ class RightPanel(QWidget):
             btn.setChecked(i == index)
         self.group_switcher.set_pinned(index)
         self._sync_local_masks()
+        self.analysis_overlay_changed.emit()
 
         if index == self._scan_group_index:
             self._active_scan_sidebar().on_activated()

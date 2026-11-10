@@ -90,6 +90,7 @@ REGISTRY: dict[str, ShortcutEntry] = {
     "toggle_embedded_peek": ShortcutEntry("P", tr("Peek the camera's embedded preview; hold to peek only while down"), tr("Tools")),
     "toggle_zones": ShortcutEntry("Shift+Z", tr("Adams zone overlay"), tr("Tools")),
     "toggle_clipping_overlay": ShortcutEntry("", tr("Clipping Overlay: paper black and paper white on the frame"), tr("Tools")),
+    "toggle_analysis_overlay": ShortcutEntry("", tr("Analysis Overlay: the Analysis chart in a corner of the picture"), tr("Tools")),
     "toggle_zone_hover_highlight": ShortcutEntry(
         "", tr("Zone Highlight: show the zone strip's hovered zone alone on the frame"), tr("Tools")
     ),

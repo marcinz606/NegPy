@@ -51,14 +51,12 @@ Et vanlig ord samsvarer med filnavnet. `field:value`-uttrykk samsvarer med bilde
 
 Uttrykk kan kombineres: `film:portra iso:>=400 -rejected:`. Metadatauttrykk samsvarer bare med bilder der du har fylt ut metadataene. **Søk etter betydning** (slå det på i Innstillinger → Ytelse) finner bilder etter en beskrivelse, for eksempel "en hund på en strand".
 
-<!-- panel:analysis src:cf165609 -->
+<!-- panel:analysis src:7afa1351 -->
 ## 3. Analyseavlesning
 
 Denne avlesningen beskriver det gjeldende bildet mens du redigerer.
 
 #### Diagram
-
-Velg en diagramvisning:
 
 *   **Kurve**: papirets kurve, fra negativet (bortover) til kopien (oppover). Brattere betyr mer kontrast. Det grå histogrammet er negativet, det fargede er kopien.
 *   **Bølgeform**: lysheten i kopien over bildet.
@@ -66,6 +64,8 @@ Velg en diagramvisning:
 *   **Vektorskop**: fargene i kopien rundt et midtpunkt. En klynge utenfor midten er et fargestikk.
 
 **Log** viser små områder, som klipping.
+
+**Analyseoverlegg**: diagrammet på bildet mens kortet er lukket.
 
 #### Klipping
 
@@ -83,7 +83,7 @@ Folden **Avlesninger** inneholder tall om skanningen. En gul verdi er en advarse
 
 **Filmbase** (trådkorset): klikk den klare filmen mellom bildene for å angi basen avlesningene måler fra.
 
-*   **Negativ**: tetthetsomfanget til negativet (Δ). Hold pekeren over for flatt, normalt eller kontrastrikt.
+*   **Negativ**: tetthetsomfanget til negativet (Δ).
 *   **Eksponering**: lyst (positiv) eller mørkt (negativ) bilde, i blendertrinn.
 *   **Klipping**: andel av kopien som er helt svart, og så helt hvit.
 *   **Skanneklipping**: andel av hver kanal ved skannerens maksimum. Ingen redigering retter det; eksponer skanningen lavere.
