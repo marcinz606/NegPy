@@ -355,6 +355,17 @@ class TestExposureParity:
         self._run_and_compare(s)
 
     @pytest.mark.parametrize("positive", [False, True])
+    def test_slide_filtration_at_another_grade(self, positive):
+        # Both engines divide the global filtration by the same post-auto contrast.
+        base = _make_base_settings()
+        process = replace(base.process, process_mode=ProcessMode.E6, positive_source=positive)
+        s = replace(base, process=process, exposure=ExposureConfig(grade=70.0, wb_cyan=0.3, wb_yellow=0.5))
+        cpu, gpu = self._render_both(s)
+        plain, _ = self._render_both(replace(s, exposure=ExposureConfig(grade=70.0)))
+        assert float(np.abs(cpu - plain).mean()) > 1e-3
+        _assert_mostly_close(cpu, gpu, atol=2e-2, rtol=2e-2, max_violation_frac=0.01)
+
+    @pytest.mark.parametrize("positive", [False, True])
     def test_slide_fade_restoration(self, positive):
         # Both engines compose the fade after the unmix; a fade one of them drops moves the render past this tolerance.
         base = _make_base_settings()
