@@ -79,3 +79,28 @@ def test_bounded_thumbnail_skips_a_reduced_linearraw_preview(tmp_path):
     _write_adobe_style_dng(path)
 
     assert dng_bounded_preview(str(path), 32) == (False, None)
+
+
+class _Libraw(rawpy.RawPy):
+    camera_whitebalance = [0.0, 1.0, 0.0, 0.0]
+
+
+class _LibrawAsShot(rawpy.RawPy):
+    camera_whitebalance = [2.0, 1.0, 1.5, 0.0]
+
+
+@pytest.mark.parametrize(
+    "raw, wanted, expected",
+    [
+        (_Libraw, True, False),
+        (_LibrawAsShot, True, True),
+        (_LibrawAsShot, False, False),
+        (NonStandardFileWrapper, True, True),
+    ],
+    ids=["libraw-no-as-shot", "libraw-as-shot", "not-wanted", "wrapper"],
+)
+def test_a_file_without_as_shot_white_balance_decodes_neutral(raw, wanted, expected):
+    """libraw answers camera WB on a file with none with its auto white balance."""
+    from negpy.infrastructure.loaders.helpers import decodes_camera_wb
+
+    assert decodes_camera_wb(raw(), wanted) is expected

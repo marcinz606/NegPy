@@ -8,7 +8,7 @@ import numpy as np
 from negpy.kernel.image.logic import apply_exif_orientation, ensure_rgb, prepare_thumbnail, srgb_to_linear, uint8_to_float32
 from negpy.infrastructure.capture.raw_demosaic import _user_sat
 from negpy.infrastructure.loaders.factory import loader_factory
-from negpy.infrastructure.loaders.helpers import NonStandardFileWrapper, embedded_preview
+from negpy.infrastructure.loaders.helpers import NonStandardFileWrapper, decodes_camera_wb, embedded_preview
 from negpy.infrastructure.display.color_spaces import WORKING_COLOR_SPACE
 from negpy.kernel.system.logging import get_logger
 from negpy.services.assets.thumbnail_fingerprint import QUICK
@@ -46,10 +46,11 @@ def _fast_demosaic(raw: Any) -> np.ndarray:
     """Fast half-size linear demosaic used for preview thumbnails."""
     # NonStandardFileWrapper has no camera calibration to read; its postprocess ignores user_sat anyway.
     user_sat = None if isinstance(raw, NonStandardFileWrapper) else _user_sat(raw)
+    camera_wb = decodes_camera_wb(raw, True)
     return ensure_rgb(
         raw.postprocess(
-            use_camera_wb=True,
-            user_wb=None,
+            use_camera_wb=camera_wb,
+            user_wb=None if camera_wb else [1, 1, 1, 1],
             adjust_maximum_thr=0.0,
             user_sat=user_sat,  # calibrated linearity limit, not the format's generic max
             half_size=True,
