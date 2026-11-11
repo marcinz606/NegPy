@@ -2075,6 +2075,7 @@ class AppController(QObject):
         if moved[1]:
             self._reselect_active_frame()
         self._announce_roll_modes(roll_id)
+        self.config_updated.emit()
         self.set_status(tr("Saved as virtual roll “{name}”", name=name), 3000)
         return roll_id
 
@@ -2153,6 +2154,7 @@ class AppController(QObject):
         self.invalidate_library_walk()
         self.session.persist_session()
         self._announce_roll_modes(roll_id)
+        self.config_updated.emit()
         name = (rolls.roll_for_id(self.session.repo, roll_id) or {}).get("name") or folder
         self.set_status(tr("Saved as folder roll “{name}”", name=name), 3000)
         return roll_id
