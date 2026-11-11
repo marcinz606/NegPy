@@ -663,12 +663,33 @@ class NonStandardFileWrapper:
         # If set, `sizes` reports this (h, w) for full image; else derived from `data` shape.
         self._full_output_hw: Optional[Tuple[int, int]] = full_output_hw
         # As-shot (R, G, B) white balance gains, applied by postprocess() when the caller asks
-        # for camera WB. None means the source has no WB to offer, as with NegPy's own scanner
-        # DNGs, which are always neutral. postprocess() then leaves the data untouched.
+        # for camera WB and read through camera_whitebalance like a camera's. None means the source
+        # has no WB to offer, as with NegPy's own scanner DNGs, which are always neutral.
         self.wb_gains: Optional[Tuple[float, float, float]] = wb_gains
-        # A Positive source decoded in its own primaries carries them here (source_cam_xyz), read
-        # by camera_xyz_matrix like a camera's. None for every other source.
+        # XYZ->camera, read by camera_xyz_matrix like a camera's: a Positive source's own primaries
+        # (source_cam_xyz), or the ColorMatrix of a LinearRaw camera DNG libraw cannot unpack.
         self.rgb_xyz_matrix: Optional[Sequence] = None
+
+    @property
+    def camera_whitebalance(self) -> list:
+        """`wb_gains` in libraw's [R, G, B, G2] form, libraw's [0, 1, 0, 0] when there are none."""
+        if self.wb_gains is None:
+            return [0.0, 1.0, 0.0, 0.0]
+        r, g, b = self.wb_gains
+        return [r, g, b, 0.0]
+
+    def _decode_gains(self, kwargs: dict) -> Optional[Tuple[float, float, float]]:
+        """The gains a postprocess call asks for, as libraw resolves them: `user_wb` wins over
+        `use_camera_wb`. None when the decode stays neutral."""
+        user_wb = kwargs.get("user_wb")
+        if user_wb is not None:
+            r, g, b = (float(v) for v in user_wb[:3])
+            gains = (r / g, 1.0, b / g) if g > 0 else (1.0, 1.0, 1.0)
+        elif kwargs.get("use_camera_wb") and self.wb_gains is not None:
+            gains = self.wb_gains
+        else:
+            return None
+        return None if gains == (1.0, 1.0, 1.0) else gains
 
     @property
     def data(self) -> np.ndarray:
@@ -697,22 +718,21 @@ class NonStandardFileWrapper:
         bps = kwargs.get("output_bps", 8)
         half_size = kwargs.get("half_size", False)
         gamma = kwargs.get("gamma")
-        camera_wb = kwargs.get("use_camera_wb") and self.wb_gains is not None
+        gains = self._decode_gains(kwargs)
         linear16 = bps == 16 and gamma is not None and tuple(gamma) == (1, 1)
-        if self._source_u16 is not None and linear16 and not camera_wb:
+        if self._source_u16 is not None and linear16 and gains is None:
             return np.ascontiguousarray(self._source_u16[::2, ::2] if half_size else self._source_u16)
         data = self.data
         if half_size:
             data = data[::2, ::2]
         if linear16:
             # Float32 in [0, 1], LibRaw's u16 ceiling, so float sources keep their precision. Always a new array.
-            gains = [self.wb_gains[0], 1.0, self.wb_gains[2]] if camera_wb and self.wb_gains is not None else None
             # A clamp keeps NaN, and NaN in the source poisons the bounds percentiles.
             data = negpy_core.nan_to_num(np.ascontiguousarray(data), 0.0, 1.0, 0.0)
-            return negpy_core.scale_clip_unit(data, gains) if gains is not None else negpy_core.clip01(data)
+            return negpy_core.scale_clip_unit(data, [gains[0], 1.0, gains[2]]) if gains is not None else negpy_core.clip01(data)
 
-        if kwargs.get("use_camera_wb") and self.wb_gains is not None:
-            r, g, b = self.wb_gains
+        if gains is not None:
+            r, g, b = gains
             data = data.astype(np.float32, copy=True)
             data[..., 0] *= r
             data[..., 2] *= b

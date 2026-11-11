@@ -165,7 +165,8 @@ def test_peek_linear_dng_rgb_applies_linearization_and_black_white_level():
         result = _peek_linear_dng_rgb(path)
 
     assert result is not None
-    rgb, wb_gains = result
+    rgb, color = result
+    wb_gains = color.wb_gains
     assert rgb.shape == (h, w, 3)
     assert rgb.dtype == np.float32
 
@@ -237,6 +238,123 @@ def test_streamed_preview_reads_orientation_without_full_file_exif(tmp_path, ori
         context, metadata = LoaderFactory().get_loader(str(path), preview_max_edge=20)
     assert metadata["orientation"] == orientation
     assert max(context.data.shape[:2]) == 20
+
+
+# Canon EOS R's ColorMatrix2 (D65), the matrix libraw's own table holds for that model.
+_CANON_D65 = ((0.8293, -0.1789, -0.1094), (-0.5025, 1.2925, 0.2327), (-0.1199, 0.2769, 0.6108))
+_CANON_A = ((0.9605, -0.3678, -0.0150), (-0.4268, 1.2125, 0.2412), (-0.0364, 0.1578, 0.6818))
+_RAW_NEUTRAL = (0.5, 1.0, 0.625)
+
+
+def _write_camera_linear_dng(path: str, compression, neutral=_RAW_NEUTRAL, h: int = 48, w: int = 64) -> None:
+    """A LinearRaw camera DNG: a gray in `_RAW_NEUTRAL` ratios on the left, a warm patch on the right. `neutral` is the tag. With
+    `compression=None` libraw reads it, with 52546 (JPEG XL) only the tifffile fallback does."""
+    img = np.empty((h, w, 3), np.float64)
+    img[:, : w // 2] = np.array(_RAW_NEUTRAL) * 0.4
+    img[:, w // 2 :] = (0.3, 0.25, 0.1)
+
+    def srational(m):
+        return tuple(v for row in m for x in row for v in (int(round(x * 10000)), 10000))
+
+    tags = [
+        (50706, 1, 4, (1, 7, 0, 0), True),
+        (50707, 1, 4, (1, 4, 0, 0), True),
+        (271, 2, 0, "Canon", True),
+        (272, 2, 0, "Canon EOS R", True),
+        (50708, 2, 0, "Canon EOS R", True),
+        (50721, "2i", 9, srational(_CANON_A), True),  # ColorMatrix1
+        (50722, "2i", 9, srational(_CANON_D65), True),  # ColorMatrix2
+        (50778, 3, 1, 17, True),  # CalibrationIlluminant1: Standard light A
+        (50779, 3, 1, 21, True),  # CalibrationIlluminant2: D65
+    ]
+    if neutral is not None:
+        tags.append((50728, 5, 3, tuple(v for n in neutral for v in (int(round(n * 1000000)), 1000000)), True))
+    with tifffile.TiffWriter(path) as tw:
+        tw.write(np.zeros((h // 8, w // 8, 3), np.uint8), photometric="rgb", subfiletype=1, subifds=1, extratags=tags)
+        codes = np.round(img * 65535).astype(np.uint16)
+        tw.write(
+            codes,
+            photometric=34892,
+            subfiletype=0,
+            planarconfig="contig",
+            compression=compression,
+            extratags=[(50717, 3, 3, (65535,) * 3, True)],
+        )
+
+
+@pytest.mark.parametrize("preview_max_edge", [None, 32])
+def test_jxl_camera_dng_carries_the_color_data_a_libraw_decode_carries(tmp_path, preview_max_edge):
+    from negpy.infrastructure.loaders.helpers import camera_wb_multipliers, camera_xyz_matrix
+
+    path = str(tmp_path / "enhanced.dng")
+    _write_camera_linear_dng(path, 52546)
+    ctx_mgr, _ = LoaderFactory().get_loader(path, preview_max_edge=preview_max_edge)
+
+    assert isinstance(ctx_mgr, NonStandardFileWrapper)
+    np.testing.assert_allclose(camera_wb_multipliers(ctx_mgr), (2.0, 1.0, 1.6), rtol=1e-6)
+    np.testing.assert_allclose(camera_xyz_matrix(ctx_mgr), _CANON_D65, atol=1e-6)
+
+
+def test_jxl_dng_without_an_as_shot_neutral_has_no_camera_color(tmp_path):
+    from negpy.infrastructure.loaders.helpers import camera_wb_multipliers, camera_xyz_matrix
+
+    path = str(tmp_path / "scan.dng")
+    _write_camera_linear_dng(path, 52546, neutral=None)
+    ctx_mgr, _ = LoaderFactory().get_loader(path)
+
+    assert camera_wb_multipliers(ctx_mgr) is None
+    assert camera_xyz_matrix(ctx_mgr) is None
+
+
+def test_wrapper_postprocess_takes_user_wb_over_its_own_gains():
+    data = np.full((2, 2, 3), 0.25, np.float32)
+    wrapper = NonStandardFileWrapper(data, wb_gains=(2.0, 1.0, 1.6))
+    linear = {"gamma": (1, 1), "output_bps": 16}
+
+    np.testing.assert_allclose(wrapper.postprocess(use_camera_wb=True, **linear)[0, 0], (0.5, 0.25, 0.4))
+    np.testing.assert_allclose(wrapper.postprocess(use_camera_wb=True, user_wb=[1, 1, 1, 1], **linear)[0, 0], (0.25,) * 3)
+    np.testing.assert_allclose(wrapper.postprocess(user_wb=[3.0, 2.0, 4.0, 2.0], **linear)[0, 0], (0.375, 0.25, 0.5))
+
+
+def test_jxl_dng_bracket_keeps_the_reference_white_balance(tmp_path):
+    """The HDR solve decodes every frame after the first on the reference's as-shot gains."""
+    from negpy.domain.models import WorkspaceConfig
+    from negpy.services.rendering.image_processor import ImageProcessor
+
+    reference, sibling = str(tmp_path / "ref.dng"), str(tmp_path / "sib.dng")
+    _write_camera_linear_dng(reference, 52546)
+    _write_camera_linear_dng(sibling, 52546, neutral=(0.8, 1.0, 0.9))
+    params = WorkspaceConfig()
+    proc = ImageProcessor(use_gpu=False)
+    ref_f32, _, _ = proc._decode_oriented_f32(reference, params)
+    bracket_wb = proc.camera_wb_for(reference)
+    sib_f32, _, _ = proc._decode_oriented_f32(sibling, params, wb_override=bracket_wb)
+
+    np.testing.assert_allclose(bracket_wb, (2.0, 1.0, 1.6), rtol=1e-6)
+    np.testing.assert_allclose(sib_f32, ref_f32, atol=1e-6)
+
+
+def test_jxl_camera_dng_renders_the_transfer_like_a_libraw_one(tmp_path):
+    from dataclasses import replace
+
+    from negpy.domain.models import WorkspaceConfig
+    from negpy.features.process.models import ProcessMode
+    from negpy.services.rendering.image_processor import ImageProcessor
+
+    base = WorkspaceConfig()
+    slide = replace(base, process=replace(base.process, process_mode=ProcessMode.E6))
+    proc = ImageProcessor(use_gpu=False)
+    renders = {}
+    for name, compression in (("libraw", None), ("jxl", 52546)):
+        path = str(tmp_path / f"{name}.dng")
+        _write_camera_linear_dng(path, compression)
+        buf, _ = proc.render_export(path, slide, slide.export, name, prefer_gpu=False)
+        renders[name] = buf
+
+    h, w = renders["jxl"].shape[:2]
+    gray = renders["jxl"][4 : h - 4, 4 : w // 2 - 4].reshape(-1, 3).mean(0)
+    assert np.ptp(gray) < 0.01, f"the as-shot gray renders with a cast: {gray}"
+    np.testing.assert_allclose(renders["jxl"], renders["libraw"], atol=0.01)
 
 
 def test_jxl_linear_dng_allows_cancellable_neighbor_prefetch():
