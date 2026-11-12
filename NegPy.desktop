@@ -1,6 +1,6 @@
 [Desktop Entry]
 Name=NegPy
-Exec=NegPy
+Exec=NegPy %F
 Icon=negpy
 StartupWMClass=NegPy
 Type=Application

@@ -223,6 +223,26 @@ def _bootstrap_environment() -> None:
     GearProfiles.ensure_user_dir()
 
 
+def _run_headless_render(launch, override_cfg) -> int:
+    """``--render``: no window, no hand-off, no database writes. The saved performance settings
+    apply when the settings database exists, as they do for a normal start."""
+    from PyQt6.QtCore import QCoreApplication
+
+    from negpy.desktop.headless import run_render
+
+    apply_override(override_cfg, APP_CONFIG)
+    if os.path.isfile(APP_CONFIG.settings_db_path) and os.path.isfile(APP_CONFIG.edits_db_path):
+        repo = StorageRepository(APP_CONFIG.edits_db_path, APP_CONFIG.settings_db_path)
+        apply_stored_override(override_cfg, APP_CONFIG, repo.get_global_setting)
+    app = QCoreApplication(sys.argv)
+    app.setApplicationName("NegPy")
+    try:
+        return run_render(launch)
+    except Exception:
+        logger.critical("Render stopped on an unhandled exception", exc_info=True)
+        return 1
+
+
 def main() -> None:
     """
     Desktop entry point.
@@ -230,6 +250,22 @@ def main() -> None:
     override_cfg = load_override(APP_CONFIG.override_toml_path)
     setup_logging(level=override_cfg.log_level_int)
     _install_exception_hook()  # log unhandled slot exceptions to negpy.log instead of aborting
+
+    from negpy.desktop.launch import LaunchArgsError, LaunchServer, hand_off, parse_launch_args, server_name
+
+    # Before any database opens: a second launch hands its files to the open window and exits.
+    try:
+        launch = parse_launch_args(sys.argv[1:])
+    except LaunchArgsError as error:
+        logger.error("NegPy did not start: %s", error)
+        print(f"NegPy: {error}", file=sys.stderr)
+        sys.exit(2)
+    if launch.render:
+        sys.exit(_run_headless_render(launch, override_cfg))
+    handoff_name = server_name(BASE_USER_DIR)
+    if hand_off(handoff_name, launch):
+        logger.info("Handed the launch paths to the running NegPy: %d", len(launch.paths))
+        sys.exit(0)
 
     try:
         apply_override(override_cfg, APP_CONFIG)
@@ -318,6 +354,10 @@ def main() -> None:
         controller = AppController(session_manager)
 
         window = MainWindow(controller)
+        launch_server = LaunchServer(handoff_name, app)
+        launch_server.received.connect(window.open_launch_request)
+        if launch.paths:
+            window.open_launch_request(launch)
         window.show()
 
         exit_code = app.exec()

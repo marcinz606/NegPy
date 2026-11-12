@@ -1,5 +1,6 @@
 from negpy.kernel.system.i18n import tr
 import os
+from dataclasses import replace
 from typing import Optional
 
 import numpy as np
@@ -162,6 +163,8 @@ class MainWindow(QMainWindow):
         self.controller = controller
         self.state = controller.state
         self._export_size_shape: Optional[tuple[int, ...]] = None
+        self._launch_request = None
+        controller.launch_export_done.connect(self._on_launch_export_done)
 
         self._restore_window_geometry()
         self.setAcceptDrops(True)
@@ -236,9 +239,34 @@ class MainWindow(QMainWindow):
             self._session_restore_checked = True
             QTimer.singleShot(0, self._maybe_restore_session)
 
+    def open_launch_request(self, request) -> None:
+        """Open the files of a command-line launch. Before the first show they replace the restore
+        question; later, from a second launch, the window comes to the front."""
+        if not getattr(self, "_session_restore_checked", False):
+            self._launch_request = replace(request, recipe=replace(request.recipe, started_app=True))
+            return
+        if self.isMinimized():
+            self.showNormal()
+        self.raise_()
+        self.activateWindow()
+        self.controller.open_launch_request(list(request.paths), request.recipe)
+
+    def _on_launch_export_done(self, started_app: bool) -> None:
+        """``--quit-after-export``: NegPy closes when that launch started it, else steps back."""
+        if started_app:
+            self.close()
+        else:
+            self.showMinimized()
+
     def _maybe_restore_session(self) -> None:
         """Offers to reopen the previous session's files on first show, and otherwise
         opens the library — with nothing loaded, a list of rolls beats a blank panel."""
+        if self._launch_request is not None:
+            request, self._launch_request = self._launch_request, None
+            self.file_browser.restore_hot_folder(False)
+            self.controller.open_launch_request(list(request.paths), request.recipe)
+            self._schedule_onboarding()
+            return
         paths = self.controller.saved_session_paths()
         if paths:
             reply = QMessageBox.question(
