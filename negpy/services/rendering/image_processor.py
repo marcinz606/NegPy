@@ -1059,7 +1059,7 @@ class ImageProcessor:
             algo = get_best_demosaic_algorithm(raw, demosaic)
             # Read before postprocess: camera_whitebalance is sensor metadata, unaffected by it,
             # and highlight_reconstruction_bright_gain needs it ahead of the postprocess call.
-            camera_wb = camera_wb_multipliers(raw)
+            camera_wb = camera_wb_multipliers(raw, file_path)
             if wb_override is not None:
                 # rawpy's user_wb is [R, G, B, G2]; camera_wb_multipliers only ever supplies
                 # [R, G, B], so pad with G2=G rather than pass rawpy a length it rejects.
@@ -1068,7 +1068,7 @@ class ImageProcessor:
                     user_wb.append(user_wb[1])
                 use_camera_wb_flag = False
                 wb_for_gain: Optional[Sequence[float]] = user_wb
-            elif decodes_camera_wb(raw, bake_camera_wb or not linear_raw):
+            elif decodes_camera_wb(raw, bake_camera_wb or not linear_raw, file_path):
                 user_wb = None
                 use_camera_wb_flag = True
                 wb_for_gain = camera_wb
