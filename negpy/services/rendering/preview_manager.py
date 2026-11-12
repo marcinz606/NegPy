@@ -15,6 +15,7 @@ from negpy.infrastructure.loaders.factory import loader_factory
 from negpy.infrastructure.loaders.helpers import (
     NonStandardFileWrapper,
     camera_wb_multipliers,
+    decodes_camera_wb,
     camera_xyz_matrix,
     embedded_preview,
     get_best_demosaic_algorithm,
@@ -359,7 +360,7 @@ class PreviewManager:
                 user_wb.append(user_wb[1])
             use_camera_wb_flag = False
             wb_for_gain: Optional[Sequence[float]] = user_wb
-        elif decode_camera_wb:
+        elif decodes_camera_wb(raw, decode_camera_wb):
             user_wb = None
             use_camera_wb_flag = True
             # Read before postprocess: camera_whitebalance is sensor metadata, unaffected
