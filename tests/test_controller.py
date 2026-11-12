@@ -886,10 +886,13 @@ class TestAppController(unittest.TestCase):
         store = self._fake_settings_store()
         self.controller.state.half_frame_loose = True
         self.controller.state.uploaded_files = [{"path": "/p/a.tif"}]
+        synced = []
+        self.controller.config_updated.connect(lambda: synced.append(self.controller.state.active_roll_id))
         with patch("negpy.desktop.controller.rolls") as mock_rolls:
             mock_rolls.create_virtual_roll.return_value = "new-roll"
             roll_id = self.controller.create_roll_from_session("My Roll")
         self.assertEqual(roll_id, "new-roll")
+        self.assertEqual(synced, ["new-roll"], "the cards resync to show the new roll")
         self.assertEqual(store["half_frame_mode_by_roll"], {"new-roll": True})
         self.assertEqual(store["rgbscan_mode_by_roll"], {"new-roll": False})
 
@@ -7900,8 +7903,11 @@ class TestLibrarySearch(unittest.TestCase):
             self.controller.state.duplicate_paths = {os.path.join(b, "b1.tif")}
             self.assertEqual(self.controller.save_choice()[0], "ready", "a duplicate turned away from another folder does not count")
             self.controller.state.duplicate_paths = set()
+            synced = []
+            self.controller.config_updated.connect(lambda: synced.append(self.controller.state.active_roll_id))
             with patch.object(self.controller.session, "persist_session") as persist, patch.object(self.controller, "set_status") as status:
                 roll_id = self.controller.save_to_folder_roll()
+            self.assertEqual(synced, [roll_id], "the cards resync to show the new roll")
             entry = roll_for_id(repo, roll_id)
             self.assertEqual((entry["kind"], entry["name"]), ("folder", "500T"))
             self.assertEqual(entry["excluded_paths"], [os.path.join(a, "a3.tif")])

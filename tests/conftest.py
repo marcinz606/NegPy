@@ -137,6 +137,12 @@ class FakeController:
             return bool(by_roll[roll_id])
         return bool(self.session.repo.get_global_setting("rgbscan_mode", False))
 
+    def launch_recipe_for(self, path):
+        return None
+
+    def current_launch_recipe(self):
+        return None
+
     def __getattr__(self, name):
         return getattr(self._mock, name)
 

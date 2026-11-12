@@ -96,6 +96,7 @@ from negpy.infrastructure.loaders.factory import loader_factory
 from negpy.infrastructure.loaders.helpers import (
     NonStandardFileWrapper,
     camera_wb_multipliers,
+    decodes_camera_wb,
     camera_xyz_matrix,
     get_best_demosaic_algorithm,
     is_xtrans,
@@ -1067,7 +1068,7 @@ class ImageProcessor:
                     user_wb.append(user_wb[1])
                 use_camera_wb_flag = False
                 wb_for_gain: Optional[Sequence[float]] = user_wb
-            elif bake_camera_wb or not linear_raw:
+            elif decodes_camera_wb(raw, bake_camera_wb or not linear_raw):
                 user_wb = None
                 use_camera_wb_flag = True
                 wb_for_gain = camera_wb

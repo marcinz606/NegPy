@@ -105,6 +105,39 @@ A new frame gets the roll's film type, and the crop, print stock and Lab setting
 
 If Windows blocks the default data folder, NegPy suggests `%LOCALAPPDATA%\NegPy\data`. Click the path to pick another, then **Use This Folder**. Nothing is copied. `NEGPY_USER_DIR` overrides the choice.
 
+### Command line and automation
+
+Scripts, automatic workflows and other tools can start NegPy from the command line. Use this to put NegPy into a larger toolchain, for example a step that opens a scan for editing or makes previews.
+
+`NegPy <file> [<file>…]` opens the files and shows the first one. A folder opens all of its images. If NegPy is already open, the files open in that window and the window comes to the front. On Linux, **Open With NegPy** in a file manager also opens the files.
+
+The command can also set how NegPy exports these files, so the next step of the workflow finds the result. The settings apply until you close NegPy, and only to these files:
+
+| Flag | Value |
+|------|-------|
+| `--preset <name>` | A saved export preset. The other flags change its values. |
+| `--intent` | `print`, `flat` or `linear` |
+| `--format` | `jpeg`, `tiff`, `png`, `jxl` or `webp` |
+| `--bit-depth` | `8` or `16` |
+| `--quality` | 1 to 100, for JPEG and WebP |
+| `--color-space` or `--profile` | A color space such as `srgb` or `adobe-rgb`, or the path of an ICC file |
+| `--original-size`, `--long-edge <px>` or `--print-size <cm>` with `--dpi` | The size |
+| `--ratio` | The paper ratio, such as `3:2` |
+| `--output-dir <folder>` and `--filename <pattern>` | Where the file goes and its name |
+| `--no-overwrite` | Ask before an export replaces a file. Without it, an export replaces the earlier one. |
+| `--quit-after-export` | After a good export, NegPy closes. If NegPy was already open, its window goes to the taskbar. |
+
+For such a frame, the Export tab hides the settings that the command set and lists them at the top. Presets are off for the frame. If a flag has a bad value, NegPy does not start and writes the error to `negpy.log`.
+
+#### Make previews without a window
+
+`NegPy --render <file or folder>… --format jpeg --long-edge 1600 --output-dir <folder>` writes a positive of each scan and exits. A folder gives all of its scans, without its subfolders. Use the export flags above, except `--intent linear` and `--quit-after-export`.
+
+*   A scan you edited in NegPy uses its edit. Another scan uses the standard settings.
+*   `--auto-crop` crops to the picture a scan that has no crop. Use it for scans that show the holder or the light source.
+*   The exit code is 0 when all files are written, 1 when a file fails and 2 for a bad flag.
+*   This command does not change your NegPy library or edits. It works while NegPy is open.
+
 ---
 
 ## 2. Library and film strip

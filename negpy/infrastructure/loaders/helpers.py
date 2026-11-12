@@ -847,6 +847,13 @@ def camera_wb_multipliers(raw: Any) -> Optional[list]:
     return wb
 
 
+def decodes_camera_wb(raw: Any, wanted: bool) -> bool:
+    """Whether a decode that *wanted* the as-shot white balance gets it. A file with none
+    (`camera_wb_multipliers`) decodes neutral, because libraw answers the request with its auto
+    white balance, a gray world per frame. A NonStandardFileWrapper applies only gains it holds."""
+    return wanted and (not isinstance(raw, rawpy.RawPy) or camera_wb_multipliers(raw) is not None)
+
+
 #: Nikon's High Efficiency (HE / HE*) raw on the Z 8 and Z 9 is intoPIX TicoRAW carrying a
 #: plain-text vendor marker at the head of the strip. The TIFF tag still reads 34713
 #: ("Nikon NEF Compressed"), the same value a lossless NEF uses, so only the payload can
