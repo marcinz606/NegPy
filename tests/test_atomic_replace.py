@@ -201,6 +201,5 @@ def test_export_worker_retries_and_succeeds_when_folder_watched(tmp_path, monkey
     final_output = tmp_path / "output.jpg"
     assert final_output.exists()
     assert final_output.read_bytes() == b"jpeg bits"
-    # Verify no leftover .part files in the directory
     part_files = list(tmp_path.glob("*.part"))
     assert part_files == []

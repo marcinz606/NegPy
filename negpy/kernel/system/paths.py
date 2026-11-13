@@ -144,14 +144,8 @@ def apply_umask_mode(path: str) -> None:
 
 
 def replace_file(src: str, dst: str, *, timeout: float = 2.0, interval: float = 0.02) -> None:
-    """Atomically replace dst with src.
-
-    On Windows, retry transient sharing violations and access errors that occur when
-    external processes (such as antivirus scanners, indexers, or file watchers like
-    Adobe Bridge) momentarily hold an open handle to the newly written temporary file
-    or destination. If dst is marked read-only on Windows, its read-only attribute
-    is cleared before replacing.
-    """
+    """Atomically replace dst with src. On Windows, retry while another process (an antivirus
+    scanner, an indexer, Adobe Bridge) holds either file open, and clear a read-only attribute on dst."""
     if sys.platform != "win32":
         os.replace(src, dst)
         return

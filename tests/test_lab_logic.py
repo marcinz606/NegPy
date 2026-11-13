@@ -264,18 +264,8 @@ class TestLabLogic(unittest.TestCase):
         self.assertGreaterEqual(l_out, l_in - 5.5)
 
     def test_saturation_is_gamut_aware(self) -> None:
-        """A flat chroma scale preserves hue mathematically, but a hard per-channel
-        RGB clamp afterward shifts the *actual* hue by changing the R:G:B ratio
-        unevenly. The gamut-aware knee should avoid that: pushing hard on a
-        deeply saturated color should land much closer to its true (unclipped)
-        hue than a naive flat scale + clamp does -- specifically on the pixels
-        that actually clip under the naive approach. The other ~90%+ of any
-        random population never clips either way and both methods produce
-        identical output for it (see test_saturation_unaffected_when_
-        comfortably_in_gamut), so mixing that population in just dilutes the
-        comparison with ~2.6deg of shared RGB<->Lab round-trip measurement
-        noise -- not a real signal either way, and enough to make an
-        aggregate-over-everything assertion misleadingly weak."""
+        """The knee lands a hard push nearer the unclipped hue than a flat scale and an RGB clamp do.
+        Measured only on the pixels the clamp moves: both methods give the rest the same output."""
         rng = np.random.default_rng(3)
         n = 2000
         angles = rng.uniform(0, 2 * np.pi, n).astype(np.float32)
@@ -318,10 +308,7 @@ class TestLabLogic(unittest.TestCase):
         self.assertLess(gamut_aware_err, naive_err / 3.0)
 
     def test_saturation_unaffected_when_comfortably_in_gamut(self) -> None:
-        """A gentle push on a color nowhere near the gamut edge -- and nowhere
-        near the skin-protection hue band -- should behave identically to a
-        flat Oklab chroma scale -- the knee should only engage near the boundary, not
-        change everyday, moderate saturation adjustments."""
+        """A gentle push far from the gamut edge and the skin hue band equals a flat Oklab chroma scale."""
         img = np.full((4, 4, 3), 0.5, dtype=np.float32)
         img[:, :, 2] = 0.55  # mild, safely in-gamut blue bias -- hue ~291deg,
         # ~121deg from the skin-protection center (52deg), so its protection

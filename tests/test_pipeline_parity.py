@@ -508,13 +508,9 @@ class TestLabParity:
         self._run_and_compare(s)
 
     def test_saturation_gamut_aware_knee_tight_parity(self):
-        """Tight-tolerance guard for the Saturation gamut knee (oklab_chroma_block in
-        negpy_core and its lab.wgsl mirror). A wrong matrix direction in one engine's
-        gamut check gives a CPU/GPU max diff of about 0.06 on deeply saturated content,
-        invisible to this class's looser default tolerance (atol/rtol=1.5e-1). Uses a
-        strongly color-biased synthetic frame (unlike _make_synthetic_image's
-        gentler gradient) specifically to drive real pixels into the gamut-aware
-        knee, not just the byte-exact identity/no-knee fast path."""
+        """Tight-tolerance guard for the Saturation gamut knee (oklab_chroma_block and its lab.wgsl
+        mirror): a wrong matrix direction in one engine hides under this class's default tolerance.
+        The color-biased frame drives pixels into the knee."""
         rng = np.random.default_rng(5)
         h, w = 64, 64
         grad = np.linspace(0.05, 0.9, w, dtype=np.float32)

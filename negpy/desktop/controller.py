@@ -1826,27 +1826,15 @@ class AppController(QObject):
         select_path: Optional[str] = None,
     ) -> None:
         """
-        Starts asynchronous discovery of supported assets.
-        Requests arriving while hashing is in progress are queued in order.
+        Starts asynchronous discovery of supported assets. Requests during hashing queue in order.
 
-        `replace_existing` rebuilds the asset list from the results (instead of
-        appending) and reselects `reselect_path` — used when re-running discovery
-        over already-loaded files (e.g. an RGB-scan mode toggle).
-
-        `announce_rgb` allows the modal report when RGB Scan assembles nothing. Set it
-        where the user just asked for this folder or just turned the mode on; leaving it
-        off is what keeps a restored session from opening a dialog nobody asked for.
-
-        `hot_folder` marks this request as coming from the Hot Folder poll, not from a
-        user action — it drives `hot_folder_sequence_active`, which is what the batch
-        popup checks, rather than whether the toggle happens to be on.
-
-        `user_add` marks Add Files, Add Folder and a drop: the files the open folder roll cannot
-        hold are reported.
-
-        `rgb_scan` False loads the files without Trichrome Mode grouping, for files the user just
-        took out of a triplet; None follows the roll's mode.
-
+        `replace_existing` rebuilds the asset list from the results and reselects `reselect_path`.
+        `announce_rgb` allows the modal report when RGB Scan assembles nothing: set it only where the
+        user just asked for this folder or turned the mode on, never on a restored session.
+        `hot_folder` marks a Hot Folder poll and drives `hot_folder_sequence_active`.
+        `user_add` marks Add Files, Add Folder and a drop: the files the open folder roll cannot hold
+        are reported.
+        `rgb_scan` False loads the files without Trichrome Mode grouping; None follows the roll's mode.
         `select_path` opens that file when the request finishes, even when another frame is open.
         """
         self.thumb_worker.cancel_pending()

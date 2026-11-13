@@ -13,12 +13,9 @@ class Phase(StrEnum):
 
 @dataclass(frozen=True)
 class PickParam:
-    """One tunable Exposure control the picker proposes.
-
-    `strong_step` is the bold step a first selection moves; `floor` is the smallest step;
-    `lo`/`hi` clamp a candidate to its slider range. `compound` marks a control spanning a
-    field pair (Temperature moves wb_magenta/wb_yellow on a print and wb_cyan/wb_yellow on a slide; its "value" is Kelvin).
-    """
+    """One tunable Exposure control the picker proposes. `strong_step` is the step a first selection
+    moves, `floor` the smallest step; `lo`/`hi` clamp a candidate to its slider range. `compound` marks
+    Temperature, whose value is Kelvin over wb_magenta/wb_yellow (wb_cyan/wb_yellow on a slide)."""
 
     field: str
     name: str

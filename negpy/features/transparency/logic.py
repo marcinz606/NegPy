@@ -703,9 +703,8 @@ def measure_transfer_neutral_axis(grid: np.ndarray, positive: bool) -> Optional[
     return measure_neutral_axis_from_log(grid, LogNegativeBounds(*window), None, 0.0, exclude_subjects=False)
 
 
-# Slider units per mired. A Planckian shift from daylight raises red and lowers blue about
-# twice as much in log density, green fixed; the slider takes half that effect so the
-# Kelvin range fits the filter sliders. The Kelvin readout is nominal.
+# Slider units per mired, half of a Planckian shift's log density (red and blue move, green is
+# fixed), so the Kelvin range fits the filter sliders. The Kelvin readout is nominal.
 SLIDE_TEMP_REF_KELVIN = 5500.0
 _SLIDE_K_CYAN = 0.0031
 _SLIDE_K_YELLOW = 0.0065

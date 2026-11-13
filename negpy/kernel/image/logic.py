@@ -158,19 +158,10 @@ def _skin_chroma_rein_kernel(lab: np.ndarray, strength: float) -> np.ndarray:
 
 def skin_chroma_rein(lab: np.ndarray, strength: float) -> np.ndarray:
     """
-    Pull skin-hued pixels down toward a chroma ceiling, leaving hue and L*
-    untouched (a* and b* scale together). Independent of the Chroma scale, so
-    it also reins in skin that arrived over-chromatic from the print curve.
-
-    One-directional: chroma is only ever reduced, never added. That is what
-    keeps saturation=0.0 reaching true grey without a special case, and what
-    makes it safe to run after the gamut knee -- a smaller chroma cannot
-    overshoot a gamut the full-strength push already fitted inside.
-
-    `strength` drives the ceiling itself rather than a blend amount, so the
-    control has one meaning: how tightly skin chroma is reined. The knee is the
-    same softplus shape as the Saturation knee's and the print curve's
-    toe/shoulder bounds. Accepts any array whose last axis is (L, a, b).
+    Pulls skin-hued pixels down toward a chroma ceiling; hue and L* stay (a* and b* scale together).
+    Chroma is only reduced, so saturation 0.0 still reaches gray and the result fits the gamut the
+    Saturation knee fitted. `strength` sets the ceiling, not a blend amount. The knee is the softplus
+    of the Saturation knee. Accepts any array whose last axis is (L, a, b).
     """
     arr = np.ascontiguousarray(lab, dtype=np.float32)
     if strength <= 0.0:
