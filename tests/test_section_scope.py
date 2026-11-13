@@ -99,6 +99,35 @@ def test_limit_to_rows_hides_a_section_it_emptied(qapp):
     assert all(not s.isVisible() for s, count in dlg._sections if not count)
 
 
+def test_a_card_picker_lists_a_row_at_its_default_turned_off(qapp, monkeypatch):
+    """A value set back to its default is listed, so one click sends it to the roll."""
+    from PyQt6.QtWidgets import QDialog
+
+    from negpy.desktop.view.widgets import granular_settings_dialog as module
+
+    opened = []
+
+    def fake_exec(dlg):
+        opened.append(dlg)
+        return QDialog.DialogCode.Rejected
+
+    monkeypatch.setattr(GranularSettingsDialog, "exec", fake_exec)
+    monkeypatch.setattr(module, "_apply_targets", lambda session: (0, 1, 3))
+    monkeypatch.setattr(module, "_source_name", lambda session, src: "IMG_0001.cr2")
+    session = MagicMock()
+    session.state.config = _edited_cfg()
+    session.repo = None
+
+    assert module.open_apply_dialog(None, session, rows=_rows_for("tone")) is None
+
+    dlg = opened[0]
+    by_label = {row.label: (box, line) for box, row, _edited, line in dlg._checks}
+    assert by_label["Print Density"][0].isChecked()
+    box, line = by_label["Contrast Mask"]
+    assert not line.isHidden() and not box.isChecked()
+    assert [s.title_label.text() for s, _count in dlg._sections if not s.isHidden()] == ["Tone · 1"]
+
+
 def test_limit_to_rows_keeps_a_dropped_row_from_enabling_apply(qapp):
     dlg = GranularSettingsDialog(None, _edited_cfg(), "IMG_0001.cr2", show_scope=True, sel_count=1, roll_count=3)
 
