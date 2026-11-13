@@ -246,9 +246,10 @@ _CANON_A = ((0.9605, -0.3678, -0.0150), (-0.4268, 1.2125, 0.2412), (-0.0364, 0.1
 _RAW_NEUTRAL = (0.5, 1.0, 0.625)
 
 
-def _write_camera_linear_dng(path: str, compression, neutral=_RAW_NEUTRAL, h: int = 48, w: int = 64) -> None:
-    """A LinearRaw camera DNG: a gray in `_RAW_NEUTRAL` ratios on the left, a warm patch on the right. `neutral` is the tag. With
-    `compression=None` libraw reads it, with 52546 (JPEG XL) only the tifffile fallback does."""
+def _write_camera_linear_dng(path: str, compression, neutral=_RAW_NEUTRAL, h: int = 48, w: int = 64, camera: bool = True) -> None:
+    """A LinearRaw DNG: a gray in `_RAW_NEUTRAL` ratios on the left, a warm patch on the right. `neutral` is the tag.
+    With `compression=None` libraw reads it, with 52546 (JPEG XL) only the tifffile fallback does. `camera=False`
+    drops ExposureTime and FNumber, which makes it a scanner's file (`is_scanned_dng`)."""
     img = np.empty((h, w, 3), np.float64)
     img[:, : w // 2] = np.array(_RAW_NEUTRAL) * 0.4
     img[:, w // 2 :] = (0.3, 0.25, 0.1)
@@ -267,6 +268,8 @@ def _write_camera_linear_dng(path: str, compression, neutral=_RAW_NEUTRAL, h: in
         (50778, 3, 1, 17, True),  # CalibrationIlluminant1: Standard light A
         (50779, 3, 1, 21, True),  # CalibrationIlluminant2: D65
     ]
+    if camera:
+        tags += [(33434, 5, 1, (1, 125), True), (33437, 5, 1, (8, 1), True)]  # ExposureTime, FNumber
     if neutral is not None:
         tags.append((50728, 5, 3, tuple(v for n in neutral for v in (int(round(n * 1000000)), 1000000)), True))
     with tifffile.TiffWriter(path) as tw:
@@ -303,6 +306,17 @@ def test_jxl_dng_without_an_as_shot_neutral_has_no_camera_color(tmp_path):
     ctx_mgr, _ = LoaderFactory().get_loader(path)
 
     assert camera_wb_multipliers(ctx_mgr) is None
+    assert camera_xyz_matrix(ctx_mgr) is None
+
+
+def test_jxl_scanner_dng_has_no_camera_color_whatever_its_neutral(tmp_path):
+    from negpy.infrastructure.loaders.helpers import camera_wb_multipliers, camera_xyz_matrix
+
+    path = str(tmp_path / "scan.dng")
+    _write_camera_linear_dng(path, 52546, camera=False)
+    ctx_mgr, _ = LoaderFactory().get_loader(path)
+
+    assert camera_wb_multipliers(ctx_mgr, path) is None
     assert camera_xyz_matrix(ctx_mgr) is None
 
 

@@ -15,6 +15,7 @@ from negpy.infrastructure.loaders.helpers import (
     dng_quick_preview,
     embedded_preview,
     fit_bounded_preview,
+    is_scanned_dng,
     read_orientation,
 )
 from negpy.infrastructure.loaders.ir_planes import find_ir_plane
@@ -240,7 +241,7 @@ class AsShotColor(NamedTuple):
 def _as_shot_color(page0: Any) -> AsShotColor:
     """Read from IFD0 while the file is open. The matrix is the D65 ColorMatrix, the one libraw's own
     table holds, else ColorMatrix2, else ColorMatrix1. A file with no AsShotNeutral gets no matrix,
-    so a scanner DNG stays in its own channels, as on libraw."""
+    because the matrix assumes the balanced signal that the as-shot fold rebuilds."""
     neutral = _tag_floats(page0.tags.get("AsShotNeutral"))
     if len(neutral) < 3 or not all(n > 0 for n in neutral[:3]):
         return AsShotColor(None, None)
@@ -254,10 +255,15 @@ def _as_shot_color(page0: Any) -> AsShotColor:
     return AsShotColor(gains, [list(m[0:3]), list(m[3:6]), list(m[6:9])])
 
 
-def _linear_dng_wrapper(rgb: np.ndarray, color: AsShotColor, full_output_hw: Optional[Tuple[int, int]] = None) -> NonStandardFileWrapper:
-    """A 3-sample LinearRaw DNG decoded without libraw, with the color data a libraw decode carries."""
+def _linear_dng_wrapper(
+    file_path: str, rgb: np.ndarray, color: AsShotColor, full_output_hw: Optional[Tuple[int, int]] = None
+) -> NonStandardFileWrapper:
+    """A 3-sample LinearRaw DNG decoded without libraw, with the color data a libraw decode carries.
+    A scanner DNG (`is_scanned_dng`) gets no matrix, as libraw gives a scanner none, and
+    camera_wb_multipliers gives it no white balance."""
     wrapper = NonStandardFileWrapper(rgb, full_output_hw=full_output_hw, wb_gains=color.wb_gains)
-    wrapper.rgb_xyz_matrix = color.cam_xyz
+    if not is_scanned_dng(file_path):
+        wrapper.rgb_xyz_matrix = color.cam_xyz
     return wrapper
 
 
@@ -516,7 +522,7 @@ class RawpyLoader(IImageLoader):
                         "color_space": None,
                         "ir": None,
                     }
-                    return _linear_dng_wrapper(rgb, color, preview_dims), metadata
+                    return _linear_dng_wrapper(file_path, rgb, color, preview_dims), metadata
                 peeked = None
         else:
             peeked = _peek_linearraw_4ch(file_path)
@@ -565,7 +571,7 @@ class RawpyLoader(IImageLoader):
                     "color_space": None,
                     "ir": None,
                 }
-                wrapper = _linear_dng_wrapper(rgb, color)
+                wrapper = _linear_dng_wrapper(file_path, rgb, color)
                 metadata["lens_correction"] = bind_decode(read_lens_metadata(file_path), wrapper, fallback=True)
                 return wrapper, metadata
         else:
