@@ -617,7 +617,7 @@ def _decode_dng(file_path: str, expansion: Optional[float] = None) -> tuple[np.n
         raise ValueError(f"Failed to read LinearRaw data from {file_path}: {e}") from e
     if peeked_3ch is None:
         raise ValueError(f"No LinearRaw IFD found in {file_path}")
-    rgb, _wb_gains = peeked_3ch
+    rgb = peeked_3ch[0]
     if expansion is not None and expansion > 1.0:
         rgb = _expand(rgb, expansion)
 

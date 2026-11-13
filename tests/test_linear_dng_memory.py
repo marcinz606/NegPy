@@ -31,10 +31,10 @@ def test_block_decode_matches_full_array(tmp_path, use_table, crop):
         x, y, w, h = crop
         if 0 <= y < 1500 and 0 <= x < 257 and w > 0 and h > 0 and (w, h) != (257, 1500):
             expected = expected[y : y + h, x : x + w]
-    decoded, gains = _peek_linear_dng_rgb(str(path))
+    decoded, color = _peek_linear_dng_rgb(str(path))
     np.testing.assert_array_equal(decoded, expected.astype(np.float32))
     assert decoded.flags.c_contiguous
-    assert gains == (2.0, 1.0, 3.0)
+    assert color.wb_gains == (2.0, 1.0, 3.0)
     np.testing.assert_array_equal(tifffile.imread(path), codes)
 
 
@@ -44,6 +44,6 @@ def test_block_decode_default_levels(tmp_path, dtype):
     path = tmp_path / "defaults.dng"
     tifffile.imwrite(path, source, photometric=34892, planarconfig="contig")
     scale = np.iinfo(dtype).max if np.issubdtype(dtype, np.integer) else 1.0
-    decoded, gains = _peek_linear_dng_rgb(str(path))
+    decoded, color = _peek_linear_dng_rgb(str(path))
     np.testing.assert_array_equal(decoded, np.clip(source.astype(np.float64) / scale, 0, 1).astype(np.float32))
-    assert gains is None
+    assert color.wb_gains is None

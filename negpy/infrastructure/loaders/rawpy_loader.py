@@ -1,6 +1,6 @@
 import os
 from collections.abc import Callable
-from typing import Any, ContextManager, Optional, Tuple
+from typing import Any, ContextManager, NamedTuple, Optional, Tuple
 
 import negpy_core
 import numpy as np
@@ -15,6 +15,7 @@ from negpy.infrastructure.loaders.helpers import (
     dng_quick_preview,
     embedded_preview,
     fit_bounded_preview,
+    is_scanned_dng,
     read_orientation,
 )
 from negpy.infrastructure.loaders.ir_planes import find_ir_plane
@@ -226,11 +227,51 @@ def _streaming_linearraw_memory_estimate(
     )
 
 
+_D65_ILLUMINANT = 21
+
+
+class AsShotColor(NamedTuple):
+    """A LinearRaw DNG's as-shot color, the data a libraw decode carries: (R, G, B) white balance
+    gains and the XYZ->camera matrix. Either is None when the file carries none."""
+
+    wb_gains: Optional[Tuple[float, float, float]]
+    cam_xyz: Optional[list]
+
+
+def _as_shot_color(page0: Any) -> AsShotColor:
+    """Read from IFD0 while the file is open. The matrix is the D65 ColorMatrix, the one libraw's own
+    table holds, else ColorMatrix2, else ColorMatrix1. A file with no AsShotNeutral gets no matrix,
+    because the matrix assumes the balanced signal that the as-shot fold rebuilds."""
+    neutral = _tag_floats(page0.tags.get("AsShotNeutral"))
+    if len(neutral) < 3 or not all(n > 0 for n in neutral[:3]):
+        return AsShotColor(None, None)
+    red, green, blue = neutral[:3]
+    gains = (green / red, 1.0, green / blue)
+    pairs = [(_tag_floats(page0.tags.get(f"ColorMatrix{i}")), _tag_floats(page0.tags.get(f"CalibrationIlluminant{i}"))) for i in (1, 2)]
+    valid = [(m, illuminant) for m, illuminant in pairs if len(m) == 9 and all(np.isfinite(m))]
+    if not valid:
+        return AsShotColor(gains, None)
+    m = next((m for m, illuminant in valid if illuminant[:1] == (_D65_ILLUMINANT,)), valid[-1][0])
+    return AsShotColor(gains, [list(m[0:3]), list(m[3:6]), list(m[6:9])])
+
+
+def _linear_dng_wrapper(
+    file_path: str, rgb: np.ndarray, color: AsShotColor, full_output_hw: Optional[Tuple[int, int]] = None
+) -> NonStandardFileWrapper:
+    """A 3-sample LinearRaw DNG decoded without libraw, with the color data a libraw decode carries.
+    A scanner DNG (`is_scanned_dng`) gets no matrix, as libraw gives a scanner none, and
+    camera_wb_multipliers gives it no white balance."""
+    wrapper = NonStandardFileWrapper(rgb, full_output_hw=full_output_hw, wb_gains=color.wb_gains)
+    if not is_scanned_dng(file_path):
+        wrapper.rgb_xyz_matrix = color.cam_xyz
+    return wrapper
+
+
 def _peek_linear_dng_rgb_preview(
     file_path: str,
     max_edge: int,
     should_cancel: Optional[Callable[[], bool]] = None,
-) -> tuple[bool, Optional[Tuple[np.ndarray, Optional[Tuple[float, float, float]], Tuple[int, int]]]]:
+) -> tuple[bool, Optional[Tuple[np.ndarray, AsShotColor, Tuple[int, int]]]]:
     """Read a JPEG XL LinearRaw DNG directly into a bounded RGB preview."""
     if not _is_dng(file_path):
         return False, None
@@ -249,7 +290,7 @@ def _peek_linear_dng_rgb_preview(
                 normalize_tags=True,
                 should_cancel=should_cancel,
             )
-            neutral = _tag_floats(page0.tags.get("AsShotNeutral"))
+            color = _as_shot_color(page0)
     except InterruptedError:
         raise
     except Exception as e:
@@ -258,11 +299,7 @@ def _peek_linear_dng_rgb_preview(
     if streamed is None:
         return True, None
     rgb, full_dims = streamed
-    wb_gains: Optional[Tuple[float, float, float]] = None
-    if len(neutral) >= 3 and all(n > 0 for n in neutral[:3]):
-        red, green, blue = neutral[:3]
-        wb_gains = (green / red, 1.0, green / blue)
-    return True, (rgb, wb_gains, full_dims)
+    return True, (rgb, color, full_dims)
 
 
 def _peek_linearraw_4ch_preview(
@@ -300,16 +337,13 @@ def _peek_linearraw_4ch_preview(
     return True, (np.ascontiguousarray(full[:, :, :3]), np.ascontiguousarray(full[:, :, 3]), full_dims)
 
 
-def _peek_linear_dng_rgb(file_path: str) -> Optional[Tuple[np.ndarray, Optional[Tuple[float, float, float]]]]:
+def _peek_linear_dng_rgb(file_path: str) -> Optional[Tuple[np.ndarray, AsShotColor]]:
     """Decode a 3-sample LinearRaw DNG that libraw can't read (DNG 1.7 JPEG-XL from DxO
     PhotoLab/PureRAW and Lightroom Enhance, and similar) directly via tifffile/imagecodecs,
     replaying the linearization/black-white steps libraw's postprocess() would otherwise
-    apply. Returns (rgb, wb_gains) as float32 [0,1] sensor-native RGB plus the as-shot white
-    balance gains (R, G, B; None if AsShotNeutral is absent) — gains are not applied here,
-    since NonStandardFileWrapper.postprocess() decides based on use_camera_wb, same as a
-    real rawpy object would. No camera-to-XYZ color matrix: NegPy keeps every RAW source in
-    sensor-native RGB (see _decode_sensor_rgb's output_color=raw), so this mirrors that
-    rather than doing a color-managed decode.
+    apply. Returns (rgb, color): float32 [0,1] sensor-native RGB and its `AsShotColor`. Neither
+    applies here: NonStandardFileWrapper.postprocess() applies the gains on use_camera_wb, and
+    the matrix reaches the pipeline as cam_xyz, as a libraw decode's would (output_color=raw).
     """
     if not _is_dng(file_path):
         return None
@@ -333,7 +367,7 @@ def _peek_linear_dng_rgb(file_path: str) -> Optional[Tuple[np.ndarray, Optional[
             lin_table = np.asarray(lin_tag.value, dtype=np.float64) if lin_tag is not None else None
             black = _tag_floats(tag("BlackLevel"))
             white = _tag_floats(tag("WhiteLevel"))
-            neutral = _tag_floats(page0.tags.get("AsShotNeutral"))
+            color = _as_shot_color(page0)
             crop_origin = _tag_floats(tag("DefaultCropOrigin"))
             crop_size = _tag_floats(tag("DefaultCropSize"))
             active_area = _tag_floats(tag("ActiveArea"))
@@ -367,12 +401,7 @@ def _peek_linear_dng_rgb(file_path: str) -> Optional[Tuple[np.ndarray, Optional[
         lut=lin_table.tolist() if lin_table is not None else None,
     )
 
-    wb_gains: Optional[Tuple[float, float, float]] = None
-    if len(neutral) >= 3 and all(n > 0 for n in neutral[:3]):
-        r, g, b = neutral[:3]
-        wb_gains = (g / r, 1.0, g / b)
-
-    return data, wb_gains
+    return data, color
 
 
 def _peek_linearraw_4ch(file_path: str) -> Optional[Tuple[np.ndarray, np.ndarray]]:
@@ -486,14 +515,14 @@ class RawpyLoader(IImageLoader):
                 if handled_3ch:
                     if preview_3ch is None:
                         raise RuntimeError("LinearRaw DNG cannot be decoded within the preview memory limit")
-                    rgb, wb_gains, preview_dims = preview_3ch
+                    rgb, color, preview_dims = preview_3ch
                     metadata = {
                         "orientation": read_orientation(file_path),
                         "raw_flip": 0,
                         "color_space": None,
                         "ir": None,
                     }
-                    return NonStandardFileWrapper(rgb, full_output_hw=preview_dims, wb_gains=wb_gains), metadata
+                    return _linear_dng_wrapper(file_path, rgb, color, preview_dims), metadata
                 peeked = None
         else:
             peeked = _peek_linearraw_4ch(file_path)
@@ -535,14 +564,14 @@ class RawpyLoader(IImageLoader):
                 fallback = _peek_linear_dng_rgb(file_path) if preview_max_edge is None else None
                 if fallback is None:
                     raise
-                rgb, wb_gains = fallback
+                rgb, color = fallback
                 metadata = {
                     "orientation": read_orientation(file_path),
                     "raw_flip": 0,
                     "color_space": None,
                     "ir": None,
                 }
-                wrapper = NonStandardFileWrapper(rgb, wb_gains=wb_gains)
+                wrapper = _linear_dng_wrapper(file_path, rgb, color)
                 metadata["lens_correction"] = bind_decode(read_lens_metadata(file_path), wrapper, fallback=True)
                 return wrapper, metadata
         else:
