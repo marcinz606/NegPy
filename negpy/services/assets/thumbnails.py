@@ -42,11 +42,11 @@ def thumbnail_cache_key(file_hash: str, is_triplet: bool) -> str:
     return f"{base}-v3"
 
 
-def _fast_demosaic(raw: Any) -> np.ndarray:
+def _fast_demosaic(raw: Any, file_path: str = "") -> np.ndarray:
     """Fast half-size linear demosaic used for preview thumbnails."""
     # NonStandardFileWrapper has no camera calibration to read; its postprocess ignores user_sat anyway.
     user_sat = None if isinstance(raw, NonStandardFileWrapper) else _user_sat(raw)
-    camera_wb = decodes_camera_wb(raw, True)
+    camera_wb = decodes_camera_wb(raw, True, file_path)
     return ensure_rgb(
         raw.postprocess(
             use_camera_wb=camera_wb,
@@ -73,7 +73,7 @@ def _decode_triplet_preview(red_path: str, green_path: str, blue_path: str) -> O
     def _decode(path: str) -> Tuple[np.ndarray, Dict[str, Any]]:
         ctx_mgr, metadata = loader_factory.get_loader(path)
         with ctx_mgr as raw:
-            return _fast_demosaic(raw), metadata
+            return _fast_demosaic(raw, path), metadata
 
     r, red_meta = _decode(red_path)
     g, _ = _decode(green_path)
@@ -104,7 +104,7 @@ def decode_source_image(
         img: Optional[Image.Image] = embedded_preview(raw, file_path)
 
         if img is None:
-            img = Image.fromarray(_fast_demosaic(raw))
+            img = Image.fromarray(_fast_demosaic(raw, file_path))
 
         orientation = metadata.get("orientation", 1)
         if orientation and orientation != 1:

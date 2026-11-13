@@ -10,6 +10,7 @@ from negpy.features.process.models import ProcessMode, with_positive_source
 from negpy.features.rgbscan.models import is_rgb_triplet
 from negpy.features.stitch.models import stitch_active
 from negpy.infrastructure.loaders.factory import loader_factory
+from negpy.infrastructure.loaders.helpers import is_scanned_dng
 
 
 @functools.lru_cache(maxsize=4096)
@@ -18,14 +19,15 @@ def _checked_scanned_positive_source(path: str) -> bool:
 
 
 def is_scanned_positive_source(path: str) -> bool:
-    """A TIFF, JPEG, JXL or a film scanner's own raw (Pakon, Noritsu, Coolscan NEF, Flextight
-    FFF). Cached per path once the file is readable, because a Coolscan NEF or Flextight FFF is told
-    apart by opening it; an unreadable file is not cached, so a volume that comes back is read again."""
+    """A TIFF, JPEG, JXL, a film scanner's own raw (Pakon, Noritsu, Coolscan NEF, Flextight FFF) or
+    a scanner DNG. Cached per path once the file is readable, because a Coolscan NEF or Flextight FFF
+    is told apart by opening it; an unreadable file is not cached, so a volume that comes back is read
+    again. `is_scanned_dng` caches per file revision, so a DNG read while still being written is read again."""
     if not path:
         return False
     if not os.access(path, os.R_OK):
         return not loader_factory.is_camera_raw(path)
-    return _checked_scanned_positive_source(path)
+    return _checked_scanned_positive_source(path) or is_scanned_dng(path)
 
 
 is_scanned_positive_source.cache_clear = _checked_scanned_positive_source.cache_clear
