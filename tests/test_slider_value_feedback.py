@@ -17,7 +17,7 @@ def controls(qapp):
 def _press(slider, action_id: str):
     """Fire one slider shortcut; returns the HUD message."""
     window = SimpleNamespace(controller=MagicMock())
-    manager = SimpleNamespace(window=window, slider_steps={})
+    manager = SimpleNamespace(window=window, slider_steps={}, key_repeat=SimpleNamespace(multiplier=lambda: 1.0))
     manager._announce = lambda s, g: ShortcutManager._announce(manager, s, g)
     ShortcutManager._slider_adjuster(manager, lambda: slider, action_id)()
     return window.controller.set_status.call_args.args[0]
@@ -28,7 +28,7 @@ def test_keyboard_adjust_reports_the_new_value(qapp):
     slider = CompactSlider("Print Density", -2.0, 2.0, 0.0, unit=" EV")
     window = SimpleNamespace(controller=MagicMock())
 
-    manager = SimpleNamespace(window=window, slider_steps={})
+    manager = SimpleNamespace(window=window, slider_steps={}, key_repeat=SimpleNamespace(multiplier=lambda: 1.0))
     manager._announce = lambda s, g: ShortcutManager._announce(manager, s, g)
     ShortcutManager._slider_adjuster(manager, lambda: slider, "density_up")()
 

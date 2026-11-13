@@ -382,12 +382,56 @@ class KeyHold(QObject):
         return False
 
 
+# (repeats, multiplier), largest first: a held slider key takes the first row its repeat count reaches.
+REPEAT_ACCELERATION: tuple[tuple[int, float], ...] = ((24, 5.0), (8, 2.0))
+
+
+class KeyRepeat(QObject):
+    """Counts the repeats of one held slider key, so a hold moves the slider faster than taps.
+    The shortcut reports each press; this watches the release, which a QShortcut never sees."""
+
+    def __init__(self, window):
+        super().__init__(window)
+        self.window = window
+        self._key: Optional[int] = None
+        self._count = 0
+
+    def press(self, key: int) -> None:
+        if key != self._key:
+            self._end()
+            self._key = key
+            QApplication.instance().installEventFilter(self)
+        self._count += 1
+
+    def multiplier(self) -> float:
+        """1.0 with no key down, so a menu or palette run of the action keeps the plain step."""
+        repeats = self._count - 1
+        return next((factor for threshold, factor in REPEAT_ACCELERATION if repeats >= threshold), 1.0)
+
+    def _end(self) -> None:
+        if self._key is not None:
+            QApplication.instance().removeEventFilter(self)
+        self._key = None
+        self._count = 0
+
+    def eventFilter(self, watched, event) -> bool:
+        event_type = event.type()
+        if event_type in (QEvent.Type.ApplicationDeactivate, QEvent.Type.WindowDeactivate):
+            # The release lands in another window, or nowhere.
+            if event_type == QEvent.Type.ApplicationDeactivate or not self.window.isActiveWindow():
+                self._end()
+        elif event_type == QEvent.Type.KeyRelease and event.key() == self._key and not event.isAutoRepeat():
+            self._end()
+        return False
+
+
 class ShortcutManager:
     def __init__(self, window):
         self.window = window
         self.bindings = load_bindings(window.controller.session.repo)
         self.slider_steps = load_slider_steps(window.controller.session.repo)
         self._shortcuts: list[QShortcut] = []
+        self.key_repeat = KeyRepeat(window)
         self._actions = self._build_actions()
         self.key_hold = KeyHold(window)
         self._held_actions = self._build_held_actions()
@@ -435,7 +479,7 @@ class ShortcutManager:
                 self.window.controller.set_status(tr("{value} not available", value=_slider_name(slider, group)), 1500, kind="warning")
                 return
             step = slider_step_for(group.id, self.slider_steps)
-            slider.adjust_by(step * sign_for_action(action_id))
+            slider.adjust_by(step * sign_for_action(action_id) * self.key_repeat.multiplier())
             self._announce(slider, group)
 
         return _adjust
@@ -709,6 +753,8 @@ class ShortcutManager:
                 # Autorepeat would re-run the press while the key is down.
                 shortcut.setAutoRepeat(False)
                 shortcut.activated.connect(lambda held=held, k=QKeySequence(key)[0].key(): held(k))
+            elif action_id in SLIDER_GROUP_BY_ACTION:
+                shortcut.activated.connect(lambda run=callback, k=QKeySequence(key)[0].key(): (self.key_repeat.press(k), run()))
             else:
                 shortcut.activated.connect(callback)
             self._shortcuts.append(shortcut)

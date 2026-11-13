@@ -298,13 +298,13 @@ En **arbeidskopi** er en versjon av dette bildet som du beholder under et navn, 
 
 Hver endring du har gjort, den nyeste øverst (de siste 100). **Nå** markerer den gjeldende tilstanden; etter en angring vises senere trinn som **Angret** til neste redigering. Klikk et trinn for å gå tilbake til det. **⋮** eller høyreklikk → **Eksporter denne versjonen…** eksporterer en tidligere tilstand. **Sammenlign med dette trinnet** åpner **Før / etter** med det trinnet til venstre, på den gjeldende beskjæringen din. Trykk `\` for å lukke den.
 
-<!-- panel:film src:5487c3ab -->
+<!-- panel:film src:0094e9db -->
 ### 10.1 Oppsett
 
 Hva filmen er, og hvordan du skannet den. Disse valgene bestemmer hvilke kort og kontroller som vises.
 
 *   **Farge / S/H / Dias**: fargenegativ (C-41), en svart-hvitt-kopi, eller dias (E-6 og lignende). S/H kopierer ethvert negativ i svart-hvitt. For et fargenegativ gir kortet Filtrering da et kontrastfilter.
-*   **Positiv** (bare Dias): for en fil som allerede er et positiv, for eksempel en skannet kopi eller en eksport fra en annen app. NegPy hopper da over invertering og lysmåling. Et dias som ikke er en kamera-RAW, for eksempel en TIFF, JPEG, JXL eller en skanning fra Pakon, Noritsu, Coolscan eller Flextight, starter som Positiv. Slå det av for å gi en falmet skanning diasets tonekurve.
+*   **Positiv** (bare Dias): for en fil som allerede er et positiv, for eksempel en skannet kopi eller en eksport fra en annen app. NegPy hopper da over invertering og lysmåling. Et dias som ikke er en kamera-RAW, for eksempel en TIFF, JPEG, JXL, en skanner-DNG eller en skanning fra Pakon, Noritsu, Coolscan eller Flextight, starter som Positiv. Slå det av for å gi en falmet skanning diasets tonekurve.
 *   **S/H** (bare Dias): viser diaset i svart-hvitt, for svart-hvitt reversalfilm som Scala. Et fargedias får da filteret.
 *   **Koding** (positiv TIFF): hvordan verdiene koder lys. **Auto** leser filens ICC-profil, og ellers lineær over 8 bit og sRGB ved 8 bit. **Lineær** er lineære utdata fra en skanner, for eksempel Nikon Scan med fargestyring av. **2.2** er gamma 2,2 i Adobe RGB-primærfarger. Velg Lineær eller 2.2 for å passe skannerprogramvaren.
 *   **Kamera / Filmskanner**: hva du skannet med. NegPy leser det fra hver fil (en kamera-RAW er et kamera) til du velger noe. Valget ditt gjelder for hvert bilde og angir skanneren i fanen Skann.

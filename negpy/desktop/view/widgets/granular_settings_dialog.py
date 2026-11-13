@@ -381,11 +381,18 @@ class GranularSettingsDialog(QDialog):
         # what is left rather than over what it was built with.
         kept_edited = {row.id for _box, row, edited, _line in kept if edited}
         rebuilt = []
+        rebuilt_ids = []
         for (section, _old), ids in zip(self._sections, self._section_ids):
+            # A section with no row left has nothing for Show Defaults to list.
+            if not wanted.intersection(ids):
+                section.setVisible(False)
+                continue
             count = sum(1 for i in ids if i in kept_edited)
             section.set_modified(count)
             rebuilt.append((section, count))
+            rebuilt_ids.append(ids)
         self._sections = rebuilt
+        self._section_ids = rebuilt_ids
         self._apply_visibility()
         self._update_apply_enabled()
 
@@ -547,6 +554,8 @@ def open_apply_dialog(parent, session, rows=None, title: str = "") -> tuple[list
     )
     if rows is not None:
         dlg.limit_to_rows([r.id for r in rows])
+        # One card lists every row: a value set back to its default must reach the roll too.
+        dlg.show_unchanged_settings()
     else:
         dlg.uncheck_rows(_PLACEMENT_ROW_IDS)
     if title:

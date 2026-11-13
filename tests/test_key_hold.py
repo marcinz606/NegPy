@@ -11,7 +11,7 @@ from PyQt6.QtWidgets import QWidget
 
 from negpy.desktop.controller import AppController
 from negpy.desktop.session import AppState, ToolMode
-from negpy.desktop.view.keyboard_shortcuts import KeyHold, ShortcutManager
+from negpy.desktop.view.keyboard_shortcuts import REPEAT_ACCELERATION, KeyHold, KeyRepeat, ShortcutManager
 
 KEY = Qt.Key.Key_N
 
@@ -133,3 +133,46 @@ def test_no_hold_over_a_peek_or_an_uncropped_tool():
         AppController.begin_compare_hold(ctrl)
         assert ctrl.state.compare_hold is False
         ctrl._request_compare_baseline.assert_not_called()
+
+
+def test_a_held_slider_key_accelerates_until_release(qapp):
+    window = QWidget()
+    repeat = KeyRepeat(window)
+    assert repeat.multiplier() == 1.0
+    seen = []
+    for _ in range(REPEAT_ACCELERATION[0][0] + 1):
+        repeat.press(KEY)
+        repeat.eventFilter(window, _key_event(QEvent.Type.KeyRelease, auto_repeat=True))
+        seen.append(repeat.multiplier())
+    slow, fast = REPEAT_ACCELERATION[1], REPEAT_ACCELERATION[0]
+    assert seen[0] == seen[slow[0] - 1] == 1.0
+    assert seen[slow[0]] == seen[fast[0] - 1] == slow[1]
+    assert seen[-1] == fast[1]
+    repeat.eventFilter(window, _key_event(QEvent.Type.KeyRelease))
+    assert repeat.multiplier() == 1.0
+
+
+def test_taps_and_a_change_of_key_never_accelerate(qapp):
+    window = QWidget()
+    repeat = KeyRepeat(window)
+    for _ in range(REPEAT_ACCELERATION[0][0] + 1):
+        repeat.press(KEY)
+        assert repeat.multiplier() == 1.0
+        repeat.eventFilter(window, _key_event(QEvent.Type.KeyRelease))
+    for _ in range(REPEAT_ACCELERATION[1][0] + 1):
+        repeat.press(KEY)
+    repeat.press(Qt.Key.Key_M)
+    assert repeat.multiplier() == 1.0
+    repeat.eventFilter(window, QEvent(QEvent.Type.ApplicationDeactivate))
+    assert repeat.multiplier() == 1.0
+
+
+def test_slider_shortcut_scales_its_step_by_the_hold():
+    slider = MagicMock()
+    slider.isEnabled.return_value = True
+    # hidden_by_gating walks parents until None; a bare mock never ends the walk.
+    slider.parentWidget.return_value = None
+    manager = SimpleNamespace(slider_steps={}, key_repeat=SimpleNamespace(multiplier=lambda: 5.0), _announce=lambda *a: None)
+    ShortcutManager._slider_adjuster(manager, lambda: slider, "density_up")()
+    slider.adjust_by.assert_called_once()
+    assert abs(slider.adjust_by.call_args.args[0] - 0.05) < 1e-9

@@ -360,12 +360,12 @@ class PreviewManager:
                 user_wb.append(user_wb[1])
             use_camera_wb_flag = False
             wb_for_gain: Optional[Sequence[float]] = user_wb
-        elif decodes_camera_wb(raw, decode_camera_wb):
+        elif decodes_camera_wb(raw, decode_camera_wb, file_path):
             user_wb = None
             use_camera_wb_flag = True
             # Read before postprocess: camera_whitebalance is sensor metadata, unaffected
             # by it, and highlight_reconstruction_bright_gain needs it ahead of the call.
-            wb_for_gain = camera_wb_multipliers(raw)
+            wb_for_gain = camera_wb_multipliers(raw, file_path)
         else:
             user_wb = [1, 1, 1, 1]
             use_camera_wb_flag = False
@@ -402,7 +402,7 @@ class PreviewManager:
         # features.process.capture_color.
         metadata["cam_xyz"] = camera_xyz_matrix(raw)
         # Only needed when use_camera_wb is False; harmless otherwise.
-        metadata["camera_wb"] = camera_wb_multipliers(raw)
+        metadata["camera_wb"] = camera_wb_multipliers(raw, file_path)
         if isinstance(raw, rawpy.RawPy):
             raw.close()
         if should_cancel is not None and should_cancel():

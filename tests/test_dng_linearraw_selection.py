@@ -1,3 +1,5 @@
+import struct
+
 import numpy as np
 import pytest
 import rawpy
@@ -81,6 +83,68 @@ def test_bounded_thumbnail_skips_a_reduced_linearraw_preview(tmp_path):
     assert dng_bounded_preview(str(path), 32) == (False, None)
 
 
+_EXIF_PLACEHOLDER = 34666
+
+
+def _write_scanner_dng(path, exposure: bool = False) -> None:
+    """VueScan/SilverFast layout: thumbnail IFD0, LinearRaw main SubIFD. *exposure* adds an EXIF IFD
+    with ExposureTime, as a camera's LinearRaw DNG (DxO, Lightroom Enhance) keeps."""
+    extra = _IFD0_TAGS + ([(_EXIF_PLACEHOLDER, "I", 1, 0, True)] if exposure else [])
+    with tifffile.TiffWriter(path) as tw:
+        tw.write(np.zeros((8, 12, 3), np.uint8), photometric="rgb", subfiletype=1, subifds=1, extratags=extra)
+        tw.write(np.full((16, 24, 3), 20000, np.uint16), photometric=34892, subfiletype=0, planarconfig="contig")
+        if exposure:
+            tw.write(np.zeros((1, 1), np.uint8), photometric="minisblack", extratags=[(33434, "2I", 1, (1, 125), True)])
+    if exposure:
+        # tifffile refuses to write ExifTag, so a placeholder entry becomes it, pointed at the spare IFD.
+        with tifffile.TiffFile(path) as tif:
+            tag, target, order = tif.pages[0].tags[_EXIF_PLACEHOLDER], tif.pages[1].offset, tif.byteorder
+        with open(path, "r+b") as f:
+            f.seek(tag.offset)
+            f.write(struct.pack(order + "H", 34665))
+            f.seek(tag.valueoffset)
+            f.write(struct.pack(order + "I", target))
+
+
+@pytest.mark.parametrize(
+    "write, scanned",
+    [
+        (lambda p: _write_scanner_dng(p), True),
+        (lambda p: _write_scanner_dng(p, exposure=True), False),
+        (lambda p: _write_adobe_style_dng(p), False),
+        (lambda p: _write_adobe_style_dng(p, preview_subfiletype=0), False),
+    ],
+    ids=["scanner", "camera-linearraw", "camera-cfa", "camera-cfa-with-linearraw"],
+)
+def test_a_scanner_dng_is_a_linearraw_main_image_without_camera_exposure(tmp_path, write, scanned):
+    from negpy.infrastructure.loaders.helpers import is_scanned_dng
+    from negpy.infrastructure.loaders.source_kind import is_scanned_positive_source
+
+    path = tmp_path / "frame.dng"
+    write(path)
+    is_scanned_positive_source.cache_clear()
+    assert is_scanned_dng(str(path)) is scanned
+    assert is_scanned_positive_source(str(path)) is scanned
+    is_scanned_positive_source.cache_clear()
+
+
+def test_a_scanner_dng_slide_starts_positive(tmp_path):
+    from dataclasses import replace
+
+    from negpy.domain.models import WorkspaceConfig
+    from negpy.features.process.models import ProcessConfig, ProcessMode
+    from negpy.infrastructure.loaders.source_kind import is_scanned_positive_source, with_scanner_positive_default
+
+    scan, camera = tmp_path / "scan.dng", tmp_path / "camera.dng"
+    _write_scanner_dng(scan)
+    _write_adobe_style_dng(camera)
+    slide = replace(WorkspaceConfig(), process=ProcessConfig(process_mode=ProcessMode.E6))
+    is_scanned_positive_source.cache_clear()
+    assert with_scanner_positive_default(slide, str(scan)).process.positive_source is True
+    assert with_scanner_positive_default(slide, str(camera)).process.positive_source is False
+    is_scanned_positive_source.cache_clear()
+
+
 class _Libraw(rawpy.RawPy):
     camera_whitebalance = [0.0, 1.0, 0.0, 0.0]
 
@@ -104,3 +168,55 @@ def test_a_file_without_as_shot_white_balance_decodes_neutral(raw, wanted, expec
     from negpy.infrastructure.loaders.helpers import decodes_camera_wb
 
     assert decodes_camera_wb(raw(), wanted) is expected
+
+
+def test_a_scanner_dng_never_reads_its_white_balance_tag(tmp_path):
+    """A scanner DNG decodes 1,1,1 and folds nothing, whatever AsShotNeutral it carries."""
+    from negpy.infrastructure.loaders.helpers import camera_wb_multipliers, decodes_camera_wb
+
+    scan, camera = tmp_path / "scan.dng", tmp_path / "camera.dng"
+    _write_scanner_dng(scan)
+    _write_scanner_dng(camera, exposure=True)
+    raw = _LibrawAsShot()
+    assert camera_wb_multipliers(raw, str(scan)) is None
+    assert decodes_camera_wb(raw, True, str(scan)) is False
+    assert camera_wb_multipliers(raw, str(camera)) == [2.0, 1.0, 1.5]
+    assert decodes_camera_wb(raw, True, str(camera)) is True
+
+
+def test_exposure_tags_in_the_ifd_itself_mark_a_camera(tmp_path):
+    from negpy.infrastructure.loaders.helpers import is_scanned_dng
+
+    path = tmp_path / "camera.dng"
+    with tifffile.TiffWriter(path) as tw:
+        tw.write(
+            np.zeros((8, 12, 3), np.uint8),
+            photometric="rgb",
+            subfiletype=1,
+            subifds=1,
+            extratags=_IFD0_TAGS + [(33434, "2I", 1, (1, 125), True)],
+        )
+        tw.write(np.full((16, 24, 3), 20000, np.uint16), photometric=34892, subfiletype=0, planarconfig="contig")
+    assert is_scanned_dng(str(path)) is False
+
+
+def test_a_scanner_dng_read_while_still_written_is_read_again(tmp_path):
+    from negpy.infrastructure.loaders.source_kind import is_scanned_positive_source
+
+    whole = tmp_path / "whole.dng"
+    _write_scanner_dng(whole)
+    path = tmp_path / "frame.dng"
+    path.write_bytes(whole.read_bytes()[:64])
+    is_scanned_positive_source.cache_clear()
+    assert is_scanned_positive_source(str(path)) is False
+    path.write_bytes(whole.read_bytes())
+    assert is_scanned_positive_source(str(path)) is True
+    is_scanned_positive_source.cache_clear()
+
+
+def test_a_wrapper_of_a_scanner_dng_takes_no_white_balance(tmp_path):
+    from negpy.infrastructure.loaders.helpers import decodes_camera_wb
+
+    scan = tmp_path / "scan.dng"
+    _write_scanner_dng(scan)
+    assert decodes_camera_wb(NonStandardFileWrapper(wb_gains=(2.0, 1.0, 1.5)), True, str(scan)) is False
