@@ -1,5 +1,21 @@
 # Change Log
 
+## 0.69.0
+
+- New: **Command-line launch** — open files and folders, set export options with flags, or render positives with no window. @jboneng
+- New: **Analysis Overlay** — shows the Analysis chart in a canvas corner while the card is closed.
+- New: **Analog Gain** — per-channel sliders for Nikon scanners. @gtschieder
+- New: **Locate Folder…** — relinks a folder roll after its folder is renamed or moved. @thetalkingdrum
+- Change: **Saturation** — works in Oklab, so blues stay blue.
+- Change: **Slide white balance** — Temperature moves Cyan and Yellow, Pick WB sets Temperature and Tint, and a hint shows clipped highlights. @thetalkingdrum
+- Change: **Softest Grade hint** — shows when a flat negative cannot print softer.
+- Change: **Faster editing** — a held slider key moves faster, and rotate, flip and Linear Output run faster.
+- Change: **Apply to Frames** — lists settings at their default value.
+- Fix: **DNG and RAW color** — scanner DNGs, RAWs with no as-shot white balance, and JPEG XL DNGs on Transfer. @thetalkingdrum
+- Fix: **Rolls** — Roll scope after Save as Roll, and the Save to Folder Roll button in the Roll row. @thetalkingdrum
+- Fix: **Canvas** — crop handles stay visible at high zoom, and Export Size opens each new size at 100%. @matthoosier @seanharding
+- Fix: **Windows export** — retries when another app locks the file. @v3ravani
+
 ## 0.68.0
 
 - New: **Fade Restoration** — restores the dyes of faded slides on its own Roll-tab card, with an optional Remove Stain. @thetalkingdrum
