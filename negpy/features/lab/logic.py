@@ -166,12 +166,10 @@ def apply_rl_sharpening(
 
 
 def apply_saturation(img: ImageBuffer, saturation: float, skin_protection: float = 0.0) -> ImageBuffer:
-    """
-    Scales chroma in Oklab, which holds hue where CIELAB turns blue toward purple, and keeps the
-    pixel's CIELAB L*, so the tone tools and the sharpen state read the same lightness. Above 1.0
-    a pixel whose full push leaves the gamut takes a soft knee toward its own headroom, because
-    an RGB clamp shifts hue. Skin Protection then reins skin chroma in CIELAB; it runs at 1.0 too.
-    """
+    """Scales chroma in Oklab, which holds hue where CIELAB turns blue toward purple, and keeps the
+    pixel's CIELAB L*, which the tone tools and the sharpen state read. Above 1.0 a pixel whose full
+    push leaves the gamut takes a soft knee toward its own headroom, because an RGB clamp shifts hue.
+    Skin Protection then reins skin chroma in CIELAB, at 1.0 too."""
     if saturation == 1.0 and skin_protection <= 0.0:
         return img
     return negpy_core.saturation(

@@ -39,11 +39,8 @@ def param_value(config: WorkspaceConfig, param: PickParam) -> float:
 
 
 def set_param(config: WorkspaceConfig, param: PickParam, value: float) -> WorkspaceConfig:
-    """Return a config with the control set to `value`, clamped to its slider range.
-
-    A single-field control writes its field; the compound Temperature moves wb_magenta/
-    wb_yellow (wb_cyan/wb_yellow on a slide) along the Planckian direction to land on the Kelvin value.
-    """
+    """A config with the control set to `value`, clamped to its slider range. The compound Temperature
+    moves wb_magenta/wb_yellow (wb_cyan/wb_yellow on a slide) along the Planckian direction to the Kelvin value."""
     value = _clamp(value, param)
     if param.compound and render_path(config.process) is not RenderPath.PRINT:
         c2, y2 = slide_kelvin_to_wb(value, config.exposure.wb_cyan, config.exposure.wb_yellow)

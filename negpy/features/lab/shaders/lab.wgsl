@@ -250,9 +250,8 @@ fn in_gamut(rgb: vec3<f32>) -> bool {
     return all(rgb >= vec3<f32>(-tol)) && all(rgb <= vec3<f32>(1.0 + tol));
 }
 
-// Saturation: an Oklab chroma scale. A pixel whose full push leaves the gamut takes a soft knee
-// toward its own headroom, found by 10 bisection steps, because an RGB clamp shifts hue.
-// Mirrors oklab_chroma_block in negpy_core/src/color.rs.
+// Saturation: an Oklab chroma scale with a soft knee toward the pixel's gamut headroom (10 bisection
+// steps), because an RGB clamp shifts hue. Mirrors oklab_chroma_block in negpy_core/src/color.rs.
 fn oklab_saturate(rgb: vec3<f32>, saturation: f32) -> vec3<f32> {
     let lab = rgb_to_oklab(rgb);
     let full = oklab_to_rgb(lab, saturation);

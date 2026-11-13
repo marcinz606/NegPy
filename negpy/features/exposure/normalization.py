@@ -326,13 +326,9 @@ def base_scan_density(base_log: Optional[Tuple[float, float, float]], unmix: Opt
 
 
 def luminance_density_range(bounds: LogNegativeBounds) -> float:
-    """
-    Single global density range as a luminance weighting of the
-    per-channel ranges. Replaces the green-only range so frames with a strong
-    single-channel cast don't swing the slope as hard, while green still
-    dominates so calibrated grade behaviour barely shifts. abs() keeps it
-    sign-safe for a slide's reversed (f > c) window.
-    """
+    """One global density range: the luma-weighted per-channel ranges, so a strong single-channel
+    cast moves the slope less than it moves that channel. abs() keeps a slide's reversed (f > c)
+    window sign-safe."""
     rr = abs(bounds.ceils[0] - bounds.floors[0])
     rg = abs(bounds.ceils[1] - bounds.floors[1])
     rb = abs(bounds.ceils[2] - bounds.floors[2])

@@ -849,14 +849,9 @@ def is_scanned_dng(file_path: str) -> bool:
 
 def camera_wb_multipliers(raw: Any, file_path: str = "") -> Optional[list]:
     """The as-shot white balance as [R, G, B] multipliers, or None if absent. A scanner DNG has
-    none: the scanner balances its gains to its lamp, and NegPy reads every other scanner file that way.
-
-    Needed only when a buffer is decoded WITHOUT white balance (Linear RAW): the camera
-    matrix is row-normalized, so it assumes a neutral camera signal, and an unbalanced
-    one renders with a heavy cast. Folding these back in reconstructs the balanced
-    signal the matrix expects. Serialized out of the rawpy object for the same
-    lifetime reason as camera_xyz_matrix.
-    """
+    none: the scanner balances its gains to its lamp. A decode without white balance (Linear RAW)
+    folds these back in, because the row-normalized camera matrix assumes a neutral camera signal.
+    Serialized out of the rawpy object for the same lifetime reason as camera_xyz_matrix."""
     if is_scanned_dng(file_path):
         return None
     try:

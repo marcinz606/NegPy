@@ -1029,30 +1029,18 @@ class ImageProcessor:
     ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """Decode one RAW to sensor-native (output_color=raw), linear RGB.
 
-        `fast` allows a half-size decode (contact-sheet tiles); ignored where
-        half_size would distort colors (see _use_half_size_decode).
+        `fast` allows a half-size decode where it does not distort colors (`_use_half_size_decode`).
+        `wb_override` decodes on another file's white balance: the frames of one bracket share a scale,
+        and the as-shot multipliers differ per frame on a camera in auto white balance.
+        `highlight_mode` is libraw's reconstruction level, resolved by the caller
+        (`effective_highlight_reconstruction`). A non-Clip mode scales the decode against its widest
+        channel multiplier, which `bright` offsets (`highlight_reconstruction_bright_gain`).
+        `bake_camera_wb` applies the file's white balance on a `linear_raw` decode
+        (`highlight_reconstruction_bakes_wb`), because reconstruction's clip thresholds read the decode's
+        multipliers. `wb_override` wins over it.
 
-        `wb_override` decodes on someone else's white balance instead of this file's own.
-        Frames of one bracket must share a scale or the exposure ratios solved between them
-        absorb the difference, and `use_camera_wb` reads each *file's* as-shot multipliers —
-        which differ per frame on a camera left in auto white balance.
-
-        `highlight_mode` is libraw's own reconstruction level; the caller resolves it via
-        `effective_highlight_reconstruction` so this method never has to re-derive the gate.
-
-        `bake_camera_wb` applies this file's own white balance even though `linear_raw` is
-        true, resolved by the caller via `highlight_reconstruction_bakes_wb` — reconstruction's
-        clip thresholds read the decode's own multipliers, which are all neutral on a plain
-        `linear_raw` decode. `wb_override` still wins when both are set, so a bracket sibling
-        pins to the reference frame's white balance rather than reading its own.
-
-        A non-Clip `highlight_mode` makes libraw scale the whole decode down against its
-        widest channel multiplier instead of its narrowest, so whatever real white balance
-        reaches this decode (camera or override) is offset back out via `bright` —
-        see `highlight_reconstruction_bright_gain`.
-
-        Returns (rgb, loader_metadata): uint16 from a camera RAW or a linear 16-bit source,
-        float32 in [0, 1] from any other source.
+        Returns (rgb, loader_metadata): uint16 from a camera RAW or a linear 16-bit source, float32 in
+        [0, 1] from any other source.
         """
         ctx_mgr, metadata = loader_factory.get_loader(file_path, linear_raw=linear_raw, positive_decode=positive_decode, load_ir=load_ir)
         with ctx_mgr as raw:

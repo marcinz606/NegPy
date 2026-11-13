@@ -86,7 +86,6 @@ _LASSO_SNAP_PX = 12.0
 _CROP_HANDLE_PX = 10.0
 _EDGE_HANDLE_LENGTH_PX = 14.0
 _EDGE_HANDLE_THICKNESS_PX = 4.0
-_EDGE_HANDLE_VIEWPORT_GAP_PX = _CROP_HANDLE_PX - _EDGE_HANDLE_LENGTH_PX / 2.0
 _AUTO_PAN_EDGE_ZONE_FRACTION = 0.02
 _AUTO_PAN_INTERVAL_MS = 16
 _AUTO_PAN_MAX_SPEED_PX_S = 1200.0
@@ -2534,7 +2533,6 @@ class CanvasOverlay(QWidget):
             "right": (corners["tr"], corners["br"]),
         }
         rotation_handles = self._crop_rotation_handle_points() or {}
-        # Reserve corner and rotation grab areas before placing edge handles.
         reserved = [
             *((point, _CROP_HANDLE_PX) for point in corners.values()),
             *((point, _ROT_HANDLE_RADIUS_PX) for point in rotation_handles.values()),

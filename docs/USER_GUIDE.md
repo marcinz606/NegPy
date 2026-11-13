@@ -107,7 +107,7 @@ If Windows blocks the default data folder, NegPy suggests `%LOCALAPPDATA%\NegPy\
 
 ### Command line and automation
 
-Scripts, automatic workflows and other tools can start NegPy from the command line. Use this to put NegPy into a larger toolchain, for example a step that opens a scan for editing or makes previews.
+Scripts and other tools can start NegPy from the command line, for example to open a scan for editing or to make previews.
 
 `NegPy <file> [<file>…]` opens the files and shows the first one. A folder opens all of its images. If NegPy is already open, the files open in that window and the window comes to the front. On Linux, **Open With NegPy** in a file manager also opens the files.
 
