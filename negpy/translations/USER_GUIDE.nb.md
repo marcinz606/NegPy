@@ -250,8 +250,25 @@ På en lith-kopi virker bare Selen og Gull. På en cyanotypi virker ingen toner.
 
 **Delt toning** (alle kopier): **Skyggestyrke** og **Høylysstyrke** legger farge til skyggene og høylysene. **Skyggetone** og **Høylystone** velger fargen, og vises når styrken er over 0.
 
+<!-- panel:leak src:d58b56d6 -->
+### 7.1 Lyslekkasje
+
+Reduserer sløret en lyslekkasje legger på et negativ eller et dias, før all støvreparasjon og bare under lyslekkasjene du legger ut. Utbrent film blir værende: lege eller klone den. Ikke tilgjengelig for positive bilder og sammensatte bilder.
+
+*   **Reduser lyslekkasje** slår korreksjonen på. **Auto** (tryllestav) legger en form på hver lyslekkasje filmen bekrefter: en kant der belyst filmkant fortsetter inn i bildet, en stripe langs en rett lyslekkasje. Slør som stopper ved bildegrensen er kantslør eller kantpåskrift, og Auto lar det være.
+*   **Fra rull** (filmikon): med andre bilder valgt overfører den lyslekkasjene på dette bildet til hvert av dem, og hvert bilde leser styrken og fargen selv. Uten valg velger den bildene Auto finner en lyslekkasje på.
+*   **Film-Dmax** (Av, eller 0,05 til 4,0 D): filmens største tetthet, for en film der den tette enden er mettet.
+*   **Gjenopprett lag**: gjenoppbygger et fargelag som lyslekkasjen drev til høyeste tetthet, fra lagene som fortsatt har bildet.
+*   **Korn** og **Kontrast** virker bare der lyslekkasje ble fjernet: Korn demper strukket korn, Kontrast henter tilbake utflatet kontrast.
+*   **Stripe**: dra langs lyslekkasjens sterkeste linje, og dra så hver stiplede kant dit den toner ut.
+*   **Kant**: dra langs siden lyslekkasjen kommer inn fra. Linjen fester seg til den. Der beskjæringen tar med den belyste åpningen mellom bildene, fjerner kanten den langs hele siden.
+*   **Flekk**: dra ut en oval over en rund lyslekkasje.
+*   **Mal**: mal over en lyslekkasje uten linje eller sentrum, bredere enn lyslekkasjen.
+*   **Valgt lyslekkasje**: **Styrke** (0 til 400 %) styrer hvor mye av lyslekkasjen som fjernes, **Uttoning** hvordan en stripe, flekk eller et malt område toner ut mot kanten, **Farge** hvor fargen kommer fra (**Auto**, **Bakside** for lys gjennom filmbasen, **Forside** for lys på emulsjonssiden), og **Fargejustering** fjerner mer eller mindre av hovedfargen. Farge og Fargejustering er skjult for svart-hvitt-film.
+*   **Vis utbrent** (flamme) markerer filmen lyslekkasjen brente ut i alle lag.
+
 <!-- panel:retouch src:8d07a6c2 -->
-### 7.1 Retusj: støv, hår, riper
+### 7.2 Retusj: støv, hår, riper
 
 Fjerner støv, hår og riper. Hver reparasjon bygges opp fra den rene filmen rundt den.
 
@@ -266,7 +283,7 @@ Fjerner støv, hår og riper. Hver reparasjon bygges opp fra den rene filmen run
 *   **Angre siste** og **Fjern alle** fjerner manuelle reparasjoner; høyreklikk en på bildet for å slette den.
 
 <!-- panel:finish src:0e98fdde -->
-### 7.2 Etterbehandling: vignett, negativholder, kant
+### 7.3 Etterbehandling: vignett, negativholder, kant
 
 Hvordan kopien presenteres. De andre glidebryterne for hver effekt vises når den første glidebryteren ikke er 0.
 

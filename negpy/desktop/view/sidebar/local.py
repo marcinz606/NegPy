@@ -1,8 +1,9 @@
 from negpy.kernel.system.i18n import tr
-from PyQt6.QtCore import Qt, QSize, pyqtSignal
-from PyQt6.QtWidgets import QPushButton, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QWidget
+from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import QPushButton, QHBoxLayout, QLabel
 import qtawesome as qta
 from negpy.desktop.view.widgets.segmented_choice import SegmentedChoice
+from negpy.desktop.view.widgets.shape_list import ShapeList, ShapeRow
 from negpy.desktop.view.widgets.sliders import CompactSlider, SliderGroup
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.session import ToolMode
@@ -15,7 +16,6 @@ from negpy.features.process.path import RenderPath, render_path
 from negpy.services.view.printing_notes import tone_limit_label
 
 
-_MASK_ROW_H = 30
 _TONE_TIPS = {
     MaskKey.OFF: tr("The mask acts on every tone inside its shape."),
     MaskKey.HIGHLIGHTS: (tr("The mask acts only on tones lighter than Tone Zone, so a sky burn stops at the skyline.")),
@@ -28,16 +28,6 @@ _SHAPE_ICONS = {
     MaskShape.OVAL: "fa5s.circle",
     MaskShape.GRADIENT: "fa5s.grip-lines",
 }
-
-
-class _MaskRow(QWidget):
-    """One mask list row; clicking its background (not the buttons) selects the mask."""
-
-    clicked = pyqtSignal()
-
-    def mousePressEvent(self, event) -> None:
-        self.clicked.emit()
-        super().mousePressEvent(event)
 
 
 class LocalSidebar(BaseSidebar):
@@ -73,15 +63,7 @@ class LocalSidebar(BaseSidebar):
         self.slide_hint.setVisible(False)
         self.layout.addWidget(self.slide_hint)
 
-        self.mask_list = QListWidget()
-        self.mask_list.setToolTip(tr("Click a mask to select it, or use its icons to turn it on or off, show its outline or delete it."))
-        self.mask_list.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.mask_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        # The row is a custom widget, so drop the app-wide item padding, margin and border that
-        # would otherwise squeeze and clip it.
-        self.mask_list.setStyleSheet(
-            f"QListView::item {{ border: none; margin: 0px; padding: 0px; }}QListView::item:selected {{ background-color: {THEME.bg_checked}; }}"
-        )
+        self.mask_list = ShapeList(tr("Click a mask to select it, or use its icons to turn it on or off, show its outline or delete it."))
         self.layout.addWidget(self.mask_list)
 
         # Exposure-signed like the frame's Print Density and the Finishing edge burn: positive is
@@ -161,7 +143,7 @@ class LocalSidebar(BaseSidebar):
     def _toggle_icon(icon_name: str, on: bool):
         return qta.icon(icon_name, color=THEME.text_primary if on else THEME.text_hint)
 
-    def _build_mask_row(self, i: int, mask) -> _MaskRow:
+    def _build_mask_row(self, i: int, mask) -> ShapeRow:
         dodge, burn = palette_for(self.state.color_vision).dodge_burn
         limited = limited_indices(self.state.config.local)
         flashed = bool(mask.flash) and i not in limited  # a tone-limited mask carries no flash
@@ -173,7 +155,7 @@ class LocalSidebar(BaseSidebar):
             # A mask that only changes grade, or only flashes, is neither: it re-prints the area
             # at its own contrast, or pre-exposes it, without adding or holding back exposure.
             kind, color = (tr("Flash") if flashed and not mask.grade else tr("Grade")), THEME.text_primary
-        row = _MaskRow()
+        row = ShapeRow()
         lay = QHBoxLayout(row)
         lay.setContentsMargins(THEME.space_md, THEME.space_xs, THEME.space_sm, THEME.space_xs)
         lay.setSpacing(THEME.space_sm)
@@ -246,22 +228,7 @@ class LocalSidebar(BaseSidebar):
             idx = self.state.local_selected_mask
             has_selection = 0 <= idx < n
 
-            self.mask_list.blockSignals(True)
-            self.mask_list.clear()
-            for i, mask in enumerate(conf.masks):
-                item = QListWidgetItem()
-                row = self._build_mask_row(i, mask)
-                item.setSizeHint(QSize(0, _MASK_ROW_H))
-                self.mask_list.addItem(item)
-                self.mask_list.setItemWidget(item, row)
-            if has_selection:
-                self.mask_list.setCurrentRow(idx)
-            else:
-                self.mask_list.clearSelection()
-            self.mask_list.setVisible(n > 0)
-            if n:
-                self.mask_list.setFixedHeight(_MASK_ROW_H * n + 2 * self.mask_list.frameWidth())
-            self.mask_list.blockSignals(False)
+            self.mask_list.set_rows([self._build_mask_row(i, mask) for i, mask in enumerate(conf.masks)], idx)
             mask = conf.masks[idx] if has_selection else None
             editable = has_selection and not transfer
             self.burn_slider.setEnabled(editable)
