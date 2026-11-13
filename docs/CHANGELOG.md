@@ -2,19 +2,19 @@
 
 ## 0.69.0
 
-- New: **Command-line launch** — open files and folders from the command line, set a per-session export recipe with flags, quit after the export, and render positives with no window (`--render`). @jboneng
-- New: **Analysis Overlay** — shows the Analysis chart in a corner of the canvas while the card is closed; a click shows the next chart.
-- New: **Analog Gain for Nikon scanners** — per-channel analog gain sliders through nkscan. @gtschieder
-- New: **Locate Folder…** — relinks a folder roll after its folder is renamed or moved, and the Library sees a missing folder while the app runs. @thetalkingdrum
-- Change: **Saturation** — scales chroma in Oklab, so blues stay blue; every luma uses the Adobe RGB weights.
-- Change: **Slide white balance** — Temperature moves Cyan and Yellow as a white balance, Pick WB solves Temperature and Tint, filtration is the same at every grade, and a hint shows clipped highlights on camera RAW slides. @thetalkingdrum
-- Change: **Softest Grade hint** — an amber hint shows when a flat negative is at its softest Grade.
-- Change: **Keyboard and Apply to Frames** — a held slider key moves faster, and a card's Apply to Frames lists settings at their default.
-- Change: **Faster rotate, flip and Linear Output export**.
-- Fix: **DNG and RAW decode** — scanner DNGs start Positive and ignore their WB tag, RAWs with no as-shot white balance decode neutral, and JPEG XL LinearRaw DNGs keep their as-shot color on Transfer. @thetalkingdrum
-- Fix: **Rolls** — the open frame shows Roll scope after Save as Roll, and Save to Folder Roll stays in the Roll row. @thetalkingdrum
-- Fix: **Canvas** — crop edge handles stay visible at high zoom, and Export Size opens each new size at 100%. @matthoosier @seanharding
-- Fix: **Windows export** — retries when another app locks the file, and overwrites read-only files. @v3ravani
+- New: **Command-line launch** — open files, export with flags, or render with no window. @jboneng
+- New: **Analysis Overlay** — the Analysis chart on the canvas.
+- New: **Analog Gain** for Nikon scanners. @gtschieder
+- New: **Locate Folder…** — relink a folder roll after its folder moves. @thetalkingdrum
+- Change: **Saturation** works in Oklab, so blues stay blue.
+- Change: **Slide white balance** — Temperature and Pick WB act as a true white balance. @thetalkingdrum
+- Change: **Hints** for the softest Grade and for clipped slide highlights. @thetalkingdrum
+- Change: **Held slider keys** move faster; Apply to Frames lists default values.
+- Change: **Faster rotate, flip and Linear Output**.
+- Fix: **DNG and RAW color** — scanner DNGs, RAWs with no white balance, JPEG XL DNGs. @thetalkingdrum
+- Fix: **Rolls** — Roll scope after Save as Roll, Save to Folder Roll button. @thetalkingdrum
+- Fix: **Canvas** — crop handles at high zoom, Export Size zoom. @matthoosier @seanharding
+- Fix: **Windows export** when another app locks the file. @v3ravani
 
 ## 0.68.0
 
