@@ -175,6 +175,63 @@ def test_linear_demosaic_clamps_a_calibrated_limit_that_exceeds_the_format_ceili
     assert seen["user_sat"] == 16383
 
 
+def test_linear_demosaic_ignores_implausibly_low_calibrated_limit_from_unrecognised_makernotes(monkeypatch):
+    seen = {}
+
+    class _Spy(_FakeRaw):
+        white_level = 16383
+        camera_white_level_per_channel = [144, 144, 144, 144]
+        black_level_per_channel = [0, 32, 96, 64]
+
+        def postprocess(self, **kwargs):
+            seen.update(kwargs)
+            return super().postprocess(**kwargs)
+
+    monkeypatch.setattr(rawpy, "imread", lambda _path: _Spy())
+    linear_demosaic("frame.CR3")
+    assert seen["user_sat"] == 16383
+
+
+def test_linear_demosaic_repairs_corrupt_black_level_from_optical_black_margin(monkeypatch):
+    seen = {}
+
+    class _Spy(_FakeRaw):
+        white_level = 16383
+        camera_white_level_per_channel = [144, 144, 144, 144]
+        black_level_per_channel = [0, 32, 96, 64]
+        raw_pattern = np.array([[0, 1], [3, 2]], dtype=np.uint8)
+        sizes = type("_S", (), {"top_margin": 4, "left_margin": 32})()
+
+        def __init__(self):
+            self.raw_image = np.full((12, 40), 512, dtype=np.uint16)
+            self.raw_image[4:, 32:] = 1000
+            self.raw_image_visible = self.raw_image[4:, 32:]
+
+        def postprocess(self, **kwargs):
+            seen.update(kwargs)
+            return super().postprocess(**kwargs)
+
+    spy = _Spy()
+    monkeypatch.setattr(rawpy, "imread", lambda _path: spy)
+    linear_demosaic("frame.CR3")
+    assert seen["user_sat"] == 16383 - 512
+    assert int(spy.raw_image_visible[0, 0]) == 1000 - (512 - 0)
+    assert int(spy.raw_image_visible[0, 1]) == 1000 - (512 - 32)
+    assert int(spy.raw_image_visible[1, 0]) == 1000 - (512 - 64)
+    assert int(spy.raw_image_visible[1, 1]) == 1000 - (512 - 96)
+
+
+def test_raw_clip_ignores_implausibly_low_calibrated_limit(monkeypatch):
+    monkeypatch.setattr(
+        rawpy,
+        "imread",
+        lambda _path: _FakeBayer(white_level=16383, base=3000.0, sigma=4.0, camera_white_level=144),
+    )
+    linearity, plateau = raw_channel_clip_fraction("x.CR3", 0, _FullRoi())
+    assert linearity == 0.0
+    assert plateau == 0.0
+
+
 def test_raw_clip_returns_zero_when_the_body_reports_no_white_level(monkeypatch):
     # The documented contract ("Returns (0.0, 0.0) if the channel/limit can't be resolved") — the
     # code used to guess img.max() instead, an image-dependent reference (the adjust_maximum_thr
