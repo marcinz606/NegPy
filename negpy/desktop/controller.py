@@ -1999,6 +1999,12 @@ class AppController(QObject):
             self._register_library_roots([parent_path])
         return roll_ids
 
+    def recognize_library_folders(self, folders: List[str]) -> List[str]:
+        """Recognize each folder as a roll without opening it; it is not an import source."""
+        roll_ids = [rolls.recognize_folder(self.session.repo, folder) for folder in folders]
+        self._register_library_roots(folders)
+        return roll_ids
+
     def rediscover_rolls(self) -> tuple[int, int]:
         """Walk every Import Subfolders source again under the current discovery filters;
         returns (new rolls, rolls dropped by a filter)."""
