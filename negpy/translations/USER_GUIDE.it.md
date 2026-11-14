@@ -560,7 +560,7 @@ Corregge gli errori di colore dovuti alla luce, alla fotocamera e alla pellicola
 
 **Rifinitura della tinta** (fotocamera con luce a banda stretta): ruota tutte le tinte, per una luce che rende arancioni i gialli o oliva i verdi. Lascia 0 per la luce bianca. A differenza del profilo del sensore, funziona anche sulle diapositive.
 
-<!-- panel:fade src:fbd4f136 -->
+<!-- panel:fade src:f1251435 -->
 ### 10.5 Ripristino dello sbiadimento: diapositive sbiadite
 
 Restituisce a una diapositiva sbiadita i suoi strati di colorante. Il riquadro compare solo per le diapositive.
@@ -571,7 +571,12 @@ Restituisce a una diapositiva sbiadita i suoi strati di colorante. Il riquadro c
 *   **Persistenza del verde** / **Persistenza del blu**: lo stesso, misurato rispetto al rosso.
 *   **Rimuovi macchia**: sbianca le zone trasparenti ingiallite e stima di nuovo. Attivalo quando Stima lo suggerisce.
 *   **Miscela di grigio**: cambia di quali grigi si fida Stima. Trascinala se i colori sembrano sbagliati.
-*   **Incrocio**: rimuove una variazione di colore tra ombre e alte luci. Impostalo su un fotogramma con grigi netti, poi fai clic su **Rullino** nel riquadro.
+*   **Incrocio**: rimuove una variazione di colore tra ombre e alte luci. Trascinalo su ogni fotogramma, oppure condividi quello di un fotogramma con Condividi incrocio.
+
+Il gruppo Rullino alla fine del riquadro agisce su ogni fotogramma del rullino:
+
+*   **Stima rullino**: legge ogni diapositiva del rullino, o quelle selezionate, e dà a ogni fotogramma le stesse Persistenze e lo stesso Ripristina intervallo. Le diapositive che si leggono in modo diverso, come con luce interna, restano fuori dalla lettura ma ricevono comunque il risultato. Ogni fotogramma mantiene il proprio Incrocio.
+*   **Condividi incrocio**: misura l'incrocio su questo fotogramma e lo dà a ogni fotogramma, con l'intensità di questo fotogramma. Usa un fotogramma con grigi netti nelle zone chiare e scure, come una strada e vestiti bianchi. Il suggerimento del rullino può proporne uno.
 
 <!-- panel:process src:2c179de9 -->
 ### 10.6 Misurazione: negativo → positivo
