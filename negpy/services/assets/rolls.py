@@ -908,6 +908,53 @@ def set_frame_override(
     _write(repo, store)
 
 
+def _card_keys(card_keys: Any) -> tuple:
+    if card_keys is None:
+        return tuple(ROLL_DEFAULT_FIELDS)
+    return (card_keys,) if isinstance(card_keys, str) else tuple(card_keys)
+
+
+def card_locks_snapshot(repo: Any, roll_id: str, card_keys: Any, hashes) -> Dict[str, Any]:
+    """For each of *hashes* (unforked) and each of *card_keys* (one key, several, or None for every card),
+    the baseline its lock holds, or None where the card follows the roll."""
+    keys = _card_keys(card_keys)
+    entry = roll_for_id(repo, roll_id) or {}
+    overrides, baselines = entry.get("frame_overrides", {}), entry.get("frame_baselines", {})
+    return {h: {c: dict(baselines.get(h, {}).get(c, {})) if c in overrides.get(h, ()) else None for c in keys} for h in hashes}
+
+
+def restore_card_locks(repo: Any, roll_id: str, card_keys: Any, snapshot: Dict[str, Any]) -> None:
+    """Puts back the locks and baselines a card_locks_snapshot holds for *card_keys*. No-op for an unknown roll id."""
+    keys = set(_card_keys(card_keys))
+    store = _read(repo)
+    entry = store.get(roll_id)
+    if entry is None:
+        return
+    overrides = dict(entry.get("frame_overrides", {}))
+    baselines = dict(entry.get("frame_baselines", {}))
+    for file_hash, saved in snapshot.items():
+        cards = set(overrides.get(file_hash, ()))
+        frame = dict(baselines.get(file_hash, {}))
+        for card_key, baseline in saved.items():
+            if card_key not in keys:
+                continue
+            frame.pop(card_key, None)
+            if baseline is None:
+                cards.discard(card_key)
+            else:
+                cards.add(card_key)
+                if baseline:
+                    frame[card_key] = dict(baseline)
+        for table, value in ((overrides, sorted(cards)), (baselines, frame)):
+            if value:
+                table[file_hash] = value
+            else:
+                table.pop(file_hash, None)
+    entry["frame_overrides"] = overrides
+    entry["frame_baselines"] = baselines
+    _write(repo, store)
+
+
 def settle_card_lock(
     repo: Any,
     roll_id: str,
