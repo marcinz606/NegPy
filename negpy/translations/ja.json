@@ -2981,6 +2981,7 @@
   "Unavailable: {reason}": "利用不可: {reason}",
   "Uncompressed": "非圧縮",
   "Undid {label}: {value}": "{label}を元に戻しました: {value}",
+  "Undid {label}: {value}. Frames that keep a later change: {count}": "{label}を元に戻しました: {value}。後の変更を保つフレーム: {count}",
   "Undo": "元に戻す",
   "Undo Change to Several Frames": "複数フレームへの変更を元に戻す",
   "Undo Last Clone": "最後のクローンを元に戻す",

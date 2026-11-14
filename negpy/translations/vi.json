@@ -2981,6 +2981,7 @@
   "Unavailable: {reason}": "Không khả dụng: {reason}",
   "Uncompressed": "Không nén",
   "Undid {label}: {value}": "Đã hoàn tác {label}: {value}",
+  "Undid {label}: {value}. Frames that keep a later change: {count}": "Đã hoàn tác {label}: {value}. Khung hình giữ thay đổi sau đó: {count}",
   "Undo": "Hoàn tác",
   "Undo Change to Several Frames": "Hoàn tác thay đổi cho nhiều khung hình",
   "Undo Last Clone": "Hoàn tác nét nhân bản cuối",
