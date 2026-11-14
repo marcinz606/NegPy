@@ -2981,6 +2981,7 @@
   "Unavailable: {reason}": "사용할 수 없음: {reason}",
   "Uncompressed": "비압축",
   "Undid {label}: {value}": "{label} 되돌림: {value}",
+  "Undid {label}: {value}. Frames that keep a later change: {count}": "{label} 되돌림: {value}. 이후 변경을 유지하는 프레임: {count}",
   "Undo": "실행 취소",
   "Undo Change to Several Frames": "여러 프레임 변경 되돌리기",
   "Undo Last Clone": "마지막 클론 실행 취소",
