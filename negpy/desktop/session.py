@@ -4,7 +4,7 @@ import functools
 import os
 import re
 import threading
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field, fields, replace
 from enum import Enum, auto
 from contextlib import contextmanager
 from typing import Any, Callable, Collection, Dict, Iterable, Iterator, List, Optional, Set, Tuple
@@ -971,13 +971,42 @@ def resolve_asset_stitch(params: WorkspaceConfig, asset: dict) -> WorkspaceConfi
 @dataclass
 class FrameBatch:
     """What a change to several frames overwrote: each frame's config before it, the open frame's,
-    and the roll's values a push replaced (`roll_undo` puts them back)."""
+    each frame's card locks per roll, and the roll's values a push replaced (`roll_undo` puts them back).
+    `after` holds what the batch wrote to each frame."""
 
     label: str
     active_hash: Optional[str]
     active_before: WorkspaceConfig
     frames: Dict[str, WorkspaceConfig] = field(default_factory=dict)
+    locks: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+    after: Dict[str, WorkspaceConfig] = field(default_factory=dict)
     roll_undo: Optional[Callable[[], None]] = None
+
+
+_AVERAGE_CHOICES = ("use_luma_average", "use_color_average", "use_cast_average")
+
+
+def _undo_batch_fields(
+    before: WorkspaceConfig, after: WorkspaceConfig, now: WorkspaceConfig, saved: WorkspaceConfig
+) -> tuple[WorkspaceConfig, set]:
+    """*now* with each field the batch changed from *before* to *after* put back, and the (section, field)
+    pairs that changed again since and keep their value. A later change is one in the *saved* edit, so a
+    value that only the open frame's roll and sticky overlays show is none. Returns *now* when nothing goes back."""
+    sections: Dict[str, Any] = {}
+    kept: set = set()
+    for section in fields(WorkspaceConfig):
+        old, wrote, stored = (getattr(c, section.name) for c in (before, after, saved))
+        changes = {}
+        for f in fields(old):
+            if not f.init or rolls.same_value(getattr(old, f.name), getattr(wrote, f.name)):
+                continue
+            if rolls.same_value(getattr(stored, f.name), getattr(wrote, f.name)):
+                changes[f.name] = getattr(old, f.name)
+            else:
+                kept.add((section.name, f.name))
+        if changes:
+            sections[section.name] = replace(getattr(now, section.name), **changes)
+    return (replace(now, **sections) if sections else now), kept
 
 
 def _records_batch(label: str):
@@ -2006,12 +2035,14 @@ class DesktopSessionManager(QObject):
             if not (0 <= idx < len(self.state.uploaded_files)):
                 continue
             asset = self.state.uploaded_files[idx]
+            # Read before the reset unlocks the cards, which makes the frame resolve to the roll.
+            target_config = self.config_for_asset(asset)
+            self._note_card_locks(asset)
             defaults = self._reset_frame(asset)
             if idx == self.state.selected_file_idx:
                 self.update_config(defaults, persist=True, render=False)
             else:
                 target_hash = asset["hash"]
-                target_config = self.config_for_asset(asset)
                 self.push_external_history(target_hash, target_config, defaults)
                 self.repo.save_file_settings(target_hash, defaults, file_path=asset["path"])
                 changed_hashes.append(target_hash)
@@ -2214,6 +2245,9 @@ class DesktopSessionManager(QObject):
             return
         batch = FrameBatch(label, self.state.current_file_hash, self.state.config)
         self._batch = batch
+        idx = self.state.selected_file_idx
+        if batch.active_hash and 0 <= idx < len(self.state.uploaded_files):
+            self._note_card_locks(self.state.uploaded_files[idx])
         try:
             yield batch
         finally:
@@ -2221,41 +2255,78 @@ class DesktopSessionManager(QObject):
             moved = (
                 bool(batch.active_hash) and batch.active_hash == self.state.current_file_hash and self.state.config != batch.active_before
             )
+            if moved:
+                batch.after[batch.active_hash] = self.state.config
             if batch.frames or moved or batch.roll_undo:
                 self.last_batch = batch
                 self.batch_recorded.emit()
 
-    def undo_last_batch(self) -> int:
-        """Puts back every frame the last batch changed, and the roll's values it pushed. Each
-        frame also gets an ordinary history step. Returns how many frames moved."""
+    def undo_last_batch(self) -> tuple[int, int]:
+        """Puts back every setting the last batch changed, and the roll's values it pushed. A setting
+        changed again after the batch keeps that value; every other setting stays as it is now. Each
+        frame also gets an ordinary history step. Returns how many frames moved and how many kept a later change."""
         batch, self.last_batch = self.last_batch, None
         if batch is None:
-            return 0
+            return 0, 0
+        current = self.state.current_file_hash
+        # A frame with no `after` is one the batch did not write, such as the source of Apply to Frames.
+        plans: Dict[str, tuple] = {}
+        for file_hash, after in batch.after.items():
+            before = batch.frames.get(file_hash, batch.active_before)
+            saved = self.repo.load_file_settings(file_hash)
+            now = self.state.config if file_hash == current else (saved or before)
+            plans[file_hash] = (now, *_undo_batch_fields(before, after, now, saved or now))
+
+        kept_cards: Dict[str, set] = {}
+        for file_hash, (_now, _undone, kept_fields) in plans.items():
+            cards = kept_cards.setdefault(unforked_hash(file_hash), set())
+            cards.update(c for c, (section, names) in rolls.ROLL_DEFAULT_FIELDS.items() if any((section, n) in kept_fields for n in names))
+        for roll_id, locks in batch.locks.items():
+            for base, snapshot in locks.items():
+                cards = [c for c in rolls.ROLL_DEFAULT_FIELDS if c not in kept_cards.get(base, ())]
+                rolls.restore_card_locks(self.repo, roll_id, cards, {base: snapshot})
         if batch.roll_undo is not None:
             batch.roll_undo()
+
         paths = {f["hash"]: f.get("path", "") for f in self.state.uploaded_files}
-        active_hash, active_before = batch.active_hash, batch.active_before
-        frames = dict(batch.frames)
-        if active_hash and active_hash != self.state.current_file_hash:
-            frames.setdefault(active_hash, active_before)
         changed = []
-        for file_hash, before in frames.items():
-            if file_hash == self.state.current_file_hash:
+        moved = kept = 0
+        for file_hash, (now, undone, kept_fields) in plans.items():
+            kept += bool(kept_fields)
+            if undone is now:
                 continue
-            now = self.repo.load_file_settings(file_hash) or before
-            self.push_external_history(file_hash, now, before)
-            self.repo.save_file_settings(file_hash, before, file_path=paths.get(file_hash, ""))
-            changed.append(file_hash)
-        moved = len(changed)
-        current_before = frames.get(self.state.current_file_hash) or (
-            active_before if active_hash == self.state.current_file_hash else None
-        )
-        if current_before is not None and current_before != self.state.config:
-            self.update_config(current_before, persist=True)
             moved += 1
+            if file_hash == current:
+                self.update_config(undone, persist=True)
+                continue
+            self.push_external_history(file_hash, now, undone)
+            self.repo.save_file_settings(file_hash, undone, file_path=paths.get(file_hash, ""))
+            changed.append(file_hash)
+        # A card that keeps a later change keeps the lock that change left, settled against the values Undo wrote.
+        for roll_id, locks in batch.locks.items():
+            for file_hash, (now, undone, _kept) in plans.items():
+                base = unforked_hash(file_hash)
+                for card_key in kept_cards.get(base, ()) if base in locks else ():
+                    section, names = rolls.ROLL_DEFAULT_FIELDS[card_key]
+                    values = {n: getattr(getattr(undone, section), n) for n in names}
+                    old = {n: getattr(getattr(now, section), n) for n in names}
+                    rolls.settle_card_lock(self.repo, roll_id, base, card_key, values, old, process=undone.process)
         if changed:
             self.frames_edited_offscreen.emit(changed)
-        return moved
+        return moved, kept
+
+    def follow_last_batch(self, file_hash: str, config: WorkspaceConfig, names: Iterable[str]) -> None:
+        """An automatic write of process *names* to a frame whose baseline or Use Average choices the last
+        batch changed: the write follows from the batch, so its Undo takes the write back too."""
+        batch = self.last_batch
+        after = batch.after.get(file_hash) if batch is not None else None
+        if after is None:
+            return
+        names = tuple(names)
+        before = batch.frames.get(file_hash, batch.active_before)
+        if all(rolls.same_value(getattr(before.process, n), getattr(after.process, n)) for n in (*names, *_AVERAGE_CHOICES)):
+            return
+        batch.after[file_hash] = replace(after, process=replace(after.process, **{n: getattr(config.process, n) for n in names}))
 
     def push_external_history(self, file_hash: str, old_config: WorkspaceConfig, new_config: WorkspaceConfig) -> None:
         """Record a bulk apply (roll bake, apply-to-roll…) in a NON-ACTIVE file's
@@ -2263,8 +2334,11 @@ class DesktopSessionManager(QObject):
         are written (pre-apply, then post-apply) because undo() overwrites the top
         step with the live config when undo_index == max — a single appended step
         would be clobbered by the first Ctrl+Z."""
+        asset = next((f for f in self.state.uploaded_files if f.get("hash") == file_hash), None)
         if self._batch is not None:
             self._batch.frames.setdefault(file_hash, old_config)
+            self._note_card_locks(asset)
+            self._batch.after[file_hash] = new_config
         base = self.repo.get_max_history_index(file_hash)
         if base == 0 and self.repo.load_history_step(file_hash, 0) is None:
             first = 0
@@ -2273,10 +2347,21 @@ class DesktopSessionManager(QObject):
         self.repo.save_history_step(file_hash, first, old_config)
         self.repo.save_history_step(file_hash, first + 1, new_config)
 
-        asset = next((f for f in self.state.uploaded_files if f.get("hash") == file_hash), None)
         if asset is not None:
             # Written without a render; the filmstrip flags the cell until one lands.
             self.state.stale_thumbnails.add(asset_thumbnail_key(asset))
+
+    def _note_card_locks(self, asset: Optional[dict]) -> None:
+        """Keeps *asset*'s card locks as the recording batch found them, before its first write there."""
+        if self._batch is None or not asset or not asset.get("hash"):
+            return
+        roll_id = rolls.frame_roll(self.repo, self.state.active_roll_id, asset)
+        if roll_id is None:
+            return
+        held = self._batch.locks.setdefault(roll_id, {})
+        base = unforked_hash(asset["hash"])
+        if base not in held:
+            held.update(rolls.card_locks_snapshot(self.repo, roll_id, None, [base]))
 
     def relock_diverged_cards(self, before: Optional[WorkspaceConfig] = None) -> None:
         """Lock each roll card on which the restored config differs from the roll's: history, a work
@@ -2453,11 +2538,12 @@ class DesktopSessionManager(QObject):
         """
         changed_hashes: list[str] = []
         for f_info in assets:
+            old_p = self.config_for_asset(f_info)
+            self._note_card_locks(f_info)
             new_p = self._reset_frame(f_info)
             if f_info["hash"] == self.state.current_file_hash:
                 self.update_config(new_p, persist=True)
                 continue
-            old_p = self.config_for_asset(f_info)
             self.push_external_history(f_info["hash"], old_p, new_p)
             self.repo.save_file_settings(f_info["hash"], new_p, file_path=f_info["path"])
             changed_hashes.append(f_info["hash"])

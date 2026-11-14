@@ -6306,6 +6306,7 @@ class AppController(QObject):
             new_p = replace(p, process=replace(p.process, **values))
             self.session.push_external_history(f["hash"], p, new_p)
             self.session.repo.save_file_settings(f["hash"], new_p, file_path=f["path"])
+            self.session.follow_last_batch(f["hash"], new_p, values)
             changed.append(f["hash"])
         if changed:
             self.session.frames_edited_offscreen.emit(changed)
@@ -6822,9 +6823,18 @@ class AppController(QObject):
         if batch is None:
             self.set_status(tr("Nothing to undo: no change to several frames since your last edit."), 2500)
             return
-        moved = self.session.undo_last_batch()
+        moved, kept = self.session.undo_last_batch()
         self.request_render()
-        self.set_status(tr("Undid {label}: {value}", label=batch.label, value=count_of(moved, "frame")), 3000)
+        if kept:
+            message = tr(
+                "Undid {label}: {value}. Frames that keep a later change: {count}",
+                label=batch.label,
+                value=count_of(moved, "frame"),
+                count=kept,
+            )
+            self.set_status(message, 5000)
+        else:
+            self.set_status(tr("Undid {label}: {value}", label=batch.label, value=count_of(moved, "frame")), 3000)
 
     def _roll_card_names(self, cards) -> str:
         return ", ".join(dict.fromkeys(self._ROLL_CARD_LABELS[k] for k in self._ROLL_CARDS if k in cards))

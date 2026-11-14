@@ -2981,6 +2981,7 @@
   "Unavailable: {reason}": "不可用：{reason}",
   "Uncompressed": "无压缩",
   "Undid {label}: {value}": "已撤销{label}：{value}",
+  "Undid {label}: {value}. Frames that keep a later change: {count}": "已撤销{label}：{value}。保留之后更改的画面：{count}",
   "Undo": "撤销",
   "Undo Change to Several Frames": "撤销对多个画面的更改",
   "Undo Last Clone": "撤销上次仿制",

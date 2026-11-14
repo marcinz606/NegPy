@@ -2981,6 +2981,7 @@
   "Unavailable: {reason}": "Nicht verfügbar: {reason}",
   "Uncompressed": "Unkomprimiert",
   "Undid {label}: {value}": "{label} rückgängig gemacht: {value}",
+  "Undid {label}: {value}. Frames that keep a later change: {count}": "{label} rückgängig gemacht: {value}. Bilder mit späterer Änderung: {count}",
   "Undo": "Rückgängig",
   "Undo Change to Several Frames": "Änderung an mehreren Bildern rückgängig machen",
   "Undo Last Clone": "Letztes Klonen rückgängig",
