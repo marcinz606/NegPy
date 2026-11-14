@@ -44,6 +44,7 @@ from negpy.desktop.workers.export import (
     find_export_conflicts,
     resolve_output_dir,
 )
+from negpy.desktop.workers.fade_roll import FadeRollResult, FadeRollTask, FadeRollWorker
 from negpy.services.export.launch_recipe import LaunchRecipe, apply_recipe, recipe_intent, recipe_key
 from negpy.desktop.workers.render import (
     _THUMBNAIL_WORKERS,
@@ -198,6 +199,7 @@ from negpy.features.geometry.processor import CropProcessor, GeometryProcessor
 from negpy.domain.interfaces import PipelineContext
 from negpy.features.lab.models import LabConfig
 from negpy.features.local.models import LocalAdjustmentsConfig
+from negpy.features.process.fade_roll import ROLL_MIN_FRAMES
 from negpy.features.process.path import RenderPath, positive_decode, render_path
 from negpy.features.process.models import (
     SCAN_SETUP_PAPERS,
@@ -262,7 +264,7 @@ logger = get_logger(__name__)
 _BUSY_TOAST_MS = 30000
 # Batch owners that share norm_thread (and its CPU) with the background thumbnail
 # refresh — the only ones a running refresh actually needs to get out of the way of.
-_NORM_THREAD_BATCH_OWNERS = frozenset({"autocrop", "normalization"})
+_NORM_THREAD_BATCH_OWNERS = frozenset({"autocrop", "normalization", "fade_roll"})
 
 
 class BackgroundBaseline(NamedTuple):
@@ -581,6 +583,9 @@ class AppController(QObject):
     prefetch_load_requested = pyqtSignal(PreviewLoadTask)
     normalization_requested = pyqtSignal(NormalizationTask)
     background_normalization_requested = pyqtSignal(NormalizationTask)
+    fade_roll_requested = pyqtSignal(FadeRollTask)
+    # The Fade card's hint after Estimate Roll, and the frame names its tooltip lists.
+    fade_roll_hint = pyqtSignal(str, str, str)
     batch_autocrop_requested = pyqtSignal(BatchAutoCropTask)
     thumbnail_render_requested = pyqtSignal(ThumbnailRenderTask)
     thumbnail_refresh_state_changed = pyqtSignal(bool)  # a background refresh started/stopped running
@@ -791,6 +796,8 @@ class AppController(QObject):
         self._autocrop_preflight_skipped = 0
         # Per frame hash: its resolved Auto Crop when the run started.
         self._autocrop_started_auto: Dict[str, bool] = {}
+        # The roll the running Estimate Roll reads.
+        self._fade_roll_target: Optional[str] = None
         self._autocrop_cancel_requested = False
         # The analysis a run of Auto-crop all frames was started for, run when it finishes.
         self._analysis_after_crop: Optional[Callable[[], None]] = None
@@ -875,6 +882,8 @@ class AppController(QObject):
         self.batch_autocrop_worker.moveToThread(self.norm_thread)
         self.thumbnail_render_worker = ThumbnailRenderWorker(self.thumbnail_render_preview_service, self.preview_service)
         self.thumbnail_render_worker.moveToThread(self.norm_thread)
+        self.fade_roll_worker = FadeRollWorker(self.preview_service)
+        self.fade_roll_worker.moveToThread(self.norm_thread)
         self.norm_thread.start()
 
         self.discovery_thread = QThread()
@@ -1181,6 +1190,11 @@ class AppController(QObject):
         self.norm_worker.cancelled.connect(self._on_normalization_cancelled)
         self.norm_worker.error.connect(self._on_normalization_error)
         self.background_normalization_requested.connect(self.bg_norm_worker.process)
+        self.fade_roll_requested.connect(self.fade_roll_worker.process)
+        self.fade_roll_worker.progress.connect(self._on_fade_roll_progress)
+        self.fade_roll_worker.finished.connect(self._on_fade_roll_finished)
+        self.fade_roll_worker.cancelled.connect(lambda: self._on_batch_cancelled("fade_roll"))
+        self.fade_roll_worker.error.connect(self._on_fade_roll_error)
         self.bg_norm_worker.finished.connect(self._on_background_baseline)
         self.bg_norm_worker.progress.connect(self._on_background_baseline_progress)
         self.bg_norm_worker.cancelled.connect(self._on_background_baseline_ended)
@@ -1691,6 +1705,7 @@ class AppController(QObject):
             "export": self.export_worker,
             "contact_sheet": self.export_worker,
             "normalization": self.norm_worker,
+            "fade_roll": self.fade_roll_worker,
             "stitch": self.stitch_worker,
             "hdr": self.hdr_worker,
             "frame_merge": self.frame_merge_worker,
@@ -1763,6 +1778,8 @@ class AppController(QObject):
             self.export_worker.cancel()
         elif self._active_batch == "normalization":
             self.norm_worker.cancel()
+        elif self._active_batch == "fade_roll":
+            self.fade_roll_worker.cancel()
         elif self._active_batch == "autocrop":
             self._autocrop_cancel_requested = True
             self.batch_autocrop_worker.cancel(self._autocrop_batch_token)
@@ -6635,16 +6652,25 @@ class AppController(QObject):
     def roll_card_locked(self, card_key: str) -> bool:
         return card_key in self.locked_roll_cards()
 
-    def roll_crossover_table(self) -> Optional[tuple]:
-        """The crossover table the active frame's roll holds, None with no roll or no table."""
+    def _open_frame_roll(self) -> Optional[str]:
+        """The roll the open frame takes its defaults from, None with no frame or no roll."""
         if not self.state.current_file_hash:
             return None
         idx = self.state.selected_file_idx
         files = self.state.uploaded_files
         asset = files[idx] if 0 <= idx < len(files) else {}
-        roll_id = rolls.frame_roll(self.session.repo, self.state.active_roll_id, asset)
+        return rolls.frame_roll(self.session.repo, self.state.active_roll_id, asset)
+
+    def roll_crossover_table(self) -> Optional[tuple]:
+        """The crossover table the active frame's roll holds, None with no roll or no table."""
+        roll_id = self._open_frame_roll()
         table = None if roll_id is None else rolls.roll_defaults(self.session.repo, roll_id).get("fade_crossover_table")
         return None if table is None else tuple(table)
+
+    def roll_crossover_source(self) -> str:
+        """The frame Share Crossover took the roll's crossover table from, "" when none or since replaced."""
+        roll_id = self._open_frame_roll()
+        return "" if roll_id is None else rolls.roll_crossover_source(self.session.repo, roll_id, self.roll_crossover_table())
 
     def diverged_roll_cards(self) -> List[str]:
         """Every Roll-tab card locked away from the roll on the active frame -- what
@@ -6848,6 +6874,142 @@ class AppController(QObject):
         self.config_updated.emit()
         if changed_hashes:
             self.session.frames_edited_offscreen.emit(changed_hashes)
+
+    def _fade_roll_frames(self) -> List[dict]:
+        """The slides Estimate Roll reads: the selected frames when more than one is selected, else every
+        visible frame of the roll."""
+        state = self.state
+        picked = [state.uploaded_files[i] for i in state.selected_indices if 0 <= i < len(state.uploaded_files)]
+        frames = picked if len(picked) > 1 else [state.uploaded_files[i] for i in self.session.asset_model.visible_actual_indices_ordered()]
+        return [f for f in frames if self._is_slide(f)]
+
+    def _is_slide(self, asset: dict) -> bool:
+        return render_path(self._config_for_batch_asset(asset).process) is not RenderPath.PRINT
+
+    def estimate_fade_roll(self) -> None:
+        """Estimate Roll: reads each slide of the roll (or the selection), pools one set of fade values and
+        gives them to the roll."""
+        if self._roll_needed(tr("Open or save a roll to estimate it.")) or self._batch_busy(tr("Estimate Roll")):
+            return
+        conf = self.state.config.process
+        if render_path(conf) is RenderPath.PRINT:
+            return
+        frames = self._fade_roll_frames()
+        if len(frames) < ROLL_MIN_FRAMES:
+            self.fade_roll_hint.emit(tr("Estimate Roll needs at least three slides."), "", "")
+            return
+        if self._begin_batch("fade_roll", tr("Estimating the roll"), abortable=True) is None:
+            return
+        self._fade_roll_target = self.state.active_roll_id
+        self.fade_roll_requested.emit(
+            FadeRollTask(
+                frames=[(f, self._config_for_batch_asset(f)) for f in frames],
+                workspace_color_space=self.state.workspace_color_space,
+            )
+        )
+
+    def _on_fade_roll_progress(self, current: int, total: int, name: str) -> None:
+        self.set_status(tr("Estimating {current}/{total}: {name}…", current=current, total=total, name=name))
+        self.status_progress_requested.emit(current, total)
+        self.batch_progress.emit(current, total, name)
+
+    def _on_fade_roll_error(self, message: str) -> None:
+        self._on_batch_error("fade_roll")
+        self._report_worker_error(tr("Estimate Roll"), message)
+
+    def _on_fade_roll_finished(self, result: FadeRollResult) -> None:
+        # The result belongs to the roll it was read from.
+        if self._fade_roll_target != self.state.active_roll_id:
+            self._on_batch_cancelled("fade_roll")
+            return
+        self._end_batch("fade_roll")
+        if not result.changes:
+            self.fade_roll_hint.emit(result.reason, "", "")
+            return
+        hint = tr("Estimated from {counted} of {read} slides.", counted=result.counted, read=result.read + len(result.unread))
+        details = []
+        if result.outliers:
+            hint += " " + tr("Left out: {count}.", count=len(result.outliers))
+            details.append(tr("Left out: {names}.", names=", ".join(result.outliers)))
+        if result.no_grays:
+            hint += " " + tr("No clear grays: {count}.", count=len(result.no_grays))
+            details.append(tr("No clear grays: {names}.", names=", ".join(result.no_grays)))
+        if result.unread:
+            hint += " " + tr("Not read: {count}.", count=len(result.unread))
+            details.append(tr("Not read: {names}.", names=", ".join(result.unread)))
+        if result.changes.get("fade_auto_red"):
+            hint += " " + tr("Restore Range on.")
+        pick = result.crossover
+        suggestion = tr("Try the crossover from {name}.", name=pick.key) if pick is not None and pick.clear else ""
+        self._apply_fade_roll(dict(result.changes), hint, suggestion, "\n".join(details))
+
+    def roll_survivals(self) -> dict:
+        """The survivals and shift the open frame's roll holds, {} for the fields it has none of."""
+        roll_id = self._open_frame_roll()
+        defaults = {} if roll_id is None else rolls.roll_defaults(self.session.repo, roll_id)
+        names = ("fade_ratio_r", "fade_ratio_g", "fade_ratio_b", "fade_density_shift")
+        return {n: defaults[n] for n in names if n in defaults}
+
+    def share_crossover(self, table: tuple, space: str) -> None:
+        """Gives the open frame and the roll *table*, measured on this frame, at the frame's Crossover
+        strength. A frame locked on the Fade card keeps its own; one undo gives the roll its values back."""
+        roll_id = self._open_frame_roll()
+        conf = self.state.config.process
+        idx = self.state.selected_file_idx
+        if roll_id is None or not 0 <= idx < len(self.state.uploaded_files):
+            self.set_status(_NOTHING_TO_APPLY, 2500)
+            return
+        repo = self.session.repo
+        fields = {"fade_crossover_table": table, "fade_crossover": conf.fade_crossover, "fade_crossover_space": space}
+        undo = self._fade_roll_undo(roll_id, set(fields))
+        with self.session.recording_batch(tr("Share Crossover")) as batch:
+            rolls.set_roll_defaults(repo, roll_id, **fields)
+            rolls.set_roll_crossover_source(repo, roll_id, self.state.uploaded_files[idx].get("name", ""), table)
+            self.set_roll_default("fade", **fields)
+            batch.roll_undo = undo
+        self._roll_defaults_changed(roll_id, {"fade"})
+        message = tr("Applied to the roll: {value}", value=tr("Crossover"))
+        own = self._frames_keeping_own(roll_id, {"fade"})
+        if own:
+            message = tr("{message}. Frames that keep their own value: {count}", message=message, count=own)
+        self.set_status(message, 5000 if own else 3000)
+
+    def _fade_roll_undo(self, roll_id: str, names: set, clear_hint: bool = False) -> Callable[[], None]:
+        """The undo of a write of the roll's *names* fields: the roll gets its values back. *clear_hint* also
+        takes the roll hint off the card."""
+        repo = self.session.repo
+        snapshot = rolls.roll_fields_snapshot(repo, roll_id, names)
+
+        def undo() -> None:
+            rolls.restore_roll_fields(repo, roll_id, snapshot)
+            self._roll_defaults_changed(roll_id, {"fade"})
+            if clear_hint:
+                self.fade_roll_hint.emit("", "", "")
+
+        return undo
+
+    def _apply_fade_roll(self, changes: dict, hint: str, suggestion: str = "", details: str = "") -> None:
+        """Gives the roll and every slide on it *changes*, and only those: a frame locked on the Fade card
+        takes them into its own edit, so its crossover and Gray Mix stay. One undo takes it all back."""
+        roll_id = self.state.active_roll_id
+        if roll_id is None:
+            return
+        repo = self.session.repo
+
+        current = self.state.current_file_hash
+        frames = [f for f in self.state.uploaded_files if rolls.frame_roll(repo, roll_id, f) == roll_id and self._is_slide(f)]
+        others = [f for f in frames if f.get("hash") != current]
+        undo = self._fade_roll_undo(roll_id, set(changes), clear_hint=True)
+        with self.session.recording_batch(tr("Estimate Roll")) as batch:
+            rolls.set_roll_defaults(repo, roll_id, **changes)
+            if len(others) < len(frames):
+                self.set_roll_default("fade", **changes)
+            written = self.session.write_frame_fields(others, "process", changes)
+            batch.roll_undo = undo
+        self._roll_defaults_changed(roll_id, {"fade"})
+        if written:
+            self.session.frames_edited_offscreen.emit(written)
+        self.fade_roll_hint.emit(hint, suggestion, details)
 
     def set_card_scope(self, card_key: Union[str, tuple], scope: str) -> None:
         """A Roll-tab card's scope pair: Roll gives the roll this frame's value for that

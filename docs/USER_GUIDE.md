@@ -571,7 +571,12 @@ Gives a faded slide its dye layers back. The card shows only for slides.
 *   **Green Survival** / **Blue Survival**: the same, measured against red.
 *   **Remove Stain**: whitens yellowed clear areas and estimates again. Turn it on when Estimate suggests it.
 *   **Gray Mix**: changes which grays Estimate trusts. Drag it if colors look off.
-*   **Crossover**: removes a color shift between shadows and highlights. Set it on a frame with clear grays, then click **Roll** on the card.
+*   **Crossover**: removes a color shift between shadows and highlights. Drag it on each frame, or share one frame's with Share Crossover.
+
+The Roll group at the end of the card acts on every frame of the roll:
+
+*   **Estimate Roll**: reads every slide on the roll, or the selected ones, and gives every frame the same Survivals and Restore Range. Slides that read differently, such as indoor light, are left out of the reading but still take the result. Each frame keeps its own Crossover.
+*   **Share Crossover**: measures the crossover on this frame and gives it to every frame, at this frame's strength. Use a frame with clear grays in light and dark areas, such as a road and white clothes. The roll hint can suggest one.
 
 <!-- panel:process -->
 ### 10.6 Metering: negative → positive
