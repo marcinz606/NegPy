@@ -3,6 +3,8 @@
 from dataclasses import replace
 from unittest.mock import MagicMock
 
+import pytest
+
 from negpy.desktop.session import DesktopSessionManager
 from negpy.desktop.settings_catalog import rows_for_fields
 from negpy.infrastructure.storage.repository import StorageRepository
@@ -58,3 +60,67 @@ def test_a_batch_inside_a_batch_is_one_undo(tmp_path):
     assert session.last_batch.label == "Outer"
     session.undo_last_batch()
     assert repo.load_file_settings("h2").exposure.density == DEFAULT_WORKSPACE_CONFIG.exposure.density
+
+
+def _locked_frame(tmp_path, card, field, roll_value, own_value):
+    """h1 follows a roll that holds every field of *card*; h2 is locked on it with its own *field*."""
+    from negpy.services.assets import rolls
+
+    session, repo = _session(tmp_path)
+    roll_id = rolls.create_virtual_roll(repo, "Roll", [f["path"] for f in session.state.uploaded_files])
+    session.state.active_roll_id = roll_id
+    section, names = rolls.ROLL_DEFAULT_FIELDS[card]
+
+    def with_card(config, value):
+        values = {n: getattr(getattr(DEFAULT_WORKSPACE_CONFIG, section), n) for n in names}
+        values[field] = value
+        return replace(config, **{section: replace(getattr(config, section), **values)}), values
+
+    session.state.config, roll_values = with_card(session.state.config, roll_value)
+    rolls.set_roll_defaults(repo, roll_id, **roll_values)
+    own, _ = with_card(DEFAULT_WORKSPACE_CONFIG, own_value)
+    repo.save_file_settings("h2", own, file_path="/r/h2.tif")
+    rolls.set_frame_override(repo, roll_id, "h2", card, True)
+    session.state.selected_indices = [0, 1]
+    return session, repo, roll_id
+
+
+_LOCK_CASES = [
+    ("metadata_process", "developer", "HC-110", "Rodinal"),
+    ("sensor", "crosstalk_strength", 0.5, 0.8),
+    ("fade", "fade_neutrals_mix", 0.3, 0.6),
+]
+
+
+@pytest.mark.parametrize("card,field,roll_value,own_value", _LOCK_CASES)
+def test_an_undone_apply_to_frames_gives_a_frame_its_card_lock_back(tmp_path, card, field, roll_value, own_value):
+    from negpy.desktop.settings_catalog import roll_card_rows
+    from negpy.services.assets import rolls
+
+    session, repo, roll_id = _locked_frame(tmp_path, card, field, roll_value, own_value)
+    section = rolls.ROLL_DEFAULT_FIELDS[card][0]
+    session.sync_selected_settings(roll_card_rows(card), scope="selection")
+    assert card not in rolls.frame_override_cards(repo, roll_id, "h2")
+
+    session.undo_last_batch()
+
+    assert card in rolls.frame_override_cards(repo, roll_id, "h2")
+    h2 = session.config_for_asset(session.state.uploaded_files[1])
+    assert getattr(getattr(h2, section), field) == own_value
+
+
+@pytest.mark.parametrize("reset", ["selection", "assets"])
+def test_an_undone_reset_frames_gives_a_frame_its_card_lock_back(tmp_path, reset):
+    from negpy.services.assets import rolls
+
+    session, repo, roll_id = _locked_frame(tmp_path, "metadata_process", "developer", "HC-110", "Rodinal")
+    if reset == "selection":
+        session.reset_roll_settings(scope="selection")
+    else:
+        session.reset_roll(session.state.uploaded_files[:2])
+    assert not rolls.frame_override_cards(repo, roll_id, "h2")
+
+    session.undo_last_batch()
+
+    assert "metadata_process" in rolls.frame_override_cards(repo, roll_id, "h2")
+    assert session.config_for_asset(session.state.uploaded_files[1]).metadata.developer == "Rodinal"
