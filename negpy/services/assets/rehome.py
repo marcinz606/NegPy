@@ -1,6 +1,7 @@
 """Path-keyed records follow a folder renamed on disk."""
 
 import os
+import sys
 from typing import Any, Optional
 
 from negpy.services.assets import composites, rolls
@@ -29,6 +30,52 @@ def entry_folder_missing(entry: Optional[dict]) -> bool:
 def folder_roll_missing(repo: Any, roll_id: str) -> bool:
     """True when *roll_id* is a folder roll whose folder is not on disk."""
     return entry_folder_missing(rolls.roll_for_id(repo, roll_id))
+
+
+def member_folders(entry: Optional[dict]) -> list[str]:
+    """The folders that hold a virtual roll's frames, sorted."""
+    if not entry or entry.get("kind") == "folder":
+        return []
+    return sorted({os.path.dirname(p) for p in entry.get("member_paths") or () if p})
+
+
+def missing_member_folders(entry: Optional[dict]) -> list[str]:
+    """The folders of a virtual roll's frames that are not on disk."""
+    return [folder for folder in member_folders(entry) if not os.path.isdir(folder)]
+
+
+def entry_missing(entry: Optional[dict]) -> bool:
+    """True when a folder roll's folder, or a folder of a virtual roll's frames, is not on disk."""
+    return entry_folder_missing(entry) or bool(missing_member_folders(entry))
+
+
+def roll_missing(repo: Any, roll_id: str) -> bool:
+    return entry_missing(rolls.roll_for_id(repo, roll_id))
+
+
+def gone_folders_for(entry: Optional[dict], gone: list[str], path: str) -> list[str]:
+    """The folders in *gone* that *path* fits best: the largest share of each folder's own frames
+    by file name, then a folder of the same name. Empty when it fits none; more than one on a tie."""
+    try:
+        names = os.listdir(path)
+    except OSError:
+        return []
+    present = set(names)
+    # Names match without case only where the file system does.
+    folded = {name.casefold() for name in names} if sys.platform in ("darwin", "win32") else set()
+    members = (entry or {}).get("member_paths") or ()
+    scores = {}
+    for folder in gone:
+        own = [os.path.basename(p) for p in members if os.path.dirname(p) == folder]
+        hits = sum(n in present or n.casefold() in folded for n in own)
+        if hits:
+            scores[folder] = (hits / len(own), hits)
+    if not scores:
+        return []
+    top = max(scores.values())
+    best = [f for f, score in scores.items() if score == top]
+    same_name = [f for f in best if os.path.basename(f).casefold() == os.path.basename(path.rstrip("/\\")).casefold()]
+    return same_name if len(same_name) == 1 else best
 
 
 def folder_fits_roll(repo: Any, roll_id: str, path: str) -> bool:

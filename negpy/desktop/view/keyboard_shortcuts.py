@@ -8,7 +8,12 @@ from PyQt6.QtWidgets import QApplication, QWidget
 
 from negpy.desktop.session import ToolMode
 from negpy.services.assets import rolls
-from negpy.desktop.view.confirm import confirm_remove_from_roll, confirm_reset_frames, confirm_restore_removed, confirm_unload_all
+from negpy.desktop.view.confirm import (
+    confirm_remove_from_roll,
+    confirm_reset_frames,
+    confirm_restore_removed,
+    confirm_unload_all,
+)
 from negpy.desktop.view.widgets.granular_settings_dialog import open_paste_dialog, open_sticky_dialog, open_sync_bounds_dialog
 from negpy.desktop.view.widgets.rgb_triplet_dialog import open_triplet_dialog
 from negpy.desktop.view.shortcut_registry import (

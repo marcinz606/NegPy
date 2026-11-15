@@ -1,5 +1,6 @@
 from negpy.kernel.system.i18n import language, tr
 import os
+from typing import Any
 
 import qtawesome as qta
 from PyQt6.QtCore import QDateTime, QLocale, QObject, QPoint, QRect, QRunnable, QSize, Qt, QThreadPool, QTimer, pyqtSignal
@@ -51,6 +52,9 @@ from negpy.services.assets.rehome import (
     entry_folder_missing,
     folder_fits_roll,
     folder_roll_missing,
+    gone_folders_for,
+    missing_member_folders,
+    roll_missing,
 )
 from negpy.services.assets.triplets import applied_triplets
 from negpy.services.assets.presets import is_valid_preset_name
@@ -93,8 +97,10 @@ _DOT_ROLE = Qt.ItemDataRole.UserRole + 5
 _FRAMES_ROLE = Qt.ItemDataRole.UserRole + 6
 # A folder row's roll-name prefix ("a/b"): the row's identity, since rolls from two disk trees can share it.
 _PREFIX_ROLE = Qt.ItemDataRole.UserRole + 7
-# A folder roll row's folder path, for the disk check.
+# What the disk check looks up: a folder roll's folder, or a virtual roll's list of member paths.
 _PATH_ROLE = Qt.ItemDataRole.UserRole + 8
+# A virtual roll's last disk check: (a folder of its frames is gone, count of frames not on disk), or None before one.
+_GONE_ROLE = Qt.ItemDataRole.UserRole + 9
 
 # The roll-name prefixes of the folder rows the user collapsed, kept across sessions.
 _COLLAPSED_KEY = "library_collapsed_folders"
@@ -115,16 +121,25 @@ class _DiskCheckSignals(QObject):
 
 
 class _DiskCheck(QRunnable):
-    """Looks up which folders are gone off the UI thread: a dead network path can block for long."""
+    """Looks up which folders and files are gone off the UI thread: a dead network path can block for long.
+    A folder roll gets True when its folder is gone; a virtual roll gets (a folder is gone, count of gone frames)."""
 
-    def __init__(self, paths: dict[str, str]) -> None:
+    def __init__(self, paths: dict[str, Any]) -> None:
         super().__init__()
         self.setAutoDelete(False)
         self.paths = paths
         self.signals = _DiskCheckSignals()
 
     def run(self) -> None:
-        self.signals.done.emit({roll_id: (path, not os.path.isdir(path)) for roll_id, path in self.paths.items()})
+        self.signals.done.emit({roll_id: (path, _disk_state(path)) for roll_id, path in self.paths.items()})
+
+
+def _disk_state(path: Any) -> Any:
+    if isinstance(path, str):
+        return not os.path.isdir(path)
+    present = {folder: os.path.isdir(folder) for folder in {os.path.dirname(p) for p in path}}
+    gone = sum(not present[os.path.dirname(p)] or not os.path.exists(p) for p in path)
+    return (not all(present.values()), gone)
 
 
 def _short_date(timestamp: float) -> str:
@@ -262,6 +277,7 @@ class LibraryTree(QWidget):
         controller.session.files_changed.connect(self._count_timer.start)
         controller.roll_folder_missing.connect(self.locate_folder)
         self._checking = False
+        self._recheck = False
         self._disk_check: _DiskCheck | None = None
         app = QApplication.instance()
         if app is not None:
@@ -560,9 +576,11 @@ class LibraryTree(QWidget):
             self.check_folders()
 
     def check_folders(self) -> None:
-        """Re-checks every folder roll's folder on a worker thread and updates the rows in place."""
+        """Re-checks every roll's folders on a worker thread and updates the rows in place."""
         if self._checking:
+            self._recheck = True
             return
+        self._recheck = False
         paths = {item.data(0, _ROLL_ID_ROLE): item.data(0, _PATH_ROLE) for item in self._roll_items() if item.data(0, _PATH_ROLE)}
         if not paths:
             return
@@ -581,19 +599,30 @@ class LibraryTree(QWidget):
             checked = result.get(roll_id)
             if checked is None or checked[0] != item.data(0, _PATH_ROLE):
                 continue
-            missing = checked[1]
-            if missing == bool(item.data(0, _MISSING_ROLE)):
-                continue
+            state = checked[1]
+            if isinstance(state, bool):
+                if state == bool(item.data(0, _MISSING_ROLE)):
+                    continue
+                missing = state
+            else:
+                state = tuple(state)
+                if state == item.data(0, _GONE_ROLE):
+                    continue
+                missing = bool(checked[0]) and state[1] == len(checked[0])
             entry = rolls.roll_for_id(self.repo, roll_id)
             if entry is None:
                 continue
             item.setData(0, _MISSING_ROLE, missing)
+            if not isinstance(state, bool):
+                item.setData(0, _GONE_ROLE, state)
             self._set_detail(item, roll_id, entry)
             self._set_tooltips(item, entry, missing)
             changed = True
         if changed:
             self._apply_filter()
         self.tree.viewport().update()
+        if self._recheck:
+            self.check_folders()
 
     def refresh(self) -> None:
         """Refresh: rediscover rolls under the imported parents, then re-read every count."""
@@ -616,6 +645,7 @@ class LibraryTree(QWidget):
         finally:
             self._auto_expanding = False
         self._show_open_roll()
+        self.check_folders()
 
     def _show_open_roll(self) -> None:
         """Open the folders above the open roll and scroll to its row."""
@@ -735,13 +765,13 @@ class LibraryTree(QWidget):
     def _make_item(self, roll_id: str, entry: dict, label: str) -> QTreeWidgetItem:
         is_folder = entry.get("kind") == "folder"
         folder_path = entry.get("folder_path", "")
+        # A virtual roll's frames are looked up by the disk check, off the UI thread.
         missing = entry_folder_missing(entry)
         item = QTreeWidgetItem([label])
         item.setData(0, _ROLL_ID_ROLE, roll_id)
         item.setData(0, _NAME_ROLE, entry.get("name", ""))
         item.setData(0, _MISSING_ROLE, missing)
-        if is_folder:
-            item.setData(0, _PATH_ROLE, folder_path)
+        item.setData(0, _PATH_ROLE, folder_path if is_folder else list(entry.get("member_paths") or ()))
         self._set_detail(item, roll_id, entry)
         # Roll kind reads off the icon's shape: a folder roll is a folder, a virtual one
         # the search it was built from.
@@ -752,6 +782,10 @@ class LibraryTree(QWidget):
     @staticmethod
     def _set_tooltips(item: QTreeWidgetItem, entry: dict, missing: bool) -> None:
         folder_path = entry.get("folder_path", "")
+        if (item.data(0, _GONE_ROLE) or (False, 0))[1]:
+            item.setToolTip(0, tr("Some frames of this virtual roll are not on disk"))
+            item.setToolTip(1, tr("Right-click the roll and choose Locate Folder… to find a moved folder."))
+            return
         if missing:
             item.setToolTip(0, tr("Folder not found on disk: {path}", path=folder_path))
             item.setToolTip(1, tr("The folder is not on disk. Right-click the roll and choose Locate Folder…, or delete the roll."))
@@ -767,7 +801,7 @@ class LibraryTree(QWidget):
     def _set_detail(self, item: QTreeWidgetItem, roll_id: str, entry: dict) -> None:
         """The line under a roll's name: its photos, film mode, stock, scenes and import date."""
         if item.data(0, _MISSING_ROLE):
-            item.setData(0, _DETAIL_ROLE, tr("folder missing"))
+            item.setData(0, _DETAIL_ROLE, tr("folder missing") if entry.get("kind") == "folder" else tr("files missing"))
             item.setData(0, _DOT_ROLE, "")
             item.setData(0, _FRAMES_ROLE, 0)
             return
@@ -775,6 +809,9 @@ class LibraryTree(QWidget):
         frames = self._frame_count(roll_id, entry)
         item.setData(0, _FRAMES_ROLE, frames)
         parts = [count_of(frames, "photo")]
+        gone = (item.data(0, _GONE_ROLE) or (False, 0))[1]
+        if gone:
+            parts.append(count_of(gone, "missing", "missing"))
         removed = self.controller.removed_frame_count(roll_id) if entry.get("kind") == "folder" else 0
         if removed:
             parts.append(count_of(removed, "removed", "removed"))
@@ -884,9 +921,14 @@ class LibraryTree(QWidget):
                 analyze_action.setToolTip(BATCH_ANALYSIS_TOOLTIP if is_active else BATCH_ANALYSIS_DISABLED_TOOLTIP)
                 analyze_action.triggered.connect(self.controller.request_batch_normalization)
                 menu.addAction(tr("Rename…")).triggered.connect(lambda: self._rename_roll(roll_id, name))
-                if folder_roll_missing(self.repo, roll_id):
+                folders_gone = (item.data(0, _GONE_ROLE) or (False, 0))[0]
+                if folders_gone or folder_roll_missing(self.repo, roll_id):
                     locate_action = menu.addAction(tr("Locate Folder…"))
-                    locate_action.setToolTip(tr("Point this roll at its folder after the folder was renamed or moved"))
+                    locate_action.setToolTip(
+                        tr("Point this roll at its folder after the folder was renamed or moved")
+                        if not folders_gone
+                        else tr("Point this roll's frames at the folders they were moved to")
+                    )
                     locate_action.triggered.connect(lambda: self.locate_folder(roll_id))
                 choice, reason = self.controller.save_choice(roll_id)
                 if choice != "hidden":
@@ -909,13 +951,16 @@ class LibraryTree(QWidget):
     def locate_open_roll_folder(self) -> None:
         """The shortcut: locate the open roll's folder when it is gone."""
         roll_id = self.controller.state.active_roll_id
-        if roll_id and folder_roll_missing(self.repo, roll_id):
+        if roll_id and roll_missing(self.repo, roll_id):
             self.locate_folder(roll_id)
 
     def locate_folder(self, roll_id: str) -> None:
         """Ask for the renamed or moved folder of a roll, then relink and open it."""
         self.reload()
         entry = rolls.roll_for_id(self.repo, roll_id) or {}
+        if entry.get("kind") != "folder":
+            self._locate_member_folders(roll_id, entry)
+            return
         old_path = entry.get("folder_path") or ""
         start = os.path.dirname(old_path.rstrip("/\\"))
         folder = QFileDialog.getExistingDirectory(
@@ -936,6 +981,49 @@ class LibraryTree(QWidget):
         if reason:
             QMessageBox.warning(self, tr("Locate Folder"), _RELINK_MESSAGES.get(reason, _RELINK_MESSAGES[RELINK_NOT_A_FOLDER_ROLL]))
             return
+        self.reload()
+        self.rolls_changed.emit()
+
+    def _locate_member_folders(self, roll_id: str, entry: dict) -> None:
+        """Ask for the gone folders of a virtual roll's frames, in any order, then repoint the frames and open the roll.
+        Each chosen folder replaces the gone folder whose files it holds: the macOS picker shows no title."""
+        gone = missing_member_folders(entry)
+        moves = []
+        while gone:
+            start = os.path.dirname(gone[0])
+            while start and not os.path.isdir(start) and os.path.dirname(start) != start:
+                start = os.path.dirname(start)
+            folder = QFileDialog.getExistingDirectory(
+                self,
+                tr("Locate Folder for “{name}”", name=entry.get("name", "")),
+                start if os.path.isdir(start) else last_open_folder(self.repo),
+            )
+            if not folder:
+                break
+            folder = os.path.normpath(folder)
+            fits = gone_folders_for(entry, gone, folder)
+            if len(fits) != 1:
+                QMessageBox.warning(
+                    self,
+                    tr("Locate Folder"),
+                    tr("That folder holds none of this roll's missing frames.")
+                    if not fits
+                    else tr(
+                        "That folder fits more than one missing folder of this roll: {names}.",
+                        names=", ".join(f"“{os.path.basename(f)}”" for f in fits),
+                    ),
+                )
+                continue
+            old = fits[0]
+            # A gone folder inside the located one is found at the same place under it.
+            for inner in [g for g in gone if g.startswith(old + os.sep) or g == old]:
+                target = folder + inner[len(old) :]
+                if inner == old or os.path.isdir(target):
+                    gone.remove(inner)
+                    moves.append((inner, target))
+        if not moves:
+            return
+        self.controller.relink_member_folders(roll_id, moves)
         self.reload()
         self.rolls_changed.emit()
 

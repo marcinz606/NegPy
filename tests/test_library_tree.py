@@ -817,9 +817,13 @@ def test_a_roll_whose_folder_is_gone_is_marked_missing(widget, tmp_path):
 
 
 def _check_folders(widget) -> None:
+    """Run a disk check to the end, including the one a reload queued."""
     widget.check_folders()
-    QThreadPool.globalInstance().waitForDone()
-    QApplication.processEvents()
+    while True:
+        QThreadPool.globalInstance().waitForDone()
+        QApplication.processEvents()
+        if not widget._checking:
+            return
 
 
 def test_a_folder_renamed_while_running_is_marked_missing_in_place(widget, tree_dirs):
@@ -851,6 +855,7 @@ class _StubCheck:
 
 
 def _start_stub_check(widget, monkeypatch) -> _StubCheck:
+    _check_folders(widget)
     stubs = []
     monkeypatch.setattr("negpy.desktop.view.sidebar.library_tree._DiskCheck", lambda paths: stubs.append(_StubCheck(paths)) or stubs[-1])
     monkeypatch.setattr("negpy.desktop.view.sidebar.library_tree.QThreadPool.globalInstance", lambda: MagicMock())
@@ -1368,3 +1373,114 @@ def test_a_dropped_parent_folder_makes_each_roll_folder_a_roll(widget, tree_dirs
     widget.controller.open_library_folder.assert_not_called()
     widget.controller.set_status.assert_called_once()
     assert host.drops == []
+
+
+def test_a_virtual_roll_with_some_frames_gone_counts_them_and_one_with_all_gone_is_missing(widget, tree_dirs):
+    roll_a = tree_dirs / "roll_a"
+    create_virtual_roll(widget.repo, "picks", [str(roll_a / "a1.NEF"), str(tree_dirs / "roll_b" / "b1.NEF")])
+    widget.reload()
+    _check_folders(widget)
+    item = widget.tree.topLevelItem(0)
+    assert not item.data(0, _MISSING_ROLE) and _count(item) == "2 photos"
+
+    roll_a.rename(tree_dirs / "moved")
+    _check_folders(widget)
+
+    assert not item.data(0, _MISSING_ROLE)
+    assert item.data(0, _DETAIL_ROLE).startswith("2 photos · 1 missing")
+    assert "not on disk" in item.toolTip(0)
+
+    (tree_dirs / "roll_b").rename(tree_dirs / "moved_b")
+    _check_folders(widget)
+
+    assert item.data(0, _MISSING_ROLE) and item.data(0, _DETAIL_ROLE) == "files missing"
+
+
+def test_a_virtual_roll_is_not_looked_up_on_disk_while_the_tree_builds(widget, tree_dirs, monkeypatch):
+    create_virtual_roll(widget.repo, "picks", [str(tree_dirs / "gone" / "x.NEF")])
+    looked = []
+    monkeypatch.setattr("negpy.desktop.view.sidebar.library_tree._DiskCheck", lambda paths: looked.append(paths) or MagicMock())
+    monkeypatch.setattr("negpy.desktop.view.sidebar.library_tree.QThreadPool.globalInstance", lambda: MagicMock())
+    real_exists = __import__("os").path.exists
+    monkeypatch.setattr("os.path.exists", lambda p: (_ for _ in ()).throw(AssertionError(p)) if "gone" in str(p) else real_exists(p))
+
+    widget.reload()
+
+    assert looked and not widget.tree.topLevelItem(0).data(0, _MISSING_ROLE)
+
+
+def test_locate_repoints_a_virtual_rolls_gone_folder(widget, tree_dirs, monkeypatch):
+    roll_a = tree_dirs / "roll_a"
+    roll_id = create_virtual_roll(widget.repo, "picks", [str(roll_a / "a1.NEF")])
+    moved = tree_dirs / "moved"
+    roll_a.rename(moved)
+    monkeypatch.setattr(QFileDialog, "getExistingDirectory", staticmethod(lambda *a, **k: str(moved)))
+
+    widget.locate_folder(roll_id)
+
+    widget.controller.relink_member_folders.assert_called_once_with(roll_id, [(str(roll_a), str(moved))])
+
+
+def test_locate_refuses_a_folder_without_the_virtual_rolls_frames(widget, tree_dirs, monkeypatch):
+    roll_a = tree_dirs / "roll_a"
+    roll_id = create_virtual_roll(widget.repo, "picks", [str(roll_a / "a1.NEF")])
+    roll_a.rename(tree_dirs / "moved")
+    picks = iter([str(tree_dirs / "roll_b"), ""])
+    monkeypatch.setattr(QFileDialog, "getExistingDirectory", staticmethod(lambda *a, **k: next(picks)))
+    warnings = []
+    monkeypatch.setattr(QMessageBox, "warning", staticmethod(lambda *a, **k: warnings.append(a)))
+
+    widget.locate_folder(roll_id)
+
+    assert warnings
+    widget.controller.relink_member_folders.assert_not_called()
+
+
+def test_locate_takes_a_virtual_rolls_folders_in_any_order(widget, tree_dirs, monkeypatch):
+    roll_a, roll_b = tree_dirs / "roll_a", tree_dirs / "roll_b"
+    roll_id = create_virtual_roll(widget.repo, "picks", [str(roll_a / "a1.NEF"), str(roll_b / "b1.NEF")])
+    roll_a.rename(tree_dirs / "moved_a")
+    roll_b.rename(tree_dirs / "moved_b")
+    picks = iter([str(tree_dirs / "moved_b"), str(tree_dirs / "moved_a")])
+    monkeypatch.setattr(QFileDialog, "getExistingDirectory", staticmethod(lambda *a, **k: next(picks)))
+
+    widget.locate_folder(roll_id)
+
+    widget.controller.relink_member_folders.assert_called_once_with(
+        roll_id, [(str(roll_b), str(tree_dirs / "moved_b")), (str(roll_a), str(tree_dirs / "moved_a"))]
+    )
+
+
+def test_locate_refuses_a_folder_that_fits_two_missing_folders(widget, tree_dirs, monkeypatch):
+    names = ["Image (1).NEF", "Image (2).NEF"]
+    roll_id = create_virtual_roll(widget.repo, "picks", [str(tree_dirs / f / n) for f in ("Z_roll", "B_roll") for n in names])
+    other = tree_dirs / "other"
+    other.mkdir()
+    for n in names:
+        (other / n).write_bytes(b"x")
+    picks = iter([str(other), ""])
+    monkeypatch.setattr(QFileDialog, "getExistingDirectory", staticmethod(lambda *a, **k: next(picks)))
+    warnings = []
+    monkeypatch.setattr(QMessageBox, "warning", staticmethod(lambda *a, **k: warnings.append(a[2])))
+
+    widget.locate_folder(roll_id)
+
+    assert warnings and "more than one" in warnings[0]
+    widget.controller.relink_member_folders.assert_not_called()
+
+
+def test_locate_finds_a_gone_subfolder_under_the_located_folder(widget, tree_dirs, monkeypatch):
+    old = tree_dirs / "S" / "2024"
+    roll_id = create_virtual_roll(widget.repo, "picks", [str(old / "a.NEF"), str(old / "rejects" / "r.NEF")])
+    new = tree_dirs / "A" / "2024"
+    (new / "rejects").mkdir(parents=True)
+    (new / "a.NEF").write_bytes(b"x")
+    (new / "rejects" / "r.NEF").write_bytes(b"x")
+    picks = iter([str(new)])
+    monkeypatch.setattr(QFileDialog, "getExistingDirectory", staticmethod(lambda *a, **k: next(picks)))
+
+    widget.locate_folder(roll_id)
+
+    widget.controller.relink_member_folders.assert_called_once_with(
+        roll_id, [(str(old), str(new)), (str(old / "rejects"), str(new / "rejects"))]
+    )

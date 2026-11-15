@@ -119,7 +119,13 @@ from negpy.services.assets.capture_modes import BLEND, SINGLE, record_capture_mo
 from negpy.services.assets.composites import forget_composite, frame_count, part_paths, restore_maps, saved_composites, source_files
 from negpy.services.assets.triplets import applied_triplets, forget_triplets, saved_triplets
 from negpy.services.assets import rolls
-from negpy.services.assets.rehome import folder_roll_missing, relink_folder_roll
+from negpy.services.assets.rehome import (
+    folder_roll_missing,
+    member_folders,
+    missing_member_folders,
+    rehome_path_prefix,
+    relink_folder_roll,
+)
 from negpy.services.assets.sensor import SensorProfiles
 from negpy.services.export.contact_sheet_layout import ContactSheetSettings
 from negpy.services.export.contact_sheet_roll import (
@@ -567,7 +573,7 @@ class AppController(QObject):
     """
 
     image_updated = pyqtSignal()
-    roll_folder_missing = pyqtSignal(str)  # a folder roll was opened but its folder is gone
+    roll_folder_missing = pyqtSignal(str)  # a roll was opened but its folder, or every folder of its frames, is gone
     preview_loaded = pyqtSignal()
     metrics_available = pyqtSignal(dict)
     loading_started = pyqtSignal()
@@ -2054,6 +2060,9 @@ class AppController(QObject):
             self._extras_notice = roll_id if self._unnoticed_extras(roll_id, entry) else None
         else:
             paths = list(entry.get("member_paths", []))
+            if paths and len(missing_member_folders(entry)) == len(member_folders(entry)):
+                self.roll_folder_missing.emit(roll_id)
+                return
         if not paths:
             self.set_status(tr("This roll has no frames"), 3000)
             return
@@ -2217,8 +2226,6 @@ class AppController(QObject):
             if new_path is None:
                 return False
             if old_path:
-                from negpy.services.assets.rehome import rehome_path_prefix
-
                 rehome_path_prefix(self.session.repo, old_path, new_path)
             if old_path and roll_id == self.state.active_roll_id:
                 self.session.rehome_folder_paths(old_path, new_path)
@@ -2236,6 +2243,13 @@ class AppController(QObject):
         else:
             self.open_roll(roll_id)
         return ""
+
+    def relink_member_folders(self, roll_id: str, moves: list[tuple[str, str]]) -> None:
+        """Repoint a virtual roll's frames from each gone folder to the folder the user located, then open the roll."""
+        # Deepest first: a move of a parent folder also carries every folder under it.
+        for old_folder, new_folder in sorted(moves, key=lambda move: len(move[0]), reverse=True):
+            rehome_path_prefix(self.session.repo, old_folder, new_folder)
+        self.open_roll(roll_id)
 
     def invalidate_library_walk(self) -> None:
         """Drop the cached traversal so the next search re-reads the folders."""

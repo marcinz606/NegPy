@@ -621,9 +621,14 @@ def rename_folder_roll_disk(repo: Any, roll_id: str, new_name: str) -> Optional[
 def rehome_paths(repo: Any, move: Callable[[str], str]) -> None:
     """Pass every folder and member path of every roll through *move*."""
     store = _read(repo)
-    for entry in store.values():
+    owned = {_folder_key(e["folder_path"]): rid for rid, e in store.items() if e.get("kind") == "folder" and e.get("folder_path")}
+    for roll_id, entry in store.items():
         if entry.get("folder_path"):
-            entry["folder_path"] = move(entry["folder_path"])
+            moved = move(entry["folder_path"])
+            # A folder roll never moves onto a folder that another folder roll holds; its removed frames stay with it.
+            if owned.get(_folder_key(moved), roll_id) != roll_id:
+                continue
+            entry["folder_path"] = moved
         for key in ("member_paths", "excluded_paths"):
             if key in entry:
                 entry[key] = [move(p) for p in entry[key]]

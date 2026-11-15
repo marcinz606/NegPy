@@ -142,3 +142,93 @@ def test_edited_file_names_follow_the_platforms_case_rule(tmp_path, monkeypatch)
     assert repo.edited_file_names_under(asked) == set()
     monkeypatch.setattr(os.path, "normcase", str.lower)
     assert repo.edited_file_names_under(asked) == {"a.tif"}
+
+
+def test_a_virtual_rolls_frames_follow_a_located_folder(tmp_path):
+    from negpy.services.assets.rehome import gone_folders_for, missing_member_folders, roll_missing
+
+    repo = StorageRepository(str(tmp_path / "edits.db"), str(tmp_path / "settings.db"))
+    repo.initialize()
+    old, new = tmp_path / "old", tmp_path / "new"
+    new.mkdir()
+    (new / "a.tif").write_bytes(b"x")
+    roll_id = rolls.create_virtual_roll(repo, "picks", [str(old / "a.tif")])
+    entry = rolls.roll_for_id(repo, roll_id)
+
+    assert roll_missing(repo, roll_id) and missing_member_folders(entry) == [str(old)]
+    assert gone_folders_for(entry, [str(old)], str(new)) == [str(old)]
+    assert gone_folders_for(entry, [str(old)], str(tmp_path)) == []
+    rehome_path_prefix(repo, str(old), str(new))
+    assert not roll_missing(repo, roll_id)
+
+
+def test_a_folder_roll_never_moves_onto_a_folder_another_roll_holds(tmp_path):
+    repo = StorageRepository(str(tmp_path / "edits.db"), str(tmp_path / "settings.db"))
+    repo.initialize()
+    old, new = str(tmp_path / "old"), str(tmp_path / "new")
+    stale = rolls.recognize_folder(repo, old)
+    held = rolls.recognize_folder(repo, new)
+    vroll = rolls.create_virtual_roll(repo, "picks", [os.path.join(old, "a.tif")])
+
+    rehome_path_prefix(repo, old, new)
+
+    assert rolls.roll_for_id(repo, stale)["folder_path"] == old
+    assert rolls.roll_for_id(repo, held)["folder_path"] == new
+    assert rolls.roll_for_id(repo, vroll)["member_paths"] == [os.path.join(new, "a.tif")]
+
+
+def test_a_located_folder_replaces_the_gone_folder_whose_files_it_holds(tmp_path):
+    from negpy.services.assets.rehome import gone_folders_for
+
+    repo = StorageRepository(str(tmp_path / "edits.db"), str(tmp_path / "settings.db"))
+    repo.initialize()
+    a, b, new_b = tmp_path / "A", tmp_path / "b", tmp_path / "moved_b"
+    new_b.mkdir()
+    (new_b / "b1.tif").write_bytes(b"x")
+    roll_id = rolls.create_virtual_roll(repo, "picks", [str(a / "a1.tif"), str(b / "b1.tif")])
+
+    assert gone_folders_for(rolls.roll_for_id(repo, roll_id), [str(a), str(b)], str(new_b)) == [str(b)]
+
+
+def test_a_tie_prefers_the_folder_of_the_same_name_and_otherwise_returns_both(tmp_path):
+    from negpy.services.assets.rehome import gone_folders_for
+
+    z, b = str(tmp_path / "Z_roll"), str(tmp_path / "B_roll")
+    entry = {"kind": "virtual", "member_paths": [os.path.join(f, f"Image ({i}).tif") for f in (z, b) for i in (1, 2, 3)]}
+    for name in ("Z_roll", "elsewhere"):
+        (tmp_path / "new" / name).mkdir(parents=True)
+        for i in (1, 2, 3):
+            (tmp_path / "new" / name / f"Image ({i}).tif").write_bytes(b"x")
+
+    assert gone_folders_for(entry, sorted([z, b]), str(tmp_path / "new" / "Z_roll")) == [z]
+    assert sorted(gone_folders_for(entry, sorted([z, b]), str(tmp_path / "new" / "elsewhere"))) == sorted([z, b])
+
+
+def test_a_folder_holding_all_of_a_small_folder_beats_part_of_a_large_one(tmp_path):
+    from negpy.services.assets.rehome import gone_folders_for
+
+    z, b = str(tmp_path / "Z"), str(tmp_path / "B")
+    entry = {
+        "kind": "virtual",
+        "member_paths": [os.path.join(z, f"{i}.tif") for i in range(3)] + [os.path.join(b, f"{i}.tif") for i in range(5)],
+    }
+    new = tmp_path / "picked"
+    new.mkdir()
+    for i in range(3):
+        (new / f"{i}.tif").write_bytes(b"x")
+
+    assert gone_folders_for(entry, sorted([z, b]), str(new)) == [z]
+
+
+def test_a_refused_folder_roll_keeps_its_removed_frames(tmp_path):
+    repo = StorageRepository(str(tmp_path / "edits.db"), str(tmp_path / "settings.db"))
+    repo.initialize()
+    old, new = str(tmp_path / "old"), str(tmp_path / "new")
+    stale = rolls.recognize_folder(repo, old)
+    rolls.recognize_folder(repo, new)
+    rolls.remove_members(repo, stale, [os.path.join(old, "x.tif")], [])
+
+    rehome_path_prefix(repo, old, new)
+
+    entry = rolls.roll_for_id(repo, stale)
+    assert entry["folder_path"] == old and entry["excluded_paths"] == [os.path.join(old, "x.tif")]

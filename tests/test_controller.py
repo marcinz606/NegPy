@@ -7773,6 +7773,31 @@ class TestLibrarySearch(unittest.TestCase):
         self.assertEqual(missing, [roll_id])
         discovery.assert_not_called()
 
+    def test_open_virtual_roll_whose_frames_are_all_gone_asks_to_locate_them(self):
+        self._dict_repo()
+        from negpy.services.assets.rolls import create_virtual_roll
+
+        roll_id = create_virtual_roll(self.controller.session.repo, "picks", ["/photos/gone/a.tif"])
+        missing = []
+        self.controller.roll_folder_missing.connect(missing.append)
+
+        with patch.object(self.controller, "request_asset_discovery") as discovery:
+            self.controller.open_roll(roll_id)
+
+        self.assertEqual(missing, [roll_id])
+        discovery.assert_not_called()
+
+    def test_relinking_a_virtual_rolls_folders_moves_the_deepest_first_and_opens_it(self):
+        self._dict_repo()
+        with (
+            patch.object(self.controller, "open_roll") as reopen,
+            patch("negpy.desktop.controller.rehome_path_prefix") as rehome,
+        ):
+            self.controller.relink_member_folders("r1", [("/s/2024", "/a/2024"), ("/s/2024/rejects", "/b/rejects")])
+
+        self.assertEqual([c.args[1:] for c in rehome.call_args_list], [("/s/2024/rejects", "/b/rejects"), ("/s/2024", "/a/2024")])
+        reopen.assert_called_once_with("r1")
+
     def test_relinking_the_open_roll_repoints_its_frames_without_reopening(self):
         self._dict_repo()
         import os

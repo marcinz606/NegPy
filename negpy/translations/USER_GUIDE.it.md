@@ -142,17 +142,17 @@ Per un fotogramma di questo tipo, la scheda Esporta nasconde le impostazioni fis
 
 ## 2. Libreria e Striscia pellicola
 
-<!-- panel:library src:9b53b788 -->
+<!-- panel:library src:50cc7087 -->
 ### Libreria
 
 La scheda **Libreria** (`Ctrl+L`) elenca i tuoi **rullini**. Un rullino è un gruppo di fotogrammi con un nome, di solito una pellicola: un **rullino-cartella** o un **rullino virtuale**. L'importazione registra la cartella; NegPy non sposta, rinomina né elimina mai i tuoi file.
 
 *   **+**: **Importa cartella come rullino…** crea un rullino da una cartella e lo apre. **Importa sottocartelle come rullini…** crea un rullino da ogni sottocartella che contiene immagini. Anche trascinare delle cartelle sulla Libreria le importa.
 *   **Fai doppio clic** su un rullino (o premi Invio) per aprirlo.
-*   **⋮** o clic destro su un rullino: **Apri**, **Chiudi tutti…** (il rullino aperto), **Analisi del rullino**, **Rinomina…**, **Individua cartella…**, **Salva nel rullino-cartella**, **Ripristina fotogrammi rimossi…** ed **Elimina…**. Ripristina fotogrammi rimossi riporta i fotogrammi che Rimuovi dal rullino ha tolto. Elimina conserva i file e le loro modifiche condivise. Perde le impostazioni del rullino, il riferimento, la base della pellicola, le scene, i blocchi dei riquadri e le modifiche fatte solo in quel rullino, e Aggiorna non aggiunge di nuovo un rullino-cartella eliminato.
+*   **⋮** o clic destro su un rullino: **Apri**, **Chiudi tutti…** (il rullino aperto), **Analisi del rullino**, **Rinomina…**, **Individua cartella…**, **Salva nel rullino-cartella**, **Ripristina fotogrammi rimossi…** ed **Elimina…**. Ripristina fotogrammi rimossi riporta i fotogrammi che Rimuovi dal rullino ha tolto. Elimina conserva i file e le modifiche condivise. Perde le impostazioni del rullino, il riferimento, la base della pellicola, le scene, i blocchi dei riquadri e le modifiche proprie, e Aggiorna non aggiunge di nuovo un rullino-cartella eliminato.
 *   **Filtra i rullini…** e **Ordina** ti aiutano a trovare un rullino. **⋮ → Aggiorna** trova nuove sottocartelle e riconta i fotogrammi. **⋮ → Filtri di ricerca…** elenca i nomi di cartella da saltare (inizialmente `export`).
 
-Un rullino la cui cartella è stata rinominata o spostata fuori da NegPy mostra **cartella mancante**. **Individua cartella…** lo collega alla nuova cartella. Un nome di cartella che corrisponde alla tua attrezzatura ("penf" per "Pen F") apre le Impostazioni del rullino già compilate.
+Un rullino la cui cartella o i cui fotogrammi sono stati spostati fuori da NegPy mostra **cartella mancante** o **file mancanti**. **Individua cartella…** trova la nuova cartella. Un nome di cartella che corrisponde alla tua attrezzatura ("penf" per "Pen F") apre le Impostazioni del rullino già compilate.
 
 Un rullino-cartella contiene solo i file della propria cartella. Un file che aggiungi da un'altra cartella resta solo per questa sessione.
 
