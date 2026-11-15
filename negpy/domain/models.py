@@ -543,6 +543,22 @@ class WorkspaceConfig:
         )
 
 
+# Config that changes the Flat master. A field joins in the change that makes flat_master_config
+# keep it and the flat render read it; tests/test_flat_master_fields.py holds each set to the render.
+_FLAT_SECTIONS = frozenset({"geometry", "process", "flatfield", "rgbscan", "stitch", "hdr"})
+_FLAT_FIELDS: Dict[str, frozenset] = {"exposure": frozenset({"wb_cyan", "wb_magenta", "wb_yellow", "paper_profile", "bw_filter"})}
+_FLAT_EXCEPT: Dict[str, frozenset] = {"process": frozenset({"use_cast_average", "locked_neutral_axis"})}
+
+
+def reaches_flat_master(section: str, *fields: str) -> bool:
+    """Whether any of `fields` of a config section changes the Flat master; with no fields, any part of the section."""
+    if section in _FLAT_SECTIONS:
+        excluded = _FLAT_EXCEPT.get(section, frozenset())
+        return not fields or any(f not in excluded for f in fields)
+    live = _FLAT_FIELDS.get(section, frozenset())
+    return bool(live) if not fields else any(f in live for f in fields)
+
+
 def flat_master_config(config: WorkspaceConfig) -> WorkspaceConfig:
     """
     Derive a flat digital-intermediate ("Flat — for editing elsewhere") render
