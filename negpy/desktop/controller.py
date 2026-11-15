@@ -121,6 +121,7 @@ from negpy.services.assets.triplets import applied_triplets, forget_triplets, sa
 from negpy.services.assets import rolls
 from negpy.services.assets.rehome import (
     folder_roll_missing,
+    gone_member_paths,
     member_folders,
     missing_member_folders,
     rehome_path_prefix,
@@ -7823,6 +7824,20 @@ class AppController(QObject):
             self.request_asset_discovery(paths)
         name = (rolls.roll_for_id(self.session.repo, roll_id) or {}).get("name") or tr("this roll")
         self.set_status(tr("Restored {value} to “{name}”", value=count_of(count, "frame"), name=name), 3000)
+
+    def remove_missing_frames(self, roll_id: str) -> int:
+        """Take a virtual roll's frames whose files are gone out of the roll, with their locks,
+        scenes and forks in it. A gone file has no hash, so its saved rows give its hashes, halves and forks included;
+        a frame never edited or marked keeps no record to find."""
+        repo = self.session.repo
+        paths = gone_member_paths(rolls.roll_for_id(repo, roll_id))
+        if not paths:
+            return 0
+        hashes = list(dict.fromkeys(rolls.unforked_hash(h) for p in paths for h in repo.file_hashes_for_path(p)))
+        for from_hash in rolls.remove_members(repo, roll_id, paths, hashes):
+            repo.delete_file_settings(rolls.roll_edit_hash(from_hash, roll_id))
+        self.set_status(tr("Removed {value} from the roll", value=count_of(len(paths), "frame")), 3000)
+        return len(paths)
 
     def request_remove_from_roll(self, indices: List[int]) -> None:
         """Take the frames at *indices* out of the active roll and the Film Strip, with

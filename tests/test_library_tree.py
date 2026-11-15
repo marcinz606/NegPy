@@ -1451,6 +1451,35 @@ def test_locate_takes_a_virtual_rolls_folders_in_any_order(widget, tree_dirs, mo
     )
 
 
+def _menu_texts(widget, monkeypatch, item) -> list[str]:
+    shown = []
+    monkeypatch.setattr(
+        "negpy.desktop.view.sidebar.library_tree.QMenu.exec", lambda menu, *a: shown.extend(a.text() for a in menu.actions())
+    )
+    widget.tree.setCurrentItem(item)
+    widget._show_context_menu(widget.tree.visualItemRect(item).center())
+    return shown
+
+
+def test_a_virtual_roll_with_gone_files_offers_remove_missing_frames(widget, tree_dirs, monkeypatch):
+    create_virtual_roll(widget.repo, "picks", [str(tree_dirs / "gone" / "x.NEF"), str(tree_dirs / "roll_b" / "b1.NEF")])
+    (tree_dirs / "roll_b" / "deleted.NEF").write_bytes(b"x")
+    widget.reload()
+    _check_folders(widget)
+    shown = _menu_texts(widget, monkeypatch, widget.tree.topLevelItem(0))
+    assert "Remove Missing Frames…" in shown and "Locate Folder…" in shown
+
+
+def test_a_deleted_file_in_a_present_folder_offers_only_remove_missing_frames(widget, tree_dirs, monkeypatch):
+    create_virtual_roll(widget.repo, "picks", [str(tree_dirs / "roll_b" / "deleted.NEF"), str(tree_dirs / "roll_b" / "b1.NEF")])
+    widget.reload()
+    _check_folders(widget)
+    item = widget.tree.topLevelItem(0)
+    shown = _menu_texts(widget, monkeypatch, item)
+    assert "Remove Missing Frames…" in shown and "Locate Folder…" not in shown
+    assert item.data(0, _DETAIL_ROLE).startswith("2 photos · 1 missing")
+
+
 def test_locate_refuses_a_folder_that_fits_two_missing_folders(widget, tree_dirs, monkeypatch):
     names = ["Image (1).NEF", "Image (2).NEF"]
     roll_id = create_virtual_roll(widget.repo, "picks", [str(tree_dirs / f / n) for f in ("Z_roll", "B_roll") for n in names])

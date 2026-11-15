@@ -35,7 +35,7 @@ from negpy.desktop.view.confirm import (
 )
 from negpy.desktop.view.widgets.file_dialogs import last_open_folder
 from negpy.desktop.view.widgets.rename_roll_dialog import RenameRollDialog
-from negpy.desktop.view.keyboard_shortcuts import _unload_all, restore_removed_frames
+from negpy.desktop.view.keyboard_shortcuts import _unload_all, remove_missing_frames, restore_removed_frames
 from negpy.desktop.view.shortcut_registry import label_with_shortcut
 from negpy.desktop.view.styles.templates import TOOLBAR_BUTTON_HEIGHT, TOOLBAR_ICON_SIZE, hint_label, labeled_action, wrap_tooltip
 from negpy.desktop.view.widgets.flat_rows import ICON, more_press, more_rect, paint_fill, paint_more, paint_pill, two_line_rects
@@ -784,7 +784,7 @@ class LibraryTree(QWidget):
         folder_path = entry.get("folder_path", "")
         if (item.data(0, _GONE_ROLE) or (False, 0))[1]:
             item.setToolTip(0, tr("Some frames of this virtual roll are not on disk"))
-            item.setToolTip(1, tr("Right-click the roll and choose Locate Folder… to find a moved folder."))
+            item.setToolTip(1, tr("Right-click the roll to locate a moved folder or to remove the missing frames."))
             return
         if missing:
             item.setToolTip(0, tr("Folder not found on disk: {path}", path=folder_path))
@@ -921,7 +921,7 @@ class LibraryTree(QWidget):
                 analyze_action.setToolTip(BATCH_ANALYSIS_TOOLTIP if is_active else BATCH_ANALYSIS_DISABLED_TOOLTIP)
                 analyze_action.triggered.connect(self.controller.request_batch_normalization)
                 menu.addAction(tr("Rename…")).triggered.connect(lambda: self._rename_roll(roll_id, name))
-                folders_gone = (item.data(0, _GONE_ROLE) or (False, 0))[0]
+                folders_gone, gone = item.data(0, _GONE_ROLE) or (False, 0)
                 if folders_gone or folder_roll_missing(self.repo, roll_id):
                     locate_action = menu.addAction(tr("Locate Folder…"))
                     locate_action.setToolTip(
@@ -930,6 +930,10 @@ class LibraryTree(QWidget):
                         else tr("Point this roll's frames at the folders they were moved to")
                     )
                     locate_action.triggered.connect(lambda: self.locate_folder(roll_id))
+                if gone:
+                    missing_action = menu.addAction(label_with_shortcut(tr("Remove Missing Frames…"), "remove_missing_frames"))
+                    missing_action.setToolTip(tr("Take the frames whose files are not on disk out of this roll"))
+                    missing_action.triggered.connect(lambda: self._remove_missing(roll_id))
                 choice, reason = self.controller.save_choice(roll_id)
                 if choice != "hidden":
                     # No shortcut label: the shortcut acts on the open roll, not the one clicked here.
@@ -1061,6 +1065,11 @@ class LibraryTree(QWidget):
 
     def _save_to_folder_roll(self, roll_id: str) -> None:
         if self.controller.save_to_folder_roll(roll_id):
+            self.reload()
+            self.rolls_changed.emit()
+
+    def _remove_missing(self, roll_id: str) -> None:
+        if remove_missing_frames(self, self.controller, roll_id):
             self.reload()
             self.rolls_changed.emit()
 

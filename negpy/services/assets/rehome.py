@@ -53,6 +53,13 @@ def roll_missing(repo: Any, roll_id: str) -> bool:
     return entry_missing(rolls.roll_for_id(repo, roll_id))
 
 
+def gone_member_paths(entry: Optional[dict]) -> list[str]:
+    """The virtual roll's frames whose files are not on disk."""
+    if not entry or entry.get("kind") == "folder":
+        return []
+    return [p for p in entry.get("member_paths") or () if not os.path.exists(p)]
+
+
 def gone_folders_for(entry: Optional[dict], gone: list[str], path: str) -> list[str]:
     """The folders in *gone* that *path* fits best: the largest share of each folder's own frames
     by file name, then a folder of the same name. Empty when it fits none; more than one on a tie."""

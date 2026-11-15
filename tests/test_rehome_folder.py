@@ -190,6 +190,20 @@ def test_a_located_folder_replaces_the_gone_folder_whose_files_it_holds(tmp_path
     assert gone_folders_for(rolls.roll_for_id(repo, roll_id), [str(a), str(b)], str(new_b)) == [str(b)]
 
 
+def test_gone_member_paths_lists_only_a_virtual_rolls_gone_files(tmp_path):
+    from negpy.services.assets.rehome import gone_member_paths
+
+    repo = StorageRepository(str(tmp_path / "edits.db"), str(tmp_path / "settings.db"))
+    repo.initialize()
+    here = tmp_path / "a.tif"
+    here.write_bytes(b"x")
+    gone = str(tmp_path / "gone" / "b.tif")
+    roll_id = rolls.create_virtual_roll(repo, "picks", [str(here), gone])
+
+    assert gone_member_paths(rolls.roll_for_id(repo, roll_id)) == [gone]
+    assert gone_member_paths(rolls.roll_for_id(repo, rolls.recognize_folder(repo, str(tmp_path)))) == []
+
+
 def test_a_tie_prefers_the_folder_of_the_same_name_and_otherwise_returns_both(tmp_path):
     from negpy.services.assets.rehome import gone_folders_for
 
@@ -232,3 +246,14 @@ def test_a_refused_folder_roll_keeps_its_removed_frames(tmp_path):
 
     entry = rolls.roll_for_id(repo, stale)
     assert entry["folder_path"] == old and entry["excluded_paths"] == [os.path.join(old, "x.tif")]
+
+
+def test_file_hashes_for_path_lists_halves_forks_and_marks(tmp_path):
+    repo = StorageRepository(str(tmp_path / "edits.db"), str(tmp_path / "settings.db"))
+    repo.initialize()
+    path = str(tmp_path / "gone.tif")
+    repo.save_file_settings("h#1", WorkspaceConfig(), file_path=path)
+    repo.save_file_settings("h#2#roll:r", WorkspaceConfig(), file_path=path)
+    repo.save_file_mark("m", "keeper", file_path=path)
+
+    assert repo.file_hashes_for_path(path) == ["h#1", "h#2#roll:r", "m"]

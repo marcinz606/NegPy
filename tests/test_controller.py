@@ -7787,6 +7787,28 @@ class TestLibrarySearch(unittest.TestCase):
         self.assertEqual(missing, [roll_id])
         discovery.assert_not_called()
 
+    def test_remove_missing_frames_drops_only_the_gone_files_and_their_forks(self):
+        self._dict_repo()
+        import os
+        import tempfile
+
+        from negpy.services.assets.rolls import create_virtual_roll, roll_for_id
+
+        with tempfile.TemporaryDirectory() as tmp:
+            here = os.path.join(tmp, "a.tif")
+            open(here, "wb").close()
+            gone = os.path.join(tmp, "gone", "b.tif")
+            repo = self.controller.session.repo
+            roll_id = create_virtual_roll(repo, "picks", [here, gone])
+            repo.file_hashes_for_path = lambda p: ["hb", "hb#1#roll:" + roll_id] if p == gone else []
+            repo.delete_file_settings = MagicMock()
+            with patch("negpy.desktop.controller.rolls.remove_members", wraps=rolls.remove_members) as remove:
+                self.assertEqual(self.controller.remove_missing_frames(roll_id), 1)
+
+            remove.assert_called_once_with(repo, roll_id, [gone], ["hb", "hb#1"])
+            self.assertEqual(roll_for_id(repo, roll_id)["member_paths"], [here])
+            self.assertEqual(self.controller.remove_missing_frames(roll_id), 0)
+
     def test_relinking_a_virtual_rolls_folders_moves_the_deepest_first_and_opens_it(self):
         self._dict_repo()
         with (
