@@ -252,6 +252,8 @@ class LibraryTree(QWidget):
         saved = self.repo.get_global_setting(_COLLAPSED_KEY, [])
         self._collapsed = {key for key in saved if isinstance(key, str)} if isinstance(saved, list) else set()
         self._init_ui()
+        self._pending_drop: list[str] = []
+        self.setAcceptDrops(True)
         # Deferred: files_changed fires before the session saves its triplets.
         self._count_timer = QTimer(self)
         self._count_timer.setSingleShot(True)
@@ -373,7 +375,9 @@ class LibraryTree(QWidget):
         first.clicked.connect(self.prompt_import_folder)
         many = labeled_action("", tr("Import Subfolders as Rolls…"), tr("Make each folder of scans under a parent a roll of its own"))
         many.clicked.connect(self.prompt_import_subfolders)
-        for widget in (icon, title, hint, first, many):
+        drop_hint = hint_label(tr("Or drop a folder here"))
+        drop_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        for widget in (icon, title, hint, first, many, drop_hint):
             empty_col.addWidget(widget, 0, Qt.AlignmentFlag.AlignHCenter)
         layout.addWidget(self.empty_label)
         layout.addStretch(0)
@@ -388,6 +392,10 @@ class LibraryTree(QWidget):
         path = QFileDialog.getExistingDirectory(self, tr("Import Folder as a Roll"), start)
         if not path:
             return False
+        return self.import_folder(path)
+
+    def import_folder(self, path: str) -> bool:
+        """Make one folder a roll and open it; a folder with no images imports its subfolders."""
         self.repo.save_global_setting("last_open_folder", path)
         images, _ = folder_counts(path)
         if not images:
@@ -424,6 +432,66 @@ class LibraryTree(QWidget):
         self.reload()
         self.rolls_changed.emit()
         return True
+
+    def import_dropped(self, folders: list[str]) -> bool:
+        """One folder goes to import_folder; several become rolls and none opens."""
+        if len(folders) == 1:
+            return self.import_folder(folders[0])
+        roll_ids: list[str] = []
+        # A parent sorts before its subfolders, so it is an import source before they take their names.
+        for folder in sorted(set(folders)):
+            if folder_counts(folder)[0]:
+                roll_ids += self.controller.recognize_library_folders([folder])
+            else:
+                roll_ids += self.controller.import_subfolders_as_rolls(folder)
+        roll_ids = list(dict.fromkeys(roll_ids))
+        if not roll_ids:
+            self.controller.set_status(tr("No folders with images found"), 4000)
+            return False
+        self.controller.set_status(tr("Imported {value}", value=count_of(len(roll_ids), "roll")), 3000)
+        self.reload()
+        self.rolls_changed.emit()
+        return True
+
+    @staticmethod
+    def _dropped_folders(mime) -> list[str]:
+        """The dropped folders, or [] unless every URL is a local folder."""
+        if not mime.hasUrls():
+            return []
+        urls = mime.urls()
+        if not all(url.isLocalFile() for url in urls):
+            return []
+        paths = [os.path.normpath(url.toLocalFile()) for url in urls]
+        return paths if paths and all(os.path.isdir(path) for path in paths) else []
+
+    def dragEnterEvent(self, event) -> None:  # noqa: N802
+        # An ignored drag goes on to the main window, which loads files as it always has.
+        if self._dropped_folders(event.mimeData()):
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dragMoveEvent(self, event) -> None:  # noqa: N802
+        event.acceptProposedAction()
+
+    def dropEvent(self, event) -> None:  # noqa: N802
+        folders = self._dropped_folders(event.mimeData())
+        if not folders:
+            event.ignore()
+            return
+        event.acceptProposedAction()
+        # The import can walk a tree and open a modal, so it runs after the OS drag session ends.
+        self._pending_drop = folders
+        QTimer.singleShot(0, self._import_after_drop)
+
+    def _import_after_drop(self) -> None:
+        folders, self._pending_drop = self._pending_drop, []
+        if not folders:
+            return
+        window = self.window()
+        window.raise_()
+        window.activateWindow()
+        self.import_dropped(folders)
 
     def edit_discovery_filters(self) -> bool:
         """Edit the folder-name filters discovery skips, one per line."""
