@@ -61,6 +61,47 @@ fn luma(p: &[f32]) -> f64 {
     )
 }
 
+/// The display decode of `NonStandardFileWrapper.postprocess`: the white-balance gains of R
+/// and B with a clip to 0..1, then LibRaw's BT.709 display curve.
+#[derive(Clone, Copy)]
+pub struct DisplayDecode {
+    pub gains: Option<(f32, f32)>,
+    pub gamma: bool,
+}
+
+/// `postprocess` of float32 pixels with `cn` channels into integer codes: the integer part of
+/// the value times the top code, in float32. A value outside the codes takes the nearest
+/// code and NaN takes 0. The power is `mathf::pow_f64` rounded to float32.
+pub fn display_decode<T: Level + Sync>(src: &[f32], cn: usize, c: DisplayDecode, dst: &mut [T]) {
+    let block = cn * (BLOCK / cn).max(1);
+    dst.par_chunks_mut(block)
+        .zip(src.par_chunks(block))
+        .for_each(move |(d, s)| display_block(s, cn, c, d));
+}
+
+#[multiversion(targets(
+    "x86_64+avx512f+avx512bw+avx512vl+avx512dq",
+    "x86_64+avx2+fma",
+    "aarch64+neon"
+))]
+fn display_block<T: Level>(src: &[f32], cn: usize, c: DisplayDecode, dst: &mut [T]) {
+    let exponent = (1.0f64 / 2.222) as f32 as f64;
+    let top = T::SCALE as f32;
+    let gain = c.gains.map(|(r, b)| [r, 1.0, b]);
+    for (i, (d, &v)) in dst.iter_mut().zip(src).enumerate() {
+        let mut x = v;
+        if let Some(g) = gain {
+            let ch = i % cn;
+            x = (x * if ch < 3 { g[ch] } else { 1.0 }).clamp(0.0, 1.0);
+        }
+        if c.gamma {
+            let curve = 1.099 * crate::mathf::pow_f64(x.max(0.0) as f64, exponent) as f32 - 0.099;
+            x = if x < 0.018 { x * 4.5 } else { curve };
+        }
+        *d = T::truncate(((x * top) as f64).max(0.0).min(T::SCALE));
+    }
+}
+
 pub trait Level: Copy + Send {
     const SCALE: f64;
     fn truncate(v: f64) -> Self;
@@ -122,15 +163,39 @@ pub fn luma_to_uint<T: Level>(src: &[f32], cn: usize, dst: &mut [T]) {
         .for_each(|(d, s)| luma_block(s, cn, d));
 }
 
-/// The first three channels of each `cn`-channel pixel of `src` into the RGBA `dst`.
+/// The first three channels of each `cn`-channel pixel of `src` into the RGBA `dst`, alpha 1.
 pub fn rgb_to_rgba(src: &[f32], cn: usize, dst: &mut [f32]) {
     dst.par_chunks_mut(4 * BLOCK)
         .zip(src.par_chunks(cn * BLOCK))
-        .for_each(|(d, s)| {
-            for (dp, sp) in d.as_chunks_mut::<4>().0.iter_mut().zip(s.chunks_exact(cn)) {
-                dp[..3].copy_from_slice(&sp[..3]);
+        .for_each(|(d, s)| rgb_to_rgba_run(s, cn, d));
+}
+
+/// `rgb_to_rgba` of an image given as its rows, each `cn` channels wide: a view cut out of a
+/// larger frame has contiguous rows and is not one slice.
+pub fn rgb_to_rgba_rows(rows: &[&[f32]], cn: usize, dst: &mut [f32]) {
+    let Some(width) = rows.first().map(|r| r.len() / cn).filter(|&w| w > 0) else {
+        return;
+    };
+    let per = (BLOCK / width).max(1);
+    dst.par_chunks_mut(4 * width * per)
+        .zip(rows.par_chunks(per))
+        .for_each(|(d, rows)| {
+            for (d, s) in d.chunks_exact_mut(4 * width).zip(rows) {
+                rgb_to_rgba_run(s, cn, d);
             }
         });
+}
+
+fn rgb_to_rgba_run(src: &[f32], cn: usize, dst: &mut [f32]) {
+    for (dp, sp) in dst
+        .as_chunks_mut::<4>()
+        .0
+        .iter_mut()
+        .zip(src.chunks_exact(cn))
+    {
+        dp[..3].copy_from_slice(&sp[..3]);
+        dp[3] = 1.0;
+    }
 }
 
 /// `a * b` of two float32 arrays of one shape.

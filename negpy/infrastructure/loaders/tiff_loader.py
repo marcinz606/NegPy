@@ -1,6 +1,7 @@
 import os
 from collections.abc import Callable
 import imageio.v3 as iio
+import negpy_core
 import numpy as np
 import tifffile
 from PIL import Image
@@ -253,7 +254,7 @@ class TiffLoader(IImageLoader):
             elif img.dtype == np.uint16:
                 f32 = uint16_to_float32(np.ascontiguousarray(img))
             else:
-                f32 = np.clip(img.astype(np.float32), 0, 1)
+                f32 = negpy_core.clip01(np.ascontiguousarray(img, dtype=np.float32))
             if color_space == ColorSpace.SRGB.value:
                 f32 = srgb_to_linear(f32)
             elif color_space == ColorSpace.ADOBE_RGB.value:

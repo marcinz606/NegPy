@@ -8,7 +8,7 @@ use pyo3::prelude::*;
 use super::color::space;
 use crate::lab;
 
-/// `_usm_sharpening_block(img, amount, radius, masking)` of an HxWx3 float32 image: `gain` is
+/// `apply_usm_sharpening(img, amount, radius, masking)` of an HxWx3 float32 image: `gain` is
 /// `np.float32(amount * 2.5)`, `k` the blur taps, then the working Lab constants.
 #[pyfunction]
 #[allow(clippy::too_many_arguments)]

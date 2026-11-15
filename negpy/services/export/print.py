@@ -267,19 +267,13 @@ class PrintService:
         color_hex = border_color.lstrip("#")
         r, g, b = tuple(int(color_hex[i : i + 2], 16) / 255.0 for i in (0, 2, 4))
 
-        channels = img_scaled.shape[2] if img_scaled.ndim == 3 else 1
-        paper_shape = (paper_h, paper_w, channels) if channels > 1 else (paper_h, paper_w)
-        paper = np.full(
-            paper_shape,
-            (r, g, b) if channels > 1 else (r,),
-            dtype=img_scaled.dtype,
-        )
+        flat = img_scaled.ndim == 2
+        src = np.ascontiguousarray(img_scaled[..., None] if flat else img_scaled, dtype=np.float32)
+        color = (r,) if src.shape[2] == 1 else (r, g, b)
+        paper = negpy_core.place_on_paper(src, (paper_h, paper_w), (offset_y, offset_x), color)
+        if flat:
+            paper = paper[..., 0]
         h_copy = min(target_h, paper_h - offset_y)
         w_copy = min(target_w, paper_w - offset_x)
-
-        if channels > 1:
-            paper[offset_y : offset_y + h_copy, offset_x : offset_x + w_copy, :] = img_scaled[:h_copy, :w_copy, :]
-        else:
-            paper[offset_y : offset_y + h_copy, offset_x : offset_x + w_copy] = img_scaled[:h_copy, :w_copy]
 
         return paper, (offset_x, offset_y, w_copy, h_copy)

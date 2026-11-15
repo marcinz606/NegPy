@@ -126,6 +126,66 @@ fn levels_to_unit<'py>(
     )
 }
 
+fn tile<'py, T: numpy::Element + Copy + Into<f64> + Sync>(
+    py: Python<'py>,
+    img: PyReadonlyArrayDyn<'py, T>,
+    black: [f32; 3],
+    denom: [f32; 3],
+    lut: Option<PyReadonlyArray1<'py, f32>>,
+) -> PyResult<Bound<'py, PyArray3<f32>>> {
+    let [h, w, cn] = img.shape()[..] else {
+        return Err(PyValueError::new_err("tile_levels needs an HxWxC array"));
+    };
+    if cn < 3 {
+        return Err(PyValueError::new_err("needs three channels"));
+    }
+    let not_contiguous = |_| PyValueError::new_err("needs contiguous arrays");
+    let src = img.as_slice().map_err(not_contiguous)?;
+    let lut = lut
+        .as_ref()
+        .map(|t| t.as_slice())
+        .transpose()
+        .map_err(not_contiguous)?;
+    if lut.is_some_and(|t| t.is_empty()) {
+        return Err(PyValueError::new_err("needs a non-empty table"));
+    }
+    let out = PyArray3::<f32>::zeros(py, [h, w, 3], false);
+    {
+        let mut rw = out.readwrite();
+        let dst = rw.as_slice_mut()?;
+        super::detach(py, dst.len(), || {
+            loaders::tile_levels(src, cn, lut, black, denom, dst)
+        });
+    }
+    Ok(out)
+}
+
+/// `np.clip((lut[v] - black) / denom, 0, 1)` in float32 of the first three channels of an
+/// HxWxC uint8, uint16 or uint32 tile; `denom` is per channel and nonzero.
+#[pyfunction]
+#[pyo3(signature = (img, black, denom, lut=None))]
+fn tile_levels<'py>(
+    py: Python<'py>,
+    img: &Bound<'py, PyAny>,
+    black: [f32; 3],
+    denom: [f32; 3],
+    lut: Option<PyReadonlyArray1<'py, f32>>,
+) -> PyResult<Bound<'py, PyArray3<f32>>> {
+    if let Ok(a) = img.extract::<PyReadonlyArrayDyn<u16>>() {
+        return tile(py, a, black, denom, lut);
+    }
+    if let Ok(a) = img.extract::<PyReadonlyArrayDyn<u8>>() {
+        return tile(py, a, black, denom, lut);
+    }
+    tile(
+        py,
+        img.extract::<PyReadonlyArrayDyn<u32>>()?,
+        black,
+        denom,
+        lut,
+    )
+}
+
 fn curve_rows<'a>(curves: &'a PyReadonlyArray2<'_, f32>) -> PyResult<(&'a [f32], usize)> {
     let [3, n] = curves.shape()[..] else {
         return Err(PyValueError::new_err("needs 3 x N curves"));
@@ -301,6 +361,7 @@ fn logluv_to_rgb<'py>(
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(split_rgb_ir, m)?)?;
     m.add_function(wrap_pyfunction!(levels_to_unit, m)?)?;
+    m.add_function(wrap_pyfunction!(tile_levels, m)?)?;
     m.add_function(wrap_pyfunction!(decode_curves, m)?)?;
     m.add_function(wrap_pyfunction!(into_gamut, m)?)?;
     m.add_function(wrap_pyfunction!(decode_sgilog32, m)?)?;

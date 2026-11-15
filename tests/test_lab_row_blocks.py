@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from negpy.features.lab.logic import apply_saturation, apply_usm_sharpening, _usm_sharpening_block
+from negpy.features.lab.logic import apply_saturation
 from negpy.kernel.image.logic import lab_to_rgb_working, rgb_to_lab_working, skin_chroma_rein
 
 
@@ -17,16 +17,6 @@ def _saturation_oracle(img, saturation, skin):
             lab = skin_chroma_rein(lab, skin)
         out[start : start + rows] = np.clip(lab_to_rgb_working(lab), 0.0, 1.0)
     return out
-
-
-@pytest.mark.parametrize("radius,mask", [(0.1, 0.0), (1.0, 0.0), (3.0, 0.6)])
-def test_sharpen_blocks_match_full_frame(radius, mask):
-    image = np.random.default_rng(3).uniform(0.01, 0.9, (1100, 1024, 3)).astype(np.float32)
-    original = image.copy()
-    full = _usm_sharpening_block(image, 0.25, radius, mask)
-    blocks = apply_usm_sharpening(image, 0.25, radius, mask)
-    np.testing.assert_array_equal(blocks, full)
-    np.testing.assert_array_equal(image, original)
 
 
 @pytest.mark.parametrize("tail_rows", [1, 21, 22])

@@ -559,7 +559,8 @@ fn relog_matrix<'py>(
     Ok(out)
 }
 
-/// `_block_median_grid` of an HxWxC float32 image in `b` x `b` blocks.
+/// `_block_median_grid` of an HxWxC float32 image in `b` x `b` blocks. The image is contiguous
+/// or a row and column slice of a contiguous one.
 #[pyfunction]
 fn block_median_grid<'py>(
     py: Python<'py>,
@@ -574,9 +575,11 @@ fn block_median_grid<'py>(
     if b == 0 {
         return Err(PyValueError::new_err("block size must be positive"));
     }
-    let data = slice(&img)?;
-    let grid = super::detach(py, data.len(), || {
-        analysis::block_median_grid(data, (h, w, c), b)
+    let view = img.as_array();
+    let rows: Option<Vec<&[f32]>> = view.outer_iter().map(|row| row.to_slice()).collect();
+    let rows = rows.ok_or_else(|| PyValueError::new_err("needs contiguous rows"))?;
+    let grid = super::detach(py, h * w * c, || {
+        analysis::block_median_grid(&rows, (h, w, c), b)
     });
     numpy::PyArray1::from_vec(py, grid).reshape(vec![h / b, w / b, c])
 }

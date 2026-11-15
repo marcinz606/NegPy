@@ -110,8 +110,10 @@ def _stream_linearraw_preview(
     dtype_max = float(np.iinfo(page.dtype).max)
     linearization_tag = tag("LinearizationTable") if normalize_tags else None
     linearization = np.asarray(linearization_tag.value, dtype=np.float32) if linearization_tag is not None else None
-    black = _broadcast3(_tag_floats(tag("BlackLevel")), 0.0).astype(np.float32).reshape(1, 1, 3)
-    white = _broadcast3(_tag_floats(tag("WhiteLevel")), dtype_max).astype(np.float32).reshape(1, 1, 3)
+    black = _broadcast3(_tag_floats(tag("BlackLevel")), 0.0).astype(np.float32)
+    white = _broadcast3(_tag_floats(tag("WhiteLevel")), dtype_max).astype(np.float32)
+    denominator = np.maximum(white - black, 1e-6).tolist()
+    black = black.tolist()
     ir_kernel = None
     if min_preserve_ir and samples == 4 and scale < 1.0:
         size = max(1, int(round(1.0 / scale)) | 1)
@@ -131,17 +133,11 @@ def _stream_linearraw_preview(
         valid_width = min(tile.shape[1], width - x)
         if valid_height <= 0 or valid_width <= 0:
             continue
-        source = tile[:valid_height, :valid_width, :samples]
+        source = np.ascontiguousarray(tile[:valid_height, :valid_width, :samples])
         if normalize_tags:
-            source_rgb = source[:, :, :3]
-            if linearization is not None:
-                indices = np.clip(source_rgb, 0, linearization.size - 1).astype(np.int32)
-                data = linearization[indices]
-            else:
-                data = source_rgb.astype(np.float32)
-            data = np.clip((data - black) / np.maximum(white - black, 1e-6), 0.0, 1.0)
+            data = negpy_core.tile_levels(source, black, denominator, lut=linearization)
         else:
-            data = source.astype(np.float32) / dtype_max
+            data = negpy_core.normalized(source, dtype_max)
 
         left = int(round(x * out_width / width))
         top = int(round(y * out_height / height))

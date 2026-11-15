@@ -732,20 +732,9 @@ class NonStandardFileWrapper:
             data = negpy_core.nan_to_num(np.ascontiguousarray(data), 0.0, 1.0, 0.0)
             return negpy_core.scale_clip_unit(data, [gains[0], 1.0, gains[2]]) if gains is not None else negpy_core.clip01(data)
 
-        if gains is not None:
-            r, g, b = gains
-            data = data.astype(np.float32, copy=True)
-            data[..., 0] *= r
-            data[..., 2] *= b
-            data = np.clip(data, 0.0, 1.0)
-
-        if gamma is None or tuple(gamma) != (1, 1):
-            # LibRaw's default BT.709 display gamma, or linear thumbnails go near-black.
-            data = np.where(data < 0.018, data * 4.5, 1.099 * np.power(np.maximum(data, 0.0), 1.0 / 2.222) - 0.099)
-
-        if bps == 16:
-            return (data * 65535.0).astype(np.uint16)
-        return (data * 255.0).astype(np.uint8)
+        # LibRaw's default BT.709 display gamma, or linear thumbnails go near-black.
+        display_gamma = gamma is None or tuple(gamma) != (1, 1)
+        return negpy_core.display_decode(np.ascontiguousarray(data, dtype=np.float32), gains, display_gamma, 16 if bps == 16 else 8)
 
 
 _DEMOSAIC_ALGORITHMS: dict[str, Any] = {

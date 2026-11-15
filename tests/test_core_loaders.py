@@ -120,6 +120,24 @@ def test_levels_to_unit_matches_numpy(dtype, with_lut):
     np.testing.assert_array_equal(got, _levels_numpy(arr, black, denom, lut))
 
 
+@pytest.mark.parametrize("dtype", [np.uint16, np.uint8])
+@pytest.mark.parametrize("channels", [3, 4])
+@pytest.mark.parametrize("with_lut", [False, True])
+def test_tile_levels_matches_numpy(dtype, channels, with_lut):
+    rng = np.random.default_rng(8)
+    tile = rng.integers(0, np.iinfo(dtype).max, (41, 29, channels), endpoint=True, dtype=dtype)
+    black = np.array([16.0, 20.5, 0.0], np.float32)
+    white = np.array([60000.0, 255.0, 0.0], np.float32)
+    denom = np.maximum(white - black, 1e-6)
+    lut = (np.sqrt(np.arange(200, dtype=np.float32)) * np.float32(977.0)) if with_lut else None
+    rgb = tile[:, :, :3]
+    levels = lut[np.clip(rgb, 0, lut.size - 1).astype(np.int32)] if with_lut else rgb.astype(np.float32)
+    want = np.clip((levels - black) / denom, 0.0, 1.0)
+    got = negpy_core.tile_levels(tile, black.tolist(), denom.tolist(), lut=lut)
+    assert got.dtype == np.float32
+    np.testing.assert_array_equal(got, want)
+
+
 @linux_pin
 def test_dng_peek_kernels_pin():
     rng = np.random.default_rng(6)

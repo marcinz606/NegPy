@@ -1,4 +1,6 @@
+import negpy_core
 import numpy as np
+import pytest
 from negpy.features.finish.models import FinishConfig
 from negpy.features.toning.models import ToningConfig
 from negpy.services.export.print import PrintService
@@ -168,3 +170,13 @@ def test_apply_layout_downscale_is_area_averaged():
 
     expected = cv2.resize(img, (w, h), interpolation=cv2.INTER_AREA)
     np.testing.assert_allclose(result[y : y + h, x : x + w], expected, atol=1e-6)
+
+
+@pytest.mark.parametrize("channels,color", [(3, (0.2, 0.5, 0.9)), (1, (0.4,))])
+@pytest.mark.parametrize("paper,offset", [((40, 50), (5, 7)), ((20, 30), (15, 25)), ((23, 31), (0, 0))])
+def test_place_on_paper_matches_numpy(channels, color, paper, offset):
+    img = np.random.default_rng(5).random((23, 31, channels), dtype=np.float32)
+    want = np.full((*paper, channels), color, dtype=np.float32)
+    (oy, ox), (h, w) = offset, (min(23, paper[0] - offset[0]), min(31, paper[1] - offset[1]))
+    want[oy : oy + h, ox : ox + w] = img[:h, :w]
+    np.testing.assert_array_equal(negpy_core.place_on_paper(img, paper, offset, color), want)

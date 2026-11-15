@@ -86,6 +86,35 @@ pub fn levels_to_unit<T: Copy + Into<f64> + Sync>(
     }
 }
 
+/// The tile levels of `_stream_linearraw_preview`: the first three of `cn` channels as
+/// `np.clip((v - black) / denom, 0, 1)` in float32. With `lut`, each value is first
+/// `lut[min(v, len(lut) - 1)]`.
+pub fn tile_levels<T: Copy + Into<f64> + Sync>(
+    src: &[T],
+    cn: usize,
+    lut: Option<&[f32]>,
+    black: [f32; 3],
+    denom: [f32; 3],
+    dst: &mut [f32],
+) {
+    const BLOCK: usize = 1 << 12;
+    let top = lut.map_or(0.0, |t| (t.len() - 1) as f64);
+    dst.par_chunks_mut(3 * BLOCK)
+        .zip(src.par_chunks(cn * BLOCK))
+        .for_each(move |(d, s)| {
+            for (d, p) in d.as_chunks_mut::<3>().0.iter_mut().zip(s.chunks_exact(cn)) {
+                for c in 0..3 {
+                    let v: f64 = p[c].into();
+                    let level = match lut {
+                        Some(t) => t[v.min(top) as usize],
+                        None => v as f32,
+                    };
+                    d[c] = ((level - black[c]) / denom[c]).clamp(0.0, 1.0);
+                }
+            }
+        });
+}
+
 /// `curves[k][px[k]]` of the first three channels of `c`-channel pixels; `curves` holds three
 /// rows of `n` values, and every sample is below `n`.
 pub fn decode_curves_int<T: Copy + Into<usize> + Sync>(

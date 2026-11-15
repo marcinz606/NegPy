@@ -345,6 +345,40 @@ pub fn apply_carrier(src: &[f32], (h, w): (usize, usize), c: &Carrier, dst: &mut
     });
 }
 
+/// The paper of `apply_layout`: a `ph` x `pw` sheet of `color` with the HxWxC image at row
+/// `oy`, column `ox`. The image is cut where it leaves the sheet.
+pub fn place_on_paper(
+    src: &[f32],
+    (h, w, cn): (usize, usize, usize),
+    (ph, pw): (usize, usize),
+    (oy, ox): (usize, usize),
+    color: &[f32],
+    dst: &mut [f32],
+) {
+    if pw * cn == 0 {
+        return;
+    }
+    let (ox, hc) = (ox.min(pw), h.min(ph.saturating_sub(oy)));
+    let wc = w.min(pw - ox);
+    let fill = |part: &mut [f32]| {
+        for p in part.chunks_exact_mut(cn) {
+            p.copy_from_slice(color);
+        }
+    };
+    dst.par_chunks_mut(pw * cn)
+        .enumerate()
+        .for_each(|(y, row)| {
+            if y < oy || y >= oy + hc {
+                return fill(row);
+            }
+            let (left, rest) = row.split_at_mut(ox * cn);
+            let (image, right) = rest.split_at_mut(wc * cn);
+            fill(left);
+            image.copy_from_slice(&src[(y - oy) * w * cn..][..wc * cn]);
+            fill(right);
+        });
+}
+
 /// `apply_vignette`: an exposure change of `-stops * factor` stops, the factor a cosine ramp
 /// over a radial/rectangular distance from the centre, in NumPy's float32 order. cos and exp2
 /// come from libm in float64, rounded once.

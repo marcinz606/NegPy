@@ -314,7 +314,7 @@ def _lit_coverage(
 def _seam_cost_image(img: np.ndarray) -> np.ndarray:
     """Perceptual copy for the cut's color cost. Flat-field gain can push linear
     values past white, which would otherwise decide the seam on its own."""
-    return (np.clip(img, 0.0, 1.0) ** (1.0 / 2.2)).astype(np.float32)
+    return negpy_core.oetf_encode(np.ascontiguousarray(img, dtype=np.float32), 1.0 / 2.2)
 
 
 def find_seams(warped: Sequence[np.ndarray], masks: Sequence[np.ndarray], canvas_wh: Tuple[int, int]) -> Optional[List[np.ndarray]]:

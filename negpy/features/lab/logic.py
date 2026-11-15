@@ -1,5 +1,5 @@
 import math
-from typing import Callable, Optional
+from typing import Optional
 
 import negpy_core
 import numpy as np
@@ -68,27 +68,6 @@ def rl_iterations(radius: float) -> int:
     return int(np.clip(int(round(10.0 * radius)), 5, 20))
 
 
-def _map_row_blocks(img: ImageBuffer, fn: Callable[[ImageBuffer], ImageBuffer], halo: int = 0) -> ImageBuffer:
-    rows = max(1, 1048576 // img.shape[1])
-    if img.shape[0] <= rows:
-        return fn(img)
-    output = np.empty(img.shape, dtype=np.float32)
-    for start in range(0, img.shape[0], rows):
-        end = min(start + rows, img.shape[0])
-        low, high = max(0, start - halo), min(img.shape[0], end + halo)
-        block = fn(img[low:high])
-        output[start:end] = block[start - low : end - low]
-    return output
-
-
-def apply_usm_sharpening(img: ImageBuffer, amount: float, radius: float = 1.0, masking: float = 0.0) -> ImageBuffer:
-    if amount <= 0:
-        return img
-    # Gaussian support, local range, and Sobel-plus-box support must cross block edges.
-    halo = max(len(gaussian_kernel_1d(radius)) // 2, 2)
-    return _map_row_blocks(img, lambda block: _usm_sharpening_block(block, amount, radius, masking), halo)
-
-
 # Auto Masking: the masking that holds back the grain is this gain times the measured grain
 # gradient. sharpen_grain_pick.wgsl mirrors both.
 AUTO_MASKING_GAIN = 0.27
@@ -132,12 +111,7 @@ def apply_resize_sharpening(encoded: np.ndarray, config: LabConfig) -> np.ndarra
     return np.concatenate([sharpened, encoded[..., 3:]], axis=2)
 
 
-def _usm_sharpening_block(
-    img: ImageBuffer,
-    amount: float,
-    radius: float = 1.0,
-    masking: float = 0.0,
-) -> ImageBuffer:
+def apply_usm_sharpening(img: ImageBuffer, amount: float, radius: float = 1.0, masking: float = 0.0) -> ImageBuffer:
     """L-channel soft-gated USM, its overshoot clamped to the local 3x3 range, with an optional edge mask for flat
     areas. Radius is in pixels of this buffer, before any export resize; judge sharpening at 1:1.
     lab_sharpen_h/v.wgsl and lab.wgsl mirror this."""

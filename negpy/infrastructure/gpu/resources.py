@@ -37,7 +37,7 @@ class GPUTexture:
         self._readback_staging = None  # full-texture readback
         self._region_staging = None  # sub-region readback
         self._region_staging_size: int = 0  # allocated size of _region_staging
-        self._rgba_scratch: Optional[np.ndarray] = None  # RGB -> RGBA padding buffer, alpha written once
+        self._rgba_scratch: Optional[np.ndarray] = None  # RGB -> RGBA padding buffer
         # Serializes readback against destroy: the UI thread probes textures (densitometer, pixel
         # readout) while the render worker may destroy them on file switch. Destroying a mapped
         # staging buffer panics in wgpu-native, and that panic is uncatchable.
@@ -62,13 +62,11 @@ class GPUTexture:
         )
 
     def _pad_to_rgba(self, data: np.ndarray) -> np.ndarray:
-        """RGB -> RGBA in a buffer kept across uploads. Alpha is written when the buffer is
-        made, so a re-upload of the same shape only copies the three colour channels."""
+        """RGB -> RGBA in a buffer kept across uploads of one shape."""
         shape = (data.shape[0], data.shape[1], 4)
         if self._rgba_scratch is None or self._rgba_scratch.shape != shape:
             self._rgba_scratch = np.empty(shape, dtype=np.float32)
-            self._rgba_scratch[:, :, 3] = 1.0
-        rgb_to_rgba_into(np.ascontiguousarray(data), self._rgba_scratch)
+        rgb_to_rgba_into(data, self._rgba_scratch)
         return self._rgba_scratch
 
     def readback_region(self, x: int, y: int, rw: int, rh: int) -> np.ndarray:
