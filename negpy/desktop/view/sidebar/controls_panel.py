@@ -13,9 +13,10 @@ from negpy.desktop.controller import AppController
 from negpy.desktop.view.shortcut_registry import label_with_shortcut, tooltip_with_shortcut
 from negpy.desktop.view.styles.color_vision import palette_for
 from negpy.desktop.view.styles.templates import gradient_icon, header_actions, hint_label, section_subheader, set_hint_kind, wrap_tooltip
-from negpy.desktop.view.widgets.collapsible import NO_ROLL_SCOPE_HINT, CollapsibleSection, make_section
+from negpy.desktop.view.widgets.collapsible import FLAT_SCAN_HINT, NO_ROLL_SCOPE_HINT, CollapsibleSection, make_section
 from negpy.desktop.view.widgets.charts import MiniCurveWidget, MiniHistogramWidget, MiniRGBHistogramWidget
 from negpy.desktop.view.styles.theme import THEME
+from negpy.domain.models import reaches_flat_master
 from negpy.features.lab.models import LabConfig
 from negpy.features.altprocess.models import AltProcessConfig
 from negpy.features.toning.models import ToningConfig
@@ -138,6 +139,19 @@ _AUTO_METER_FIELDS = ("auto_exposure", "auto_normalize_contrast")
 # Roll-tab sections that drive more than one roll card, keyed by section key.
 _SECTION_CARDS: dict[str, tuple[str, ...]] = {
     "optics": ("lens", "flatfield"),
+}
+
+
+# Cards whose whole body only changes the print: the config section and fields each one owns.
+# The mixed cards (Filtration, Paper Response) gate their own controls.
+_PRINT_ONLY_CARDS: dict[str, tuple[str, tuple[str, ...]]] = {
+    "tone_section": ("exposure", TONE_FIELDS),
+    "local_section": ("local", ()),
+    "lab_section": ("lab", ()),
+    "altproc_section": ("altproc", ()),
+    "toning_section": ("toning", ()),
+    "retouch_section": ("retouch", ()),
+    "finish_section": ("finish", ()),
 }
 
 
@@ -318,6 +332,9 @@ class ControlsPanel(QWidget):
         # it above every Roll-tab card; _sync_roll_locks keeps it current.
         self.roll_override_summary = hint_label("", "muted")
         self.roll_override_summary.setVisible(False)
+        # The Roll tab's own copy of the Flat Scan hint, placed by RightPanel.
+        self.roll_flat_scan_hint = hint_label(FLAT_SCAN_HINT)
+        self.roll_flat_scan_hint.setVisible(False)
 
         self.color_sidebar = ColorSidebar(self.controller)
         self.color_histogram = MiniRGBHistogramWidget()
@@ -434,6 +451,7 @@ class ControlsPanel(QWidget):
         ]
 
         self.pages = []
+        self.flat_scan_hints: dict[str, QWidget] = {}
         self.tab_headers: list[TabHeader] = []
         for key, tooltip, title, sections, section_attrs in groups:
             page = QWidget()
@@ -446,6 +464,12 @@ class ControlsPanel(QWidget):
             )
             if header is not None:
                 page_layout.addWidget(header)
+            if any(a in _PRINT_ONLY_CARDS for a in section_attrs):
+                hint = hint_label(FLAT_SCAN_HINT)
+                hint.setVisible(False)
+                page_layout.addWidget(hint)
+                self.flat_scan_hints[key] = hint
+            if header is not None:
                 if key == "tone":
                     self._add_pick_better(header)
                     self._add_auto_mirror(header)
@@ -515,7 +539,7 @@ class ControlsPanel(QWidget):
         label. Per-pair progress if the endless refinement ever feels slow."""
         state = self.controller.state
         self.pick_better_btn.setChecked(state.pick_better or state.pick_better_pending)
-        self.pick_better_btn.setEnabled(not state.pick_better_pending)
+        self.pick_better_btn.setEnabled(not state.pick_better_pending and not state.flat_peek)
         self.pick_better_btn.setToolTip(wrap_tooltip(self._pick_better_tooltip(printing=state.pick_better_pending)))
 
     def _apply_tab(self, card_keys: tuple) -> None:
@@ -551,6 +575,7 @@ class ControlsPanel(QWidget):
         self._sync_debounce.setInterval(150)
         self._sync_debounce.timeout.connect(self._sync_all_sidebars)
         self.controller.config_updated.connect(self._sync_debounce.start)
+        self.controller.flat_peek_changed.connect(lambda _on: self._sync_all_sidebars())
         self.controller.tool_sync_requested.connect(self._sync_tool_buttons)
         # The histogram only changes on render completion, so refresh there, not on every resync.
         self.controller.image_updated.connect(self._update_histogram)
@@ -1075,6 +1100,27 @@ class ControlsPanel(QWidget):
         # each card's Reset to Roll state.
         self._sync_scope_buttons()
         self._sync_modified_dots()
+        self._sync_flat_scan()
+
+    def _sync_flat_scan(self) -> None:
+        """Gray the body of each print-only card and show the hint on its tab while Flat Scan is on.
+
+        The header stays live, and a diptych's page-level disable layers over this.
+        """
+        flat = self.controller.state.flat_peek
+        blocked = set()
+        for attr, (section, fields) in _PRINT_ONLY_CARDS.items():
+            card_blocked = flat and not reaches_flat_master(section, *fields)
+            getattr(self, attr).content_area.setEnabled(not card_blocked)
+            if card_blocked:
+                blocked.add(attr)
+        self._sync_pick_better_btn(False)
+        self.roll_flat_scan_hint.setVisible(flat and not self.process_sidebar.use_cast_avg_btn.isHidden())
+        self.auto_mirror_btn.setEnabled("tone_section" not in blocked)
+        for page in self.pages:
+            hint = self.flat_scan_hints.get(page["key"])
+            if hint is not None:
+                hint.setVisible(any(a in blocked for a in page["sections"]))
 
     _raw_decode_held_by: Optional[str] = None
     _optics_held_by: Optional[str] = None

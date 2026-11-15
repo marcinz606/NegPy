@@ -25,6 +25,7 @@ from negpy.desktop.session import (
     AppState,
     DesktopSessionManager,
     ToolMode,
+    PRINT_ONLY_TOOLS,
     REVERTIBLE_TOOLS,
     UNCROPPED_PREVIEW_TOOLS,
     can_edit_triplet,
@@ -3682,6 +3683,10 @@ class AppController(QObject):
         if mode != ToolMode.NONE and self._diptych_blocks_canvas():
             self.tool_sync_requested.emit()
             return
+        if mode in PRINT_ONLY_TOOLS and self.state.flat_peek:
+            self.set_status(tr("Flat Scan is on. This tool changes only the print."), 4000, "warning")
+            self.tool_sync_requested.emit()
+            return
         if mode == ToolMode.CROP_MANUAL and self.state.active_tool != mode and self.refuse_crop_edit():
             self.tool_sync_requested.emit()
             return
@@ -3753,6 +3758,8 @@ class AppController(QObject):
     def toggle_zones_overlay(self, force: Optional[bool] = None) -> None:
         """Adams-zone box overlay. Repaint only — the boxes are carved from the frame
         the canvas already holds, so no re-render is needed."""
+        if self.state.flat_peek and force is not False:
+            return
         self.state.zones_overlay = (not self.state.zones_overlay) if force is None else bool(force)
         self.zones_overlay_changed.emit(self.state.zones_overlay)
 
@@ -3764,6 +3771,8 @@ class AppController(QObject):
 
     def toggle_clipping_overlay(self, force: Optional[bool] = None) -> None:
         """Marks paper black and paper white on the frame. Repaint only."""
+        if self.state.flat_peek and force is not False:
+            return
         self.state.clipping_overlay = (not self.state.clipping_overlay) if force is None else bool(force)
         self.clipping_overlay_changed.emit(self.state.clipping_overlay)
 
@@ -4233,6 +4242,10 @@ class AppController(QObject):
         if not target:
             self._clear_test_strip()
             return
+        if self.state.flat_peek:
+            self.set_status(tr("Flat Scan is on. This tool changes only the print."), 4000, "warning")
+            self.test_strip_changed.emit(False)
+            return
         if self.state.preview_raw is None:
             return
         # A slide or a Positive frame is rendered from the capture, so every band would match.
@@ -4482,6 +4495,10 @@ class AppController(QObject):
             self._clear_pick_better()
             return
         if self.state.preview_raw is None:
+            return
+        if self.state.flat_peek:
+            self.set_status(tr("Flat Scan is on. This tool changes only the print."), 4000, "warning")
+            self.pick_better_changed.emit(False)
             return
         self.exit_compare()
         self._pick_better_progress = start_pick_better(self.state.config)
@@ -9029,6 +9046,9 @@ class AppController(QObject):
                 self.state.flatfield_peek = False
                 self.flatfield_peek_changed.emit(False)
             self._clear_test_strip()
+            self._clear_pick_better()
+            if self.state.active_tool in PRINT_ONLY_TOOLS:
+                self.set_active_tool(ToolMode.NONE)
 
         self.state.flat_peek = target
         self.flat_peek_changed.emit(target)

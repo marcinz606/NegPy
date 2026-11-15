@@ -97,6 +97,51 @@ class FlatScanViewTest(unittest.TestCase):
         self.assertEqual(task.config.exposure.wb_cyan, 0.12)
         self.assertEqual(task.config, flat_master_config(self.state.config))
 
+    def test_a_print_only_tool_is_refused_in_flat_scan(self):
+        from negpy.desktop.session import ToolMode
+
+        messages: list = []
+        self.controller.status_message_requested.connect(lambda msg, *_: messages.append(msg))
+        self._flat_on()
+        self.controller.set_active_tool(ToolMode.CLONE)
+        self.assertEqual(self.state.active_tool, ToolMode.NONE)
+        self.assertEqual(messages, ["Flat Scan is on. This tool changes only the print."])
+        self.controller.set_active_tool(ToolMode.WB_PICK)
+        self.assertEqual(self.state.active_tool, ToolMode.WB_PICK)
+
+    def test_a_test_strip_is_refused_in_flat_scan(self):
+        strips: list = []
+        self.controller.strip_requested.connect(strips.append)
+        self._flat_on()
+        for toggle in (self.controller.toggle_test_strip, self.controller.toggle_ring_around, self.controller.toggle_paper_strip):
+            toggle()
+        self.assertEqual(strips, [])
+        self.assertFalse(self.state.test_strip_pending)
+        self.assertTrue(self.state.flat_peek)
+
+    def test_the_overlay_shortcuts_are_refused_in_flat_scan(self):
+        self._flat_on()
+        self.controller.toggle_zones_overlay()
+        self.controller.toggle_clipping_overlay()
+        self.assertFalse(self.state.zones_overlay)
+        self.assertFalse(self.state.clipping_overlay)
+
+    def test_flat_scan_ends_a_print_only_tool(self):
+        from negpy.desktop.session import ToolMode
+
+        self.controller.set_active_tool(ToolMode.LOCAL_DRAW)
+        self.assertEqual(self.state.active_tool, ToolMode.LOCAL_DRAW)
+        self._flat_on()
+        self.assertEqual(self.state.active_tool, ToolMode.NONE)
+
+    def test_flat_scan_ends_pick_better(self):
+        self.state.pick_better = True
+        self._flat_on()
+        self.assertFalse(self.state.pick_better)
+        self.controller.toggle_pick_better(True)
+        self.assertFalse(self.state.pick_better)
+        self.assertFalse(self.state.pick_better_pending)
+
     def test_turning_flat_scan_on_and_off_renders_the_full_preview(self):
         self._flat_on()
         self.assertFalse(self.tasks[-1].interactive)

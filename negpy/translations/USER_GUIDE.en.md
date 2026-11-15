@@ -81,7 +81,8 @@ A new frame gets the roll's film type, and the crop, print stock and Lab setting
 ### Viewing
 
 *   **Before / After** (`\`, or the **Print** menu): splits the canvas between the default conversion and your edit. Hold `\` to see the default alone. To compare with an earlier version, right-click it in **History**.
-*   **Peeks**: hold `N` for the scan as loaded (the negative), `M` for the flat master, and `P` for the camera's own JPEG. The **Print** menu has them too.
+*   **Flat Scan** (`M`, or the **Print** menu): shows the flat master and keeps it on the canvas while you edit. Controls that change only the print gray out. Hold `M` to show it only while the key is down.
+*   **Peeks**: hold `N` for the scan as loaded (the negative) and `P` for the camera's own JPEG. The **Print** menu has them too.
 *   **Roll Average** (`U`, or the **Print** menu): prints this frame on the average and changes nothing. The bar has **Luma**, **Color** and **Cast**; right-click one to turn them all on or off. The averages the frame has now show after **Applied**. On a frame in a scene, **Scene** and **Roll** choose which average. **Apply** saves them to the frame. The view stays open when you go to the next frame.
 *   **Roll Average** button (filmstrip icon on the toolbar): opens the **Roll Average** bar. It is lit while the frame uses an average. Right-click turns every average on or off at once, as one edit. An amber icon marks a frame far from the roll color.
 *   **Export Size** (**Print** menu): shows the frame as it exports, at the size the **Export** panel sets, at 100%. Use it to judge sharpening and grain. It updates a moment after each edit.
@@ -717,7 +718,7 @@ The **Export** button is at the bottom of the tab. Above it, **File** holds the 
 ### Output intent
 
 *   **Print** (default): the picture as you see it.
-*   **Flat**: a flat, low-contrast master for editing in another app. It skips the print look and the effects, but keeps a color Print stock's dye color, and writes a 16-bit file. **Preview Flat** shows it on the canvas. In a roll, run **Roll Analysis** first so the masters match. Without a roll, NegPy measures each frame on its own, so the masters can differ.
+*   **Flat**: a flat, low-contrast master for editing in another app. It skips the print look and the effects, but keeps a color Print stock's dye color, and writes a 16-bit file. **Preview Flat** shows it on the canvas and keeps it there while you edit. It does not change the export. In a roll, run **Roll Analysis** first so the masters match. Without a roll, NegPy measures each frame on its own, so the masters can differ.
 *   **Linear**: the raw scan data before NegPy's processing, as a 16-bit TIFF or JPEG XL, for a raw workflow in another app. It reads camera RAW, LinearRaw DNG, Coolscan NEF, Flextight, Noritsu and Pakon files and TIFF scans. Options for infrared, white balance, flat field, sensor and lens correction are off at first. File names get `_linear`, so a source is never overwritten.
 
 ### File settings

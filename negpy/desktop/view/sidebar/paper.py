@@ -107,7 +107,7 @@ class PaperSidebar(BaseSidebar):
 
         self.toe_slider = CompactSlider(tr("Toe"), -1.0, 1.0, default.toe, value=conf.toe)
         self.sh_slider = CompactSlider(tr("Shoulder"), -1.0, 1.0, default.shoulder, value=conf.shoulder)
-        curve_header, curve_fold = group_fold(
+        curve_header, self.curve_fold = group_fold(
             "paper_curve_shape",
             tr("Curve Shape"),
             self.midtone_gamma_slider,
@@ -116,13 +116,18 @@ class PaperSidebar(BaseSidebar):
             default_open=True,
         )
         self.layout.addLayout(curve_header)
-        self.layout.addWidget(curve_fold)
+        self.layout.addWidget(self.curve_fold)
 
         self.layout.addStretch()
 
         # Global-only controls, grayed while a channel page is active. The Paper Test Strip button
         # is one too, synced with the proof in _sync_paper_strip_btn.
         self._global_only = (self.paper_dmin_btn, self.paper_black_btn, self.paper_combo)
+        self._global_only_field = {
+            self.paper_dmin_btn: "paper_dmin",
+            self.paper_black_btn: "paper_black",
+            self.paper_combo: "paper_profile",
+        }
 
     def _channel_index(self) -> int:
         return self.ch_btn.currentIndex()
@@ -150,7 +155,7 @@ class PaperSidebar(BaseSidebar):
         mine = self.state.test_strip_kind == "paper"
         pending = self.state.test_strip_pending and mine
         self.paper_strip_btn.setChecked((self.state.test_strip or self.state.test_strip_pending) and mine)
-        self.paper_strip_btn.setEnabled(not pending and self._channel_index() == 0)
+        self.paper_strip_btn.setEnabled(not pending and self._channel_index() == 0 and not self.state.flat_peek)
         self.paper_strip_btn.setToolTip(wrap_tooltip(self._paper_strip_tooltip(printing=pending)))
 
     def _curve_field(self, base: str) -> str:
@@ -266,6 +271,12 @@ class PaperSidebar(BaseSidebar):
                 self.ch_btn.setCurrentIndex(0)
             self.ch_btn.setVisible(not is_bw)
 
+            # The per-layer trims never reach the flat master, so Flat Scan keeps the selector on Global.
+            channel_blocked = self.flat_blocked("exposure", *(f for fields in self._channel_fields for f in fields))
+            if channel_blocked:
+                self.ch_btn.setCurrentIndex(0)
+            self.ch_btn.setEnabled(not channel_blocked)
+
             idx = self._channel_index()
             global_mode = idx == 0
             suffix = _CH_LABEL[idx]
@@ -288,7 +299,15 @@ class PaperSidebar(BaseSidebar):
                 self.dye_separation_trim_slider.label.setText(tr("Dye Separation") + suffix)
                 self.dye_separation_trim_slider.setValue(getattr(conf, f"dye_separation_trim_{ch}"))
             for w in self._global_only:
-                w.setEnabled(global_mode)
+                w.setEnabled(global_mode and not self.flat_blocked("exposure", self._global_only_field[w]))
+            # The flat render drops the stock on a B&W frame (_process_flat reads it only on color).
+            if self.state.flat_peek and is_bw:
+                self.paper_combo.setEnabled(False)
+            self.dye_separation_slider.setEnabled(not self.flat_blocked("exposure", "dye_separation"))
+            self.dye_separation_trim_slider.setEnabled(
+                not self.flat_blocked("exposure", "dye_separation_trim_red", "dye_separation_trim_green", "dye_separation_trim_blue")
+            )
+            self.curve_fold.content.setEnabled(not self.flat_blocked("exposure", "midtone_gamma", "toe", "shoulder"))
             self._sync_paper_strip_btn()
 
             for i, fields in enumerate(self._channel_fields, start=1):
@@ -314,7 +333,7 @@ class PaperSidebar(BaseSidebar):
         )
         is_bw = is_mono(self.state.config.process)
         self.separation_damping_fold.content.setVisible(self._channel_index() == 0 and not is_bw)
-        self.separation_damping_slider.setEnabled(sep_k3 != (1.0, 1.0, 1.0))
+        self.separation_damping_slider.setEnabled(sep_k3 != (1.0, 1.0, 1.0) and not self.flat_blocked("exposure", "separation_damping"))
 
     def block_signals(self, blocked: bool) -> None:
         for w in (

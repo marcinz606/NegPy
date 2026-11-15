@@ -179,7 +179,8 @@ class ColorSidebar(BaseSidebar):
         mine = self.state.test_strip_kind == "color"
         pending = self.state.test_strip_pending and mine
         self.ring_btn.setChecked((self.state.test_strip or self.state.test_strip_pending) and mine)
-        self.ring_btn.setEnabled(not pending)
+        # A test strip prints the print, so Flat Scan has nothing for it to show.
+        self.ring_btn.setEnabled(not pending and not self.state.flat_peek)
         self.ring_btn.setToolTip(wrap_tooltip(self._ring_tooltip(printing=pending)))
 
     def _on_temp_drag_started(self) -> None:
@@ -244,6 +245,15 @@ class ColorSidebar(BaseSidebar):
                 self.region_btn.set_edited(i, any(getattr(conf, f) != 0.0 for f in fields))
 
             self.pick_wb_btn.setChecked(self.state.active_tool == ToolMode.WB_PICK)
+
+            region_live = not self.flat_blocked("exposure", *channels)
+            for w in (self.temp_slider, self.cyan_slider, self.magenta_slider, self.yellow_slider, self.pick_wb_btn):
+                w.setEnabled(region_live)
+            # A Shadows or Highlights pick writes fields the flat master ignores, so it would edit the print unseen.
+            if not region_live and self.state.active_tool == ToolMode.WB_PICK:
+                self.controller.set_active_tool(ToolMode.NONE)
+            self.cast_removal_slider.setEnabled(not self.flat_blocked("exposure", "cast_removal_strength"))
+            self._sync_ring_btn(False)
         finally:
             self.block_signals(False)
 
