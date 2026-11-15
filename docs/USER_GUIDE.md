@@ -878,7 +878,7 @@ Shows the whole strip, to place and pick the frames before the scan. **Apply Fra
 
 ### Interface
 
-*   **Language**: English, Simplified Chinese, Japanese, Korean, German, Vietnamese or Norwegian Bokmål, after a restart.
+*   **Language**: English, Simplified Chinese, Japanese, Korean, German, Vietnamese, Norwegian Bokmål or Italian, after a restart.
 *   **UI scale**: 80% to 120%, after a restart.
 *   **Canvas background**: from black to white. Mid gray is best for judging a print.
 *   **Sticky Zoom**: keeps the zoom when you change frames. **Reverse Scroll Zoom**: scroll up zooms out.

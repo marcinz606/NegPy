@@ -26,6 +26,7 @@ LANGUAGES = (
     ("de", "Deutsch"),
     ("vi", "Tiếng Việt"),
     ("nb", "Norsk bokmål"),
+    ("it", "Italiano"),
 )
 _language = "en"
 _messages: dict[str, str] = {}
