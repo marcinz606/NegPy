@@ -10,6 +10,8 @@ from negpy.domain.models import WorkspaceConfig
 from negpy.features.retouch.logic import (
     _IR_SCORE_FLOOR,
     _IR_WRITE_HI,
+    _density,
+    _dust_stats_px,
     apply_hair_inpaint,
     apply_score_repair,
     compute_dust_stats,
@@ -231,6 +233,18 @@ def _two_speck_source(h=200, w=200, seed=7):
     for y, x in spots:
         img[y : y + 3, x : x + 3] = 0.005
     return img, spots
+
+
+def test_dust_stats_px_on_a_crop_matches_the_frame_windows():
+    """A crop detects with the windows of its frame, not of its own shape."""
+    img = _grainy(400, 2400, seed=5)
+    img[199:202, 1199:1202] *= 0.12
+    dens = _density(img)
+    base = 4 * film_scale(img.shape[:2])
+    crop = np.ascontiguousarray(dens[100:300, 1100:1300])
+    z = _dust_stats_px(crop, base)[2]
+    assert z.shape == (200, 200)
+    assert z[100, 100] >= 9.0
 
 
 def test_detect_luma_score_finds_dark_speck():

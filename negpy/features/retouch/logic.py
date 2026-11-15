@@ -242,8 +242,20 @@ def split_hairs(mask: np.ndarray) -> Tuple[np.ndarray, Optional[np.ndarray]]:
     return negpy_core.split_hairs(np.ascontiguousarray(mask, dtype=np.uint8), (_HAIR_MIN_AREA, _HAIR_MIN_ELONG))
 
 
-def _texture_win(shape: Tuple[int, ...], dust_size: int) -> int:
-    return int(max(7, max(1.0, float(dust_size)) * film_scale(shape) * 4.0)) * 2 + 1
+def _texture_win(base_size: float) -> int:
+    return int(max(7, base_size * 4.0)) * 2 + 1
+
+
+def _dust_stats_px(dens: np.ndarray, base_size: float) -> Tuple[np.ndarray, ...]:
+    """``compute_dust_stats`` from a density plane, with the largest defect in plane px. A crop
+    passes the size of its frame: its own shape says nothing about the film footprint."""
+    v_win = int(max(3, base_size * 3.0)) * 2 + 1
+    # Median: the level of the film around a defect narrower than half the window. Opening:
+    # identity on the soft ramp of a tonal edge and on anything wider than a speck, both of
+    # which the median alone calls dense. Whichever is higher is the background.
+    disk = negpy_core.ellipse_kernel((2 * int(round(base_size)) + 1,) * 2)
+    constants = (_PROXY_MIN_SPREAD, _DETECT_AVG_PX, _DETECT_MAD_GAIN, _DETECT_SIGMA_MIN)
+    return negpy_core.dust_stats(dens, v_win, _texture_win(base_size), disk, constants)
 
 
 def compute_dust_stats(img: ImageBuffer, dust_size: int) -> Tuple[np.ndarray, ...]:
@@ -251,16 +263,8 @@ def compute_dust_stats(img: ImageBuffer, dust_size: int) -> Tuple[np.ndarray, ..
     expensive part of a detection pass, cacheable across threshold changes. ``z`` is the
     3x3-averaged density excess over the median background in units of its own local MAD σ;
     ``texture`` the wide-window σ of the density."""
-    shape = img.shape[:2]
     # Size is film footprint at _IR_DETECT_REF; the windows follow the plane (see _ir_win).
-    base_size = max(1.0, float(dust_size)) * film_scale(shape)
-    v_win = int(max(3, base_size * 3.0)) * 2 + 1
-    # Median: the level of the film around a defect narrower than half the window. Opening:
-    # identity on the soft ramp of a tonal edge and on anything wider than a speck, both of
-    # which the median alone calls dense. Whichever is higher is the background.
-    disk = negpy_core.ellipse_kernel((2 * int(round(base_size)) + 1,) * 2)
-    constants = (_PROXY_MIN_SPREAD, _DETECT_AVG_PX, _DETECT_MAD_GAIN, _DETECT_SIGMA_MIN)
-    return negpy_core.dust_stats(_density(img), v_win, _texture_win(shape, dust_size), disk, constants)
+    return _dust_stats_px(_density(img), max(1.0, float(dust_size)) * film_scale(img.shape[:2]))
 
 
 def detect_bar(slider: float) -> float:
@@ -272,6 +276,34 @@ def detect_bar(slider: float) -> float:
         return _DETECT_Z_LOOSE + (_DETECT_Z_DEFAULT - _DETECT_Z_LOOSE) * s / _DETECT_DEFAULT_POS
     t = (s - _DETECT_DEFAULT_POS) / (1.0 - _DETECT_DEFAULT_POS)
     return _DETECT_Z_DEFAULT * (_DETECT_Z_TIGHT / _DETECT_Z_DEFAULT) ** t
+
+
+def _detect_from_stats(
+    stats: Tuple[np.ndarray, ...],
+    hi: float,
+    hi_hair: float,
+    base_size: float,
+    scale: float,
+    *,
+    texture: bool = True,
+    proxy_min: float = _DETECT_PROXY_MIN,
+) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
+    """The detector on its stats planes, with the largest defect and the film scale in plane px.
+    ``texture=False`` turns both texture ramps off."""
+    lo = max(_DETECT_Z_GROW, min(hi, hi_hair) * _DETECT_Z_GROW_FRAC)
+    reach = int(round(_DETECT_GROW_REACH * base_size))
+    disk = negpy_core.ellipse_kernel((2 * reach + 1,) * 2)
+    planes = tuple(np.ascontiguousarray(a, dtype=np.float32) for a in stats[:4])
+    return negpy_core.detect_luma_score(
+        planes,
+        (hi, hi_hair, lo),
+        disk,
+        (proxy_min, _DETECT_TEXTURE_KNEE, _DETECT_TEXTURE_GAIN if texture else 0.0),
+        (_HAIR_MIN_AREA, _HAIR_MIN_ELONG),
+        (_DETECT_HAIR_TEXTURE_KNEE, _DETECT_HAIR_TEXTURE_GAIN if texture else 0.0, _DETECT_HAIR_FILL_GAIN),
+        _texture_win(base_size),
+        (_DETECT_PAD_PX * scale, _IR_SCORE_FLOOR),
+    )
 
 
 def detect_luma_score(
@@ -286,24 +318,10 @@ def detect_luma_score(
     ``hair_threshold``'s (default: the same), each raised by its own texture ramp."""
     if stats is None:
         stats = compute_dust_stats(img, dust_size)
-    proxy, background, z, texture = stats[:4]
     hi = detect_bar(dust_threshold)
     hi_hair = hi if hair_threshold is None else detect_bar(hair_threshold)
-    scale = film_scale(proxy.shape)
-    lo = max(_DETECT_Z_GROW, min(hi, hi_hair) * _DETECT_Z_GROW_FRAC)
-    reach = int(round(_DETECT_GROW_REACH * max(1, dust_size) * scale))
-    disk = negpy_core.ellipse_kernel((2 * reach + 1,) * 2)
-    planes = tuple(np.ascontiguousarray(a, dtype=np.float32) for a in (proxy, background, z, texture))
-    return negpy_core.detect_luma_score(
-        planes,
-        (hi, hi_hair, lo),
-        disk,
-        (_DETECT_PROXY_MIN, _DETECT_TEXTURE_KNEE, _DETECT_TEXTURE_GAIN),
-        (_HAIR_MIN_AREA, _HAIR_MIN_ELONG),
-        (_DETECT_HAIR_TEXTURE_KNEE, _DETECT_HAIR_TEXTURE_GAIN, _DETECT_HAIR_FILL_GAIN),
-        _texture_win(proxy.shape, dust_size),
-        (_DETECT_PAD_PX * scale, _IR_SCORE_FLOOR),
-    )
+    scale = film_scale(stats[0].shape)
+    return _detect_from_stats(stats, hi, hi_hair, max(1.0, float(dust_size)) * scale, scale)
 
 
 def exclusion_cover(strokes: List[Tuple], shape: Tuple[int, int]) -> np.ndarray:
