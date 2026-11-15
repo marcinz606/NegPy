@@ -116,6 +116,43 @@ fn luma_to_uint<'py>(
     })
 }
 
+/// `NonStandardFileWrapper.postprocess` of a contiguous float32 HxW or HxWxC array into uint8
+/// or uint16 codes: the R and B of `gains`, LibRaw's display curve when `gamma` is set.
+#[pyfunction]
+#[pyo3(signature = (img, gains, gamma, bit_depth))]
+fn display_decode<'py>(
+    py: Python<'py>,
+    img: PyReadonlyArrayDyn<'py, f32>,
+    gains: Option<(f32, f32, f32)>,
+    gamma: bool,
+    bit_depth: u8,
+) -> PyResult<Bound<'py, PyAny>> {
+    let cn = match img.shape()[..] {
+        [_, _] => 1,
+        [_, _, cn] if cn > 0 => cn,
+        _ => return Err(PyValueError::new_err("needs an HxW or HxWxC array")),
+    };
+    if gains.is_some() && cn < 3 {
+        return Err(PyValueError::new_err("gains need three channels"));
+    }
+    let c = convert::DisplayDecode {
+        gains: gains.map(|(r, _, b)| (r, b)),
+        gamma,
+    };
+    let src = contiguous(&img)?;
+    Ok(if bit_depth == 16 {
+        filled::<u16>(py, img.shape(), "uint16", |d| {
+            convert::display_decode(src, cn, c, d)
+        })?
+        .into_any()
+    } else {
+        filled::<u8>(py, img.shape(), "uint8", |d| {
+            convert::display_decode(src, cn, c, d)
+        })?
+        .into_any()
+    })
+}
+
 /// `rgb_to_rgba_into(src, dst)`: the first three channels of `src` into the HxWx4 `dst`, alpha 1.
 #[pyfunction]
 fn rgb_to_rgba_into(
@@ -442,5 +479,6 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(uint16_to_float32, m)?)?;
     m.add_function(wrap_pyfunction!(luma_to_uint, m)?)?;
     m.add_function(wrap_pyfunction!(rgb_to_rgba_into, m)?)?;
+    m.add_function(wrap_pyfunction!(display_decode, m)?)?;
     m.add_function(wrap_pyfunction!(rgba_to_rgb_into, m)?)
 }

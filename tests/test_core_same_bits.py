@@ -127,6 +127,13 @@ _CASES = {
     "matrix_trc_u16": lambda: negpy_core.matrix_trc_u16(
         (_IMG3 * 65535).astype(np.uint16), np.ascontiguousarray(np.tile(_LIN, (3, 1))), _M, np.ascontiguousarray(_RAMP[:, ::16])
     ),
+    "tile_levels": lambda: negpy_core.tile_levels(
+        (_IMG3 * 65535).astype(np.uint16),
+        [256.0, 300.5, 1.0],
+        [60000.0, 255.0, 1e-6],
+        lut=np.ascontiguousarray(_RAMP[0] * np.float32(65535)),
+    ),
+    "display_decode": lambda: negpy_core.display_decode(_IMG3 * np.float32(1.2) - np.float32(0.1), (1.3, 1.0, 0.8), True, 16),
     "usm_sharpen": lambda: negpy_core.usm_sharpen(
         _IMG3, np.float32(2.0), 0.4, np.array([0.0625, 0.25, 0.375, 0.25, 0.0625], np.float32), *WORKING_LAB
     ),
@@ -214,6 +221,8 @@ _HASHES = {
     "vignette": "dea377797d6b0852a8dec1665c95aa87c9ab2b6a8e03f808e27140bc4b6566c6",
     "flat_curve": "e47f6084a58e19119c6e3364ebf017dfc7f039ec6c73e0eea8e942519021bf0b",
     "transfer_curve": "afdb5891162dca5abe4530bd098469b26a0be16a41df32f4f2928ddb8d37b943",
+    "tile_levels": "3343c71aec5faec418a4ce80983dc1f6a485fc688e046c1201cb84cb14d81b78",
+    "display_decode": "82f9d9b69137763a2405fb4e099cce8398caeb1e47d02dbf25b535caa499368a",
     "usm_sharpen": "7267d2a3976c9381eadde01fe11ea60d46345b4747283e6ac68a2aa4a025d0a8",
     "sharpen_grain": "4dcdc651f4aa9dca4a8678ad0e3db727332b8fa7b4ede77889b88d506df6e506",
     "sabattier": "e709eb4dd942340d0ac7606ce77a4b0242205cdadad92f33e8a2239687263156",
