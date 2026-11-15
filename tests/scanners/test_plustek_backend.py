@@ -241,6 +241,50 @@ def test_7600i_v1_caps_hide_gl128_only_features(monkeypatch):
     assert set(caps.supported_dpi) == {1440, 3600, 7200}
 
 
+def _info_135i() -> UsbDeviceInfo:
+    from pyopticfilm.usb.device import PID_OPTICFILM_135I
+
+    return UsbDeviceInfo(vendor_id=VID_PLUSTEK, product_id=PID_OPTICFILM_135I, bus=6, address=2)
+
+
+def test_135i_is_listed_without_gl128_session_features(monkeypatch):
+    """The 135i is GL128 but locked: it offers no Prescan, Multi-Pass or Multi-Exposure."""
+    _patch_enum(monkeypatch, [_info_135i()])
+    device = PlustekBackend().list_devices()[0]
+    caps = device.capabilities
+    assert device.model == "OpticFilm 135i"
+    assert caps.prescan is False
+    assert caps.prescan_dpi == 0
+    assert caps.prescan_default_crop is None
+    assert caps.max_n_passes == 1
+    assert caps.multi_pass_dpi == ()
+    assert caps.multi_exposure is False
+
+
+@pytest.mark.parametrize("held", [False, True])
+def test_135i_scan_is_refused_before_any_device_move(monkeypatch, held):
+    from pyopticfilm.device.select import MODEL_135I
+
+    info = _info_135i()
+    _patch_enum(monkeypatch, [info])
+    scanner = _fake_scanner()
+    scanner.model = MODEL_135I
+    scanner.asic._initialized = False
+    scanner.asic.is_at_home.return_value = False
+    backend = PlustekBackend()
+    with pytest.raises(RuntimeError, match="cannot scan with pyOpticfilm"):
+        if held:
+            monkeypatch.setattr(f"{_BACKEND}.Scanner.open", lambda *a, **k: scanner)
+            backend.open_session(info.device_id)
+        else:
+            monkeypatch.setattr(f"{_BACKEND}.Scanner.open", _FakeOpen(scanner))
+            backend.scan(info.device_id, _params(dpi=1200), lambda *_: None, threading.Event())
+    scanner.asic.init.assert_not_called()
+    scanner.home.assert_not_called()
+    scanner.scan.assert_not_called()
+    scanner.close.assert_called()
+
+
 def test_7600i_v1_rejects_ir_at_unsupported_dpi():
     from negpy.infrastructure.scanners.plustek_backend import _validate_params
     from pyopticfilm.device.model_7600i_v1 import MODEL_7600I_V1

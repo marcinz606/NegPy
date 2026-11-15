@@ -46,8 +46,9 @@ def _caps_for(model: Any) -> ScannerCapabilities:
     from pyopticfilm.scan.bringup import PRESCAN_DPI, default_frame_crop_norm, is_gl128_opticfilm
 
     # Prescan, Multi-Pass and fixed ME are GL128 session features. Other scan-ready leaves
-    # (7600i v1, 7600i v2) report scan_ready but raise on, or ignore, those paths.
-    gl128 = is_gl128_opticfilm(model)
+    # (7600i v1, 7600i v2) report scan_ready but raise on, or ignore, those paths. A locked
+    # GL128 leaf (135i) offers none of them.
+    gl128 = is_gl128_opticfilm(model) and model_is_scan_ready(model)
     multi_exposure = bool(getattr(model, "scan_ready", False) and getattr(model, "exposure_long", None))
     return ScannerCapabilities(
         ir_channel=model.supports_infrared,
@@ -82,6 +83,24 @@ def _supports_fixed_me(model: Any) -> bool:
     from pyopticfilm.scan.bringup import is_gl128_opticfilm
 
     return bool(is_gl128_opticfilm(model) and getattr(model, "me_fixed_long_exposure", None))
+
+
+def _bring_up(scanner: Scanner) -> None:
+    """Initialize the ASIC and home the carriage. A locked model raises before any USB write:
+    a film loader (135i) must never be homed by the host."""
+    if not model_is_scan_ready(scanner.model):
+        msg = (
+            f"{scanner.model.model} ({scanner.model.asic}) cannot scan with "
+            "pyOpticfilm in this release — only scan-ready pyopticfilm models are supported. "
+            "See the pyopticfilm release notes for the current list."
+        )
+        if sys.platform != "win32":
+            msg += " Try Backend → SANE if that backend lists this scanner."
+        raise RuntimeError(msg)
+    if not scanner.asic._initialized:
+        scanner.asic.init()
+    if not scanner.asic.is_at_home():
+        scanner.home()
 
 
 def _to_scanner_device(info: UsbDeviceInfo) -> ScannerDevice:
@@ -287,10 +306,11 @@ class PlustekBackend:
         self._ensure_known_device(device_id)
         try:
             scanner = Scanner.open(device_id, calib_cache=self._calib_cache)
-            if not scanner.asic._initialized:
-                scanner.asic.init()
-            if not scanner.asic.is_at_home():
-                scanner.home()
+            try:
+                _bring_up(scanner)
+            except BaseException:
+                scanner.close()
+                raise
         except DriverBindingError as exc:
             raise ScannerUnavailable(str(exc)) from exc
         except UsbError as exc:
@@ -317,10 +337,7 @@ class PlustekBackend:
         self._ensure_known_device(device_id)
         try:
             with Scanner.open(device_id, calib_cache=self._calib_cache) as scanner:
-                if not scanner.asic._initialized:
-                    scanner.asic.init()
-                if not scanner.asic.is_at_home():
-                    scanner.home()
+                _bring_up(scanner)
                 return self._scan_on_scanner(scanner, params, progress, cancel)
         except TransientScanError:
             raise
@@ -356,15 +373,6 @@ class PlustekBackend:
         progress: Callable[[float, str], None],
         cancel: threading.Event,
     ) -> ScanResult:
-        if not model_is_scan_ready(scanner.model):
-            msg = (
-                f"{scanner.model.model} ({scanner.model.asic}) cannot scan with "
-                "pyOpticfilm in this release — only scan-ready pyopticfilm models are supported. "
-                "See the pyopticfilm release notes for the current list."
-            )
-            if sys.platform != "win32":
-                msg += " Try Backend → SANE if that backend lists this scanner."
-            raise RuntimeError(msg)
         _validate_params(params, model=scanner.model)
         dpi = int(params.dpi)
         capture_ir = bool(params.capture_ir)
