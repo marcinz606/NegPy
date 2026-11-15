@@ -122,15 +122,39 @@ pub fn luma_to_uint<T: Level>(src: &[f32], cn: usize, dst: &mut [T]) {
         .for_each(|(d, s)| luma_block(s, cn, d));
 }
 
-/// The first three channels of each `cn`-channel pixel of `src` into the RGBA `dst`.
+/// The first three channels of each `cn`-channel pixel of `src` into the RGBA `dst`, alpha 1.
 pub fn rgb_to_rgba(src: &[f32], cn: usize, dst: &mut [f32]) {
     dst.par_chunks_mut(4 * BLOCK)
         .zip(src.par_chunks(cn * BLOCK))
-        .for_each(|(d, s)| {
-            for (dp, sp) in d.as_chunks_mut::<4>().0.iter_mut().zip(s.chunks_exact(cn)) {
-                dp[..3].copy_from_slice(&sp[..3]);
+        .for_each(|(d, s)| rgb_to_rgba_run(s, cn, d));
+}
+
+/// `rgb_to_rgba` of an image given as its rows, each `cn` channels wide: a view cut out of a
+/// larger frame has contiguous rows and is not one slice.
+pub fn rgb_to_rgba_rows(rows: &[&[f32]], cn: usize, dst: &mut [f32]) {
+    let Some(width) = rows.first().map(|r| r.len() / cn).filter(|&w| w > 0) else {
+        return;
+    };
+    let per = (BLOCK / width).max(1);
+    dst.par_chunks_mut(4 * width * per)
+        .zip(rows.par_chunks(per))
+        .for_each(|(d, rows)| {
+            for (d, s) in d.chunks_exact_mut(4 * width).zip(rows) {
+                rgb_to_rgba_run(s, cn, d);
             }
         });
+}
+
+fn rgb_to_rgba_run(src: &[f32], cn: usize, dst: &mut [f32]) {
+    for (dp, sp) in dst
+        .as_chunks_mut::<4>()
+        .0
+        .iter_mut()
+        .zip(src.chunks_exact(cn))
+    {
+        dp[..3].copy_from_slice(&sp[..3]);
+        dp[3] = 1.0;
+    }
 }
 
 /// `a * b` of two float32 arrays of one shape.

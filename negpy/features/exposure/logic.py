@@ -426,21 +426,21 @@ def apply_characteristic_curve(
     composed = compose_density_matrices(dye, sat)
     dye_mix = np.ascontiguousarray(np.eye(3) if composed is None else composed)
     use_ev = ev_map is not None
-    ev_arr = np.ascontiguousarray(ev_map.astype(np.float32)) if ev_map is not None else np.zeros((1, 1), dtype=np.float32)
+    ev_arr = np.ascontiguousarray(ev_map, dtype=np.float32) if ev_map is not None else np.zeros((1, 1), dtype=np.float32)
     use_grade = grade_map is not None
-    grade_arr = np.ascontiguousarray(grade_map.astype(np.float32)) if grade_map is not None else np.ones((1, 1), dtype=np.float32)
+    grade_arr = np.ascontiguousarray(grade_map, dtype=np.float32) if grade_map is not None else np.ones((1, 1), dtype=np.float32)
     use_flash = flash_map is not None
-    flash_arr = np.ascontiguousarray(flash_map.astype(np.float32)) if flash_map is not None else np.zeros((1, 1), dtype=np.float32)
+    flash_arr = np.ascontiguousarray(flash_map, dtype=np.float32) if flash_map is not None else np.zeros((1, 1), dtype=np.float32)
     use_diff = diffusion > 0.0 and diffusion_plane is not None
-    diff_arr = np.ascontiguousarray(diffusion_plane.astype(np.float32)) if use_diff else np.zeros((1, 1, 3), dtype=np.float32)
+    diff_arr = np.ascontiguousarray(diffusion_plane, dtype=np.float32) if use_diff else np.zeros((1, 1, 3), dtype=np.float32)
     h_img, w_img = img.shape[:2]
     rect = diffusion_rect if diffusion_rect is not None else (0.0, 0.0, float(w_img), float(h_img))
     use_key = key_alpha is not None
     r_min, r_max = float(c["iso_r_min"]), float(c["iso_r_max"])
     if use_key:
-        key_alpha_arr = np.ascontiguousarray(key_alpha.astype(np.float32))
+        key_alpha_arr = np.ascontiguousarray(key_alpha, dtype=np.float32)
         key_params_arr = np.ascontiguousarray(np.asarray(key_params, dtype=np.float64).reshape(-1, 4))
-        deltas_arr = np.ascontiguousarray(grade_deltas.astype(np.float32))
+        deltas_arr = np.ascontiguousarray(grade_deltas, dtype=np.float32)
     else:
         key_alpha_arr = np.zeros((1, 1, 1), dtype=np.float32)
         key_params_arr = np.zeros((0, 4), dtype=np.float64)
@@ -455,7 +455,7 @@ def apply_characteristic_curve(
     if lut is not None and bpc:
         lut_black = lut_black_luminance(lut, d_min_rgb, black_density_rgb(float(c["d_max"]), toe_k, float(c["toe_height"])))
     res = negpy_core.apply_print_curve(
-        np.ascontiguousarray(img.astype(np.float32)),
+        np.ascontiguousarray(img, dtype=np.float32),
         pivots,
         slopes,
         curvs,

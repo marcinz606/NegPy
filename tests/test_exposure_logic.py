@@ -323,3 +323,12 @@ def test_curvature_holds_at_vertex_below_the_domain():
     curve = CharacteristicCurve(contrast=2.85, pivot=0.5, curvature=1.97)
     density = np.asarray(curve(u[:, None])).reshape(-1)
     assert np.all(np.diff(density) >= -1e-6)
+
+
+def test_block_median_grid_reads_a_cropped_view():
+    from negpy.features.exposure.normalization import _block_median_grid
+
+    frame = np.random.default_rng(11).random((1500, 2100, 3), dtype=np.float32)
+    crop = frame[37:1401, 55:2011]
+    assert not crop.flags.c_contiguous
+    np.testing.assert_array_equal(_block_median_grid(crop), _block_median_grid(np.ascontiguousarray(crop)))

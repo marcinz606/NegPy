@@ -6,10 +6,20 @@ from negpy.kernel.image.logic import rgb_to_rgba_into, rgba_to_rgb_into
 def test_rgb_to_rgba_matches_numpy():
     rng = np.random.default_rng(1)
     src = rng.random((37, 53, 3), dtype=np.float32)
-    dst = np.empty((37, 53, 4), dtype=np.float32)
-    dst[:, :, 3] = 1.0
+    dst = np.zeros((37, 53, 4), dtype=np.float32)
     rgb_to_rgba_into(src, dst)
     assert np.array_equal(dst[:, :, :3], src)
+    assert np.all(dst[:, :, 3] == 1.0)
+
+
+def test_rgb_to_rgba_reads_a_tile_of_a_larger_frame():
+    rng = np.random.default_rng(3)
+    frame = rng.random((300, 400, 3), dtype=np.float32)
+    tile = frame[11:290, 17:380]
+    assert not tile.flags.c_contiguous
+    dst = np.zeros((*tile.shape[:2], 4), dtype=np.float32)
+    rgb_to_rgba_into(tile, dst)
+    assert np.array_equal(dst[:, :, :3], tile)
     assert np.all(dst[:, :, 3] == 1.0)
 
 

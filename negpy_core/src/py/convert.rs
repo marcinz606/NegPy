@@ -116,7 +116,7 @@ fn luma_to_uint<'py>(
     })
 }
 
-/// `rgb_to_rgba_into(src, dst)`: the first three channels of `src` into the HxWx4 `dst`.
+/// `rgb_to_rgba_into(src, dst)`: the first three channels of `src` into the HxWx4 `dst`, alpha 1.
 #[pyfunction]
 fn rgb_to_rgba_into(
     py: Python<'_>,
@@ -128,19 +128,16 @@ fn rgb_to_rgba_into(
         return Err(PyValueError::new_err("needs HxWx3 into HxWx4"));
     }
     let cn = s.dim().2;
-    if let (Some(src), Some(dst)) = (s.as_slice(), d.as_slice_mut()) {
+    let dst = d
+        .as_slice_mut()
+        .ok_or_else(|| PyValueError::new_err("needs a contiguous destination"))?;
+    if let Some(src) = s.as_slice() {
         super::detach(py, dst.len(), || convert::rgb_to_rgba(src, cn, dst));
         return Ok(());
     }
-    super::detach(py, 0, || {
-        for (srow, mut drow) in s.outer_iter().zip(d.outer_iter_mut()) {
-            for (sp, mut dp) in srow.outer_iter().zip(drow.outer_iter_mut()) {
-                for c in 0..3 {
-                    dp[c] = sp[c];
-                }
-            }
-        }
-    });
+    let rows: Option<Vec<&[f32]>> = s.outer_iter().map(|row| row.to_slice()).collect();
+    let rows = rows.ok_or_else(|| PyValueError::new_err("needs contiguous rows"))?;
+    super::detach(py, dst.len(), || convert::rgb_to_rgba_rows(&rows, cn, dst));
     Ok(())
 }
 

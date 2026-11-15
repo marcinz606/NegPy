@@ -109,10 +109,58 @@ pub fn sharpen_grain(src: &[f32], (h, w): (usize, usize), lum: [f32; 3]) -> Opti
     Some((bin as f32 + 0.5) / GRAIN_BIN_SCALE)
 }
 
-/// `_usm_sharpening_block` of an HxWx3 linear image: the L* channel's soft-gated unsharp mask
+/// `apply_usm_sharpening` of an HxWx3 linear image: the L* channel's soft-gated unsharp mask
 /// with `k` as the blur taps, clamped to the local 3x3 range, then clipped to 0..1 in RGB.
 /// `gain` is `np.float32(amount * 2.5)`. None where a filter does not cover the shape.
 pub fn usm_sharpen(
+    src: &[f32],
+    (h, w): (usize, usize),
+    params: (f32, f64),
+    k: &[f32],
+    spaces: (LabSpace, LabSpace),
+    dst: &mut [f32],
+) -> Option<()> {
+    const BLOCK_PIXELS: usize = 1 << 20;
+    let rows = (BLOCK_PIXELS / w.max(1)).max(1);
+    usm_sharpen_rows(src, (h, w), params, k, spaces, dst, rows)
+}
+
+/// `usm_sharpen` in blocks of `rows` rows, which keeps the working planes block-sized. Each
+/// block reads a halo of rows that covers the blur, the local range and the edge mask, so
+/// the blocks give the bits of the whole frame.
+fn usm_sharpen_rows(
+    src: &[f32],
+    (h, w): (usize, usize),
+    params: (f32, f64),
+    k: &[f32],
+    spaces: (LabSpace, LabSpace),
+    dst: &mut [f32],
+    rows: usize,
+) -> Option<()> {
+    if h <= rows {
+        return usm_sharpen_block(src, (h, w), params, k, spaces, dst);
+    }
+    let halo = (k.len() / 2).max(2);
+    let row = w * 3;
+    let mut block = vec![0f32; (rows + 2 * halo).min(h) * row];
+    for start in (0..h).step_by(rows) {
+        let end = (start + rows).min(h);
+        let (low, high) = (start.saturating_sub(halo), (end + halo).min(h));
+        let out = &mut block[..(high - low) * row];
+        usm_sharpen_block(
+            &src[low * row..high * row],
+            (high - low, w),
+            params,
+            k,
+            spaces,
+            out,
+        )?;
+        dst[start * row..end * row].copy_from_slice(&out[(start - low) * row..(end - low) * row]);
+    }
+    Some(())
+}
+
+fn usm_sharpen_block(
     src: &[f32],
     (h, w): (usize, usize),
     (gain, masking): (f32, f64),
@@ -614,6 +662,26 @@ pub fn hue_trim(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn usm_sharpen_in_row_blocks_matches_the_whole_frame() {
+        let (h, w) = (150, 64);
+        let src: Vec<f32> = (0..h * w * 3)
+            .map(|i| ((i * 2654435761usize) % 1000) as f32 / 1111.0 + 0.01)
+            .collect();
+        let m = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
+        let space = LabSpace::new(m, [0.95, 1.0, 1.09], 0.008856, 903.3);
+        for (k, masking) in [(vec![0.25f32, 0.5, 0.25], 0.0), (vec![1.0 / 11.0; 11], 0.6)] {
+            let (mut whole, mut blocks) = (vec![0f32; src.len()], vec![0f32; src.len()]);
+            let params = (0.625, masking);
+            usm_sharpen_block(&src, (h, w), params, &k, (space, space), &mut whole).unwrap();
+            for rows in [1, 37, 149] {
+                usm_sharpen_rows(&src, (h, w), params, &k, (space, space), &mut blocks, rows)
+                    .unwrap();
+                assert!(whole == blocks, "rows {rows}, masking {masking}");
+            }
+        }
+    }
 
     #[test]
     fn wide_gaussian_blur_matches_the_direct_blur_up_to_the_edges() {

@@ -82,7 +82,41 @@ fn apply_vignette<'py>(
     Ok(out)
 }
 
+/// `place_on_paper(img, (paper_h, paper_w), (offset_y, offset_x), color)`: a sheet of `color`
+/// with the contiguous HxWxC float32 image on it, one `color` value per channel.
+#[pyfunction]
+fn place_on_paper<'py>(
+    py: Python<'py>,
+    img: PyReadonlyArrayDyn<'py, f32>,
+    paper: (usize, usize),
+    offset: (usize, usize),
+    color: Vec<f64>,
+) -> PyResult<Bound<'py, PyArrayDyn<f32>>> {
+    let [h, w, cn] = img.shape()[..] else {
+        return Err(PyValueError::new_err("needs an HxWxC image"));
+    };
+    if color.len() != cn {
+        return Err(PyValueError::new_err("needs one color value per channel"));
+    }
+    let src = img
+        .as_slice()
+        .map_err(|_| PyValueError::new_err("needs a contiguous image"))?;
+    let color: Vec<f32> = color.iter().map(|&v| v as f32).collect();
+    let out = PyArrayDyn::<f32>::zeros(py, &[paper.0, paper.1, cn][..], false);
+    {
+        let mut rw = out.readwrite();
+        let dst = rw
+            .as_slice_mut()
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        super::detach(py, dst.len(), || {
+            finish::place_on_paper(src, (h, w, cn), paper, offset, &color, dst)
+        });
+    }
+    Ok(out)
+}
+
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_function(wrap_pyfunction!(place_on_paper, m)?)?;
     m.add_function(wrap_pyfunction!(apply_vignette, m)?)?;
     m.add_function(wrap_pyfunction!(apply_carrier, m)?)
 }

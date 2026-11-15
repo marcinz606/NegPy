@@ -97,8 +97,7 @@ def _block_median_grid(img_log: ImageBuffer) -> ImageBuffer:
     b = int(np.ceil(max(h, w) / grid))
     if b <= 1 or h < b or w < b:
         return img_log
-    hb, wb = (h // b) * b, (w // b) * b
-    return negpy_core.block_median_grid(np.ascontiguousarray(img_log[:hb, :wb], dtype=np.float32), b)
+    return negpy_core.block_median_grid(np.asarray(img_log, dtype=np.float32), b)
 
 
 def prefilter_log_grid(

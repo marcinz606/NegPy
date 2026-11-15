@@ -35,8 +35,8 @@ def uint8_to_float32(img: np.ndarray) -> np.ndarray:
 
 
 def rgb_to_rgba_into(src: np.ndarray, dst: np.ndarray) -> None:
-    """Copies the three color planes of float32 ``src`` into the RGBA ``dst``; alpha is left
-    as is. numpy cannot vectorize a 3-of-4 strided copy."""
+    """Writes the three color planes of float32 ``src`` and an alpha of 1 into the RGBA ``dst``.
+    ``src`` is contiguous or a row and column slice of a contiguous frame."""
     negpy_core.rgb_to_rgba_into(np.asarray(src, dtype=np.float32), dst)
 
 

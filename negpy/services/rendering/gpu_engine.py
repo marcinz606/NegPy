@@ -3257,10 +3257,10 @@ class GPUEngine:
         if (paper_w, paper_h, off_x, off_y) == (content_w, content_h, 0, 0):
             result = scaled_content
         else:
-            result = np.zeros((paper_h, paper_w, 3), dtype=np.float32)
             color_hex = PrintService.effective_border_color(settings.finish, settings.toning).lstrip("#")
-            result[:] = tuple(int(color_hex[i : i + 2], 16) / 255.0 for i in (0, 2, 4))
-            result[off_y : off_y + content_h, off_x : off_x + content_w] = scaled_content
+            color = tuple(int(color_hex[i : i + 2], 16) / 255.0 for i in (0, 2, 4))
+            content = np.ascontiguousarray(scaled_content, dtype=np.float32)
+            result = negpy_core.place_on_paper(content, (paper_h, paper_w), (off_y, off_x), color)
         metrics_ref["base_positive"] = result
         # metrics_ref comes from the preview-size metering render; the rect must describe this buffer.
         metrics_ref["content_rect"] = (off_x, off_y, content_w, content_h)

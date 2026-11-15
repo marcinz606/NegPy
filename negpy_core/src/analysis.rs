@@ -274,16 +274,16 @@ pub fn normalize_log_image(img: &[f32], floors: [f32; 3], ceils: [f32; 3], dst: 
     );
 }
 
-/// `_block_median_grid` for block size `b` over the whole `b` x `b` blocks of an HxWxC image:
-/// the median of each block per channel, (H/b)x(W/b)xC. A block of 2x2 is (sum - min - max) / 2,
-/// the sum in float64.
-pub fn block_median_grid(img: &[f32], (h, w, c): (usize, usize, usize), b: usize) -> Vec<f32> {
+/// `_block_median_grid` for block size `b` over the whole `b` x `b` blocks of an HxWxC image,
+/// given as its rows: the median of each block per channel, (H/b)x(W/b)xC. A block of 2x2 is
+/// (sum - min - max) / 2, the sum in float64.
+pub fn block_median_grid(rows: &[&[f32]], (h, w, c): (usize, usize, usize), b: usize) -> Vec<f32> {
     let (gh, gw) = (h / b, w / b);
     let mut out = vec![0f32; gh * gw * c];
     if gh == 0 || gw == 0 {
         return out;
     }
-    let at = |y: usize, x: usize, ch: usize| img[(y * w + x) * c + ch];
+    let at = |y: usize, x: usize, ch: usize| rows[y][x * c + ch];
     out.par_chunks_mut(gw * c)
         .enumerate()
         .for_each(|(gy, line)| {
