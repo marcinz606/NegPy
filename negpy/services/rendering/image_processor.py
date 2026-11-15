@@ -88,6 +88,7 @@ from negpy.kernel.image.logic import (
     float_to_uint8,
     float_to_uint16,
     ensure_rgb,
+    uint8_to_float32,
     uint16_to_float32,
     float_to_uint_luma,
     working_oetf_decode,
@@ -2406,11 +2407,11 @@ class ImageProcessor:
             # littleCMS needs RGB against the RGB working/output profiles.
             if pil_img.mode != "RGB":
                 pil_img = pil_img.convert("RGB")
-            buf_f32 = np.asarray(pil_img, dtype=np.float32) / 255.0
-            buf_f32, bypassed = ImageProcessor._try_matrix_bypass(buf_f32, input_icc_path)
-            if bypassed:
-                pil_img = Image.fromarray(np.clip(buf_f32 * 255.0 + 0.5, 0, 255).astype(np.uint8))
-                input_icc_path = None
+            if input_icc_path and os.path.exists(input_icc_path):
+                buf_f32, bypassed = ImageProcessor._try_matrix_bypass(uint8_to_float32(np.asarray(pil_img)), input_icc_path)
+                if bypassed:
+                    pil_img = Image.fromarray(float_to_uint8(buf_f32))
+                    input_icc_path = None
             p_src = ImageProcessor._resolve_src_profile(working_color_space, input_icc_path)
             # Custom output profile, or the working space when only an input is set.
             p_dst = ImageProcessor._resolve_dst_profile(working_color_space, output_icc_path)

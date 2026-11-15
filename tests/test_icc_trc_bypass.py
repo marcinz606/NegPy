@@ -420,6 +420,24 @@ class TestRealBundledProfiles:
         assert bypassed
         np.testing.assert_allclose(out, img, atol=5e-4)
 
+    def test_soft_proof_applies_the_bypass_like_the_numpy_round_trip(self):
+        from PIL import Image
+
+        from negpy.infrastructure.display.color_spaces import WORKING_COLOR_SPACE
+        from negpy.services.rendering.image_processor import ImageProcessor
+
+        source, output = self._icc_path("DisplayP3-v4.icc"), self._icc_path("AdobeCompat-v4.icc")
+        u8 = np.random.RandomState(5).randint(0, 256, (32, 32, 3)).astype(np.uint8)
+        got = np.asarray(ImageProcessor.soft_proof_preview(Image.fromarray(u8), WORKING_COLOR_SPACE, source, output))
+        f32, bypassed = ImageProcessor._try_matrix_bypass(u8.astype(np.float32) / 255.0, source)
+        assert bypassed
+        rounded = Image.fromarray(np.clip(f32 * 255.0 + 0.5, 0, 255).astype(np.uint8))
+        want = np.asarray(ImageProcessor.soft_proof_preview(rounded, WORKING_COLOR_SPACE, None, output))
+        assert np.abs(got.astype(np.int32) - want.astype(np.int32)).max() <= 1
+        assert not np.array_equal(
+            got, np.asarray(ImageProcessor.soft_proof_preview(Image.fromarray(u8), WORKING_COLOR_SPACE, None, output))
+        )
+
     def test_a_lut_profile_is_not_bypassable(self):
         """A LUT input profile (here spac/Lab PCS, A2B0-only) must never take the matrix-only
         shortcut: its A2B0 curves are authored against the full-CMS decode."""
