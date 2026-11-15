@@ -2981,6 +2981,7 @@
   "Unavailable: {reason}": "Ikke tilgjengelig: {reason}",
   "Uncompressed": "Ukomprimert",
   "Undid {label}: {value}": "Angret {label}: {value}",
+  "Undid {label}: {value}. Frames that keep a later change: {count}": "Angret {label}: {value}. Bilder som beholder en senere endring: {count}",
   "Undo": "Angre",
   "Undo Change to Several Frames": "Angre endring av flere bilder",
   "Undo Last Clone": "Angre siste kloning",
