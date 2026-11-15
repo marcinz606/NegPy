@@ -257,3 +257,20 @@ def test_file_hashes_for_path_lists_halves_forks_and_marks(tmp_path):
     repo.save_file_mark("m", "keeper", file_path=path)
 
     assert repo.file_hashes_for_path(path) == ["h#1", "h#2#roll:r", "m"]
+
+
+def test_locating_one_folder_finds_its_moved_siblings_by_name_and_files(tmp_path):
+    from negpy.services.assets.rehome import folders_moved_with
+
+    old_parent, new_parent = tmp_path / "Downloads", tmp_path / "Slides"
+    a, b, c, inner = (str(old_parent / n) for n in ("roll A", "roll B", "roll C", "roll A/rejects"))
+    entry = {"kind": "virtual", "member_paths": [os.path.join(f, "x.tif") for f in (a, b, c, inner)]}
+    for name, holds in (("roll A", "x.tif"), ("roll A/rejects", "x.tif"), ("roll B", "x.tif"), ("roll C", "other.tif")):
+        (new_parent / name).mkdir(parents=True, exist_ok=True)
+        (new_parent / name / holds).write_bytes(b"x")
+
+    moves = folders_moved_with(entry, [a, b, c, inner], a, str(new_parent / "roll A"))
+
+    assert sorted(moves) == sorted(
+        [(a, str(new_parent / "roll A")), (inner, str(new_parent / "roll A" / "rejects")), (b, str(new_parent / "roll B"))]
+    )

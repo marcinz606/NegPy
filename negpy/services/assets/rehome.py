@@ -85,6 +85,25 @@ def gone_folders_for(entry: Optional[dict], gone: list[str], path: str) -> list[
     return same_name if len(same_name) == 1 else best
 
 
+def folders_moved_with(entry: Optional[dict], gone: list[str], old: str, new: str) -> list[tuple[str, str]]:
+    """The moves that locating *old* at *new* settles: *old* itself, a gone folder under it found at the same
+    place under *new*, and a gone sibling found beside *new* by name that holds its own frames."""
+    old_parent, new_parent = os.path.dirname(old), os.path.dirname(new)
+    moves = []
+    for folder in gone:
+        if folder == old:
+            moves.append((folder, new))
+        elif folder.startswith(old + os.sep):
+            target = new + folder[len(old) :]
+            if os.path.isdir(target):
+                moves.append((folder, target))
+        elif old_parent and folder.startswith(old_parent + os.sep):
+            target = new_parent + folder[len(old_parent) :]
+            if os.path.isdir(target) and gone_folders_for(entry, [folder], target) == [folder]:
+                moves.append((folder, target))
+    return moves
+
+
 def folder_fits_roll(repo: Any, roll_id: str, path: str) -> bool:
     """False when *path* holds none of the edited files the roll saved under its old folder.
     A roll with no saved edits accepts any folder."""

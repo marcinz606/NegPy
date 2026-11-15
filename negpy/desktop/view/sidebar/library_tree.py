@@ -52,6 +52,7 @@ from negpy.services.assets.rehome import (
     entry_folder_missing,
     folder_fits_roll,
     folder_roll_missing,
+    folders_moved_with,
     gone_folders_for,
     missing_member_folders,
     roll_missing,
@@ -990,7 +991,8 @@ class LibraryTree(QWidget):
 
     def _locate_member_folders(self, roll_id: str, entry: dict) -> None:
         """Ask for the gone folders of a virtual roll's frames, in any order, then repoint the frames and open the roll.
-        Each chosen folder replaces the gone folder whose files it holds: the macOS picker shows no title."""
+        Each chosen folder replaces the gone folder whose files it holds: the macOS picker shows no title.
+        Folders that moved with it are found without a prompt."""
         gone = missing_member_folders(entry)
         moves = []
         while gone:
@@ -1018,13 +1020,9 @@ class LibraryTree(QWidget):
                     ),
                 )
                 continue
-            old = fits[0]
-            # A gone folder inside the located one is found at the same place under it.
-            for inner in [g for g in gone if g.startswith(old + os.sep) or g == old]:
-                target = folder + inner[len(old) :]
-                if inner == old or os.path.isdir(target):
-                    gone.remove(inner)
-                    moves.append((inner, target))
+            for old, target in folders_moved_with(entry, gone, fits[0], folder):
+                gone.remove(old)
+                moves.append((old, target))
         if not moves:
             return
         self.controller.relink_member_folders(roll_id, moves)

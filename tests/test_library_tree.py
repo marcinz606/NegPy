@@ -1513,3 +1513,19 @@ def test_locate_finds_a_gone_subfolder_under_the_located_folder(widget, tree_dir
     widget.controller.relink_member_folders.assert_called_once_with(
         roll_id, [(str(old), str(new)), (str(old / "rejects"), str(new / "rejects"))]
     )
+
+
+def test_locating_one_folder_relinks_the_sibling_folders_that_moved_with_it(widget, tree_dirs, monkeypatch):
+    names = ("roll_x", "roll_y", "roll_z")
+    roll_id = create_virtual_roll(widget.repo, "picks", [str(tree_dirs / "old" / n / f"{n}.NEF") for n in names])
+    for n in names:
+        (tree_dirs / "new" / n).mkdir(parents=True)
+        (tree_dirs / "new" / n / f"{n}.NEF").write_bytes(b"x")
+    picks = iter([str(tree_dirs / "new" / "roll_y")])
+    monkeypatch.setattr(QFileDialog, "getExistingDirectory", staticmethod(lambda *a, **k: next(picks)))
+
+    widget.locate_folder(roll_id)
+
+    (called_id, moves), _ = widget.controller.relink_member_folders.call_args
+    assert called_id == roll_id
+    assert sorted(moves) == [(str(tree_dirs / "old" / n), str(tree_dirs / "new" / n)) for n in names]
