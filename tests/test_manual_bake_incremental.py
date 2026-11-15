@@ -66,7 +66,7 @@ class TestIncrementalMatchesFullRecompute:
             got, got_wide = proc._manual_bake(img, settings, key)
             want, want_wide = ImageProcessor()._manual_bake(img, settings, key)
             np.testing.assert_array_equal(np.asarray(got), np.asarray(want), err_msg=f"mismatch at {n} strokes")
-            assert (got_wide is None) == (want_wide is None)
+            assert len(got_wide) == len(want_wide)
 
     def test_appending_all_at_once_matches_one_at_a_time(self):
         """The end state must not depend on how you got there."""
@@ -85,7 +85,7 @@ class TestIncrementalMatchesFullRecompute:
         treat that as if the earlier strokes' bake had changed."""
         img, strokes = _scene()
         shape = img.shape[:2]
-        clean_stroke = _stroke(0.5, 0.5, shape, diameter_px=6.0)  # nothing there
+        clean_stroke = ([[0.4, 0.5], [0.5, 0.5], [0.6, 0.5]], _size_at_ref(6.0, shape), 0.0, 0.0)  # a drag over nothing
         proc = ImageProcessor()
         settings1 = _config(strokes[:1])
         proc._manual_bake(img, settings1, _source_key(settings1))
@@ -126,13 +126,13 @@ class TestIncrementalSkipsUnchangedWork:
         img, strokes = _scene()
         proc = ImageProcessor()
         seen_counts: list[int] = []
-        real = ip_mod.strokes_to_score
+        real = ip_mod.paint_to_score
 
-        def counting(image, s, spots):
+        def counting(image, s, spots, averaged=None):
             seen_counts.append(len(s))
-            return real(image, s, spots)
+            return real(image, s, spots, averaged)
 
-        with patch.object(ip_mod, "strokes_to_score", side_effect=counting):
+        with patch.object(ip_mod, "paint_to_score", side_effect=counting):
             for n in range(1, len(strokes) + 1):
                 settings = _config(strokes[:n])
                 proc._manual_bake(img, settings, _source_key(settings))
@@ -145,7 +145,7 @@ class TestIncrementalSkipsUnchangedWork:
         from negpy.features.retouch import logic as retouch_logic
 
         img, strokes = _scene()
-        score = retouch_logic.strokes_to_score(img, strokes, [])
+        score, _ = retouch_logic.paint_to_score(img, strokes, [])
         assert score is not None
         base = np.full_like(img, 7.0)
         dirty = np.zeros(img.shape[:2], dtype=bool)
@@ -162,19 +162,19 @@ class TestIncrementalSkipsUnchangedWork:
         proc = ImageProcessor()
         stats_calls: list[int] = []
         seen_counts: list[int] = []
-        real_stats, real_score = ip_mod.compute_dust_stats, ip_mod.strokes_to_score
+        real_stats, real_score = ip_mod.compute_dust_stats, ip_mod.paint_to_score
 
         def counting_stats(*a, **k):
             stats_calls.append(1)
             return real_stats(*a, **k)
 
-        def counting_score(image, s, spots):
+        def counting_score(image, s, spots, averaged=None):
             seen_counts.append(len(s))
-            return real_score(image, s, spots)
+            return real_score(image, s, spots, averaged)
 
         with (
             patch.object(ip_mod, "compute_dust_stats", side_effect=counting_stats),
-            patch.object(ip_mod, "strokes_to_score", side_effect=counting_score),
+            patch.object(ip_mod, "paint_to_score", side_effect=counting_score),
         ):
             for n in range(1, len(strokes) + 1):
                 base = _config(strokes[:n])
@@ -183,3 +183,50 @@ class TestIncrementalSkipsUnchangedWork:
 
         assert len(stats_calls) == 1
         assert seen_counts == [1, 1, 1]
+
+
+class TestPaintPlane:
+    def test_a_smaller_detection_plane_repairs_under_the_stroke(self):
+        img = _grainy(480, 480, seed=9)
+        img[238:242, 238:242] = 0.92
+        plane = np.ascontiguousarray(img[::2, ::2])
+        settings = _config([_stroke(0.5, 0.5, img.shape[:2], diameter_px=24.0)])
+        out, _ = ImageProcessor()._manual_bake(img, settings, _source_key(settings), (plane, plane))
+        assert out[238:242, 238:242].max() < 0.7
+        assert np.array_equal(out[:100], img[:100])
+
+    def test_paint_over_a_mark_that_an_earlier_bake_repaired(self):
+        """The plane is pooled before the bakes, so it still shows a mark the buffer has lost."""
+        plane, strokes = _scene()
+        baked = _grainy(240, 240, seed=7)
+        settings = _config(strokes[:1])
+        out, _ = ImageProcessor()._manual_bake(baked, settings, _source_key(settings), (plane, plane))
+        assert np.isfinite(out).all()
+        assert abs(float(out[30:33, 30:33].mean()) - 0.5) < 0.05
+
+    def test_a_painted_hair_reaches_the_inpaint_masks(self):
+        img = _grainy(200, 200)
+        for i in range(40, 160):
+            img[100 + (i - 100) // 6, i] = 0.95
+        stroke = ([[0.2, 0.47], [0.5, 0.5], [0.8, 0.53]], _size_at_ref(20.0, (200, 200)), 0.0, 0.0)
+        settings = _config([stroke])
+        _, masks = ImageProcessor()._manual_bake(img, settings, _source_key(settings))
+        assert any(m[100, 100] for m in masks)
+
+    def test_a_bright_scratch_survives_the_pooled_plane(self):
+        """Min-pooling erases a thin bright mark, so the scratch pass reads the averaged plane."""
+        from negpy.features.retouch.logic import downsample_ir
+
+        img = _grainy(480, 480, seed=11)
+        img[239:241, 200:280] = 0.9
+        proc = ImageProcessor()
+        settings = _config([([[0.42, 0.5], [0.5, 0.5], [0.58, 0.5]], _size_at_ref(16.0, img.shape[:2]), 0.0, 0.0)])
+        pooled = np.ascontiguousarray(downsample_ir(img, 240), dtype=np.float32)
+        assert pooled[120, 105:135].max() < 0.7, "the pooled plane must have lost the scratch for this test to mean anything"
+        planes = proc._paint_plane(img, settings, pooled)
+        out, masks = proc._manual_bake(img, settings, _source_key(settings), planes)
+        if masks:
+            from negpy.features.retouch.logic import apply_hair_inpaint
+
+            out = np.asarray(apply_hair_inpaint(out, masks))
+        assert out[239:241, 215:265].max() < 0.7

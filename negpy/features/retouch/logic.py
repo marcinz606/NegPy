@@ -384,82 +384,15 @@ def exclusion_token(retouch) -> str:
     return "|ex" + hashlib.sha1(repr(retouch.dust_exclusion_strokes).encode()).hexdigest()[:12]
 
 
-def strokes_to_score(
-    img: ImageBuffer,
-    strokes: List[Tuple],
-    legacy_spots: List[Tuple[float, float, float]],
-) -> Optional[np.ndarray]:
-    """Painted heal/scratch strokes → a defect score for the shared repair.
-
-    The capsule a stroke paints is a **search area**, not a stamp: inside it, a pixel is
-    repaired by how far it stands out from the film around it (a two-sided local z-score
-    on density), so clean grain under a generous brush comes back untouched and only the
-    defect is rewritten. Two-sided because dust is a bright outlier in density while a
-    scratch, having lost emulsion, is a dark one — the direction a bright-only gate could
-    never repair.
-
-    Strokes carry raw-frame normalized coordinates, so this runs before geometry and needs
-    no mapping. Returns ``None`` when no stroke found anything worth repairing.
-    """
-    entries: List[Tuple[List, float]] = [(list(s[0]), float(s[1])) for s in strokes]
-    entries += [([[nx, ny]], float(size)) for nx, ny, size in legacy_spots]
-    if not entries:
-        return None
-
-    h, w = img.shape[:2]
-    score = np.ones((h, w), dtype=np.float32)
-    # Brush size is a DIAMETER at HEAL_SIZE_REF scale, so the painted footprint matches the
-    # cursor at any render resolution (overlay._brush_screen_radius draws size/(2*REF)).
-    scale = max(w, h) / HEAL_SIZE_REF
-    touched = False
-
-    for points, size in entries:
-        radius = max(1.0, size * scale * 0.5)
-        chain = [(float(p[0]) * w, float(p[1]) * h) for p in points]
-        if len(chain) >= 3:
-            chain = smooth_polyline(chain, closed=False)
-        pts = np.array(chain, dtype=np.float32)
-
-        win = int(max(3.0, radius * _MANUAL_WIN_FACTOR)) * 2 + 1
-        pad = int(radius) + win
-        x0 = max(0, int(pts[:, 0].min()) - pad)
-        y0 = max(0, int(pts[:, 1].min()) - pad)
-        x1 = min(w, int(pts[:, 0].max()) + pad + 1)
-        y1 = min(h, int(pts[:, 1].max()) + pad + 1)
-        if x1 <= x0 or y1 <= y0:
-            continue
-
-        local = np.ascontiguousarray(np.round(pts - (x0, y0)).astype(np.int32))
-        brush = (max(1, int(round(radius))), max(1, int(round(2.0 * radius))))
-        # Inside the brush a pixel repairs by how far it stands out from the film around it:
-        # MAD about zero over the whole crop, so the defect stays a minority in its own noise
-        # estimate, then hysteresis from the core, because grain is isolated and never joins.
-        constants = (
-            win,
-            _MANUAL_Z_MIN,
-            _MANUAL_Z_HI,
-            _MANUAL_Z_GROW,
-            _MANUAL_Z_GROW_FRAC,
-            _DETECT_PAD_PX * film_scale((h, w)),
-            _IR_SCORE_FLOOR,
-            _MANUAL_RIM_PX,
-        )
-        region = negpy_core.heal_region(_density(img[y0:y1, x0:x1]), local, brush, constants)
-        if region is None:
-            continue
-        np.minimum(score[y0:y1, x0:x1], region, out=score[y0:y1, x0:x1])
-        touched = True
-
-    return score if touched else None
-
-
 def paint_to_score(
     plane: ImageBuffer,
     strokes: List[Tuple],
     legacy_spots: List[Tuple[float, float, float]],
+    averaged: Optional[ImageBuffer] = None,
 ) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
     """Painted heal strokes on the detection plane → ``(score, hair_mask)`` at its shape, each
-    None when empty.
+    None when empty. ``averaged`` is the same frame at the same shape without the min-pooling,
+    which erases a thin bright mark: the scratch pass reads it.
 
     A stroke is a search area: the optical detector runs under it, on density for dust and on
     negated density for a scratch, and clean film under the paint stays at 1. A click that
@@ -501,9 +434,11 @@ def paint_to_score(
         if not cover.any():
             continue
 
-        dens = np.ascontiguousarray(_density(plane[y0:y1, x0:x1]), dtype=np.float32)
+        thin = plane if averaged is None else averaged
+        dust = np.ascontiguousarray(_density(plane[y0:y1, x0:x1]), dtype=np.float32)
+        scratch = np.ascontiguousarray(-_density(thin[y0:y1, x0:x1]), dtype=np.float32)
         marks = np.zeros(cover.shape, dtype=bool)
-        for side in (dens, -dens):
+        for side in (dust, scratch):
             s, hm = _detect_from_stats(_dust_stats_px(side, base), _PAINT_Z, _PAINT_Z, base, film, texture=False, proxy_min=-1.0)
             if s is not None:
                 marks |= s <= _IR_SCORE_FLOOR + 1e-6
