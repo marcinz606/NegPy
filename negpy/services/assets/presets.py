@@ -95,11 +95,12 @@ class Presets:
         filepath = cls._path(name)
         if not os.path.exists(filepath):
             return None
-        with open(filepath, "r") as f_in:
-            res = json.load(f_in)
-            if isinstance(res, dict):
-                return res
+        try:
+            with open(filepath, "r") as f_in:
+                res = json.load(f_in)
+        except (OSError, ValueError):
             return None
+        return res if isinstance(res, dict) else None
 
     @classmethod
     def list_presets(cls) -> List[str]:

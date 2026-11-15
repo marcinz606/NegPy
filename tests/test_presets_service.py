@@ -16,3 +16,15 @@ def test_save_load_delete_roundtrip(tmp_path, monkeypatch):
 def test_delete_missing_is_false(tmp_path, monkeypatch):
     monkeypatch.setattr(APP_CONFIG, "presets_dir", str(tmp_path))
     assert Presets.delete_preset("Nope") is False
+
+
+def test_unreadable_preset_loads_as_none(tmp_path, monkeypatch):
+    monkeypatch.setattr(APP_CONFIG, "presets_dir", str(tmp_path))
+    (tmp_path / "Broken.json").write_text("{not json")
+    assert Presets.load_preset("Broken") is None
+
+    def timeout(*_a, **_k):
+        raise TimeoutError(60, "Operation timed out")
+
+    monkeypatch.setattr("builtins.open", timeout)
+    assert Presets.load_preset("Broken") is None
