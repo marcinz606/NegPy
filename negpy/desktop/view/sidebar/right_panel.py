@@ -427,6 +427,7 @@ class RightPanel(QWidget):
         page_layout.addWidget(self.roll_tab_header)
 
         page_layout.addWidget(cp.roll_override_summary)
+        page_layout.addWidget(cp.roll_flat_scan_hint)
         for section in (
             cp.film_section,
             cp.baseline_section,
@@ -590,6 +591,11 @@ class RightPanel(QWidget):
         self.export_sidebar.apply_shortcut_tooltips()
         self.gear_panel.apply_shortcut_tooltips()
         self.scanlight_sidebar.lv_window.apply_shortcut_tooltips()
+
+    def _sync_flat_overlay_btns(self, flat: bool) -> None:
+        """The flat view draws neither overlay, so their toggles wait for the print."""
+        self.clipping_btn.setEnabled(not flat)
+        self.zone_highlight_btn.setEnabled(not flat)
 
     def _sync_clipping_btn(self, on: bool) -> None:
         self.clipping_btn.blockSignals(True)
@@ -759,6 +765,7 @@ class RightPanel(QWidget):
         self.controller.zone_arm_changed.connect(lambda zone: self.zone_strip.set_armed(None if zone is None else int(zone)))
         self.zone_strip.zone_double_clicked.connect(self.controller.toggle_zones_overlay)
         self.zone_strip.zone_hovered.connect(self.controller.set_zone_highlight)
+        self.controller.flat_peek_changed.connect(self._sync_flat_overlay_btns)
         self.controller.clipping_overlay_changed.connect(self._sync_clipping_btn)
         self.controller.zone_hover_highlight_changed.connect(self._sync_zone_highlight_btn)
         self.zone_placement.target_changed.connect(self.controller.set_zone_pin_target)

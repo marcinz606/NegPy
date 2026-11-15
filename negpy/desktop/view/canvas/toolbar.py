@@ -1465,6 +1465,10 @@ class ActionToolbar(QWidget):
         for flag, action in self._ov_view_actions.items():
             action.setChecked(bool(getattr(state, flag)))
         self._info_actions[state.canvas_info_level].setChecked(True)
+        # The flat view draws neither overlay, so their toggles wait for the print.
+        for flag in ("zones_overlay", "clipping_overlay"):
+            self._overlay_actions[flag].setEnabled(not state.flat_peek)
+            self._ov_view_actions[flag].setEnabled(not state.flat_peek)
 
     def _show_source(self, index: int) -> None:
         _flag, icon, label, _key, _tip = _VIEW_SOURCES[index]

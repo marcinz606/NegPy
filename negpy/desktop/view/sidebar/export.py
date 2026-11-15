@@ -353,6 +353,11 @@ class ExportSidebar(BaseSidebar):
         self.intent_btn.setCurrentIndex(self._state_intent())
         self._body.addWidget(self.intent_btn)
 
+        self.flat_scan_mismatch_hint = hint_label(
+            tr("The canvas shows the flat master, but the export does not. Choose Flat in Output Intent to export it."), kind="warning"
+        )
+        self._body.addWidget(self.flat_scan_mismatch_hint)
+
         peek_bake_row = QHBoxLayout()
         peek_bake_row.setSpacing(THEME.space_sm)
         self.flat_peek_btn = self._tool_toggle(
@@ -512,6 +517,7 @@ class ExportSidebar(BaseSidebar):
         self.intent_rail.setVisible(flat_on or linear_on)
         self.flat_hint_label.setVisible(flat_on)
         self.flat_peek_btn.setVisible(flat_on)
+        self._sync_flat_scan_mismatch()
         self.linear_hint_label.setVisible(linear_on)
         if hasattr(self, "linear_format_row"):
             self.linear_format_row.setVisible(linear_on)
@@ -826,6 +832,10 @@ class ExportSidebar(BaseSidebar):
         self.flat_peek_btn.blockSignals(True)
         self.flat_peek_btn.setChecked(active)
         self.flat_peek_btn.blockSignals(False)
+        self._sync_flat_scan_mismatch()
+
+    def _sync_flat_scan_mismatch(self) -> None:
+        self.flat_scan_mismatch_hint.setVisible(self.state.flat_peek and not self.state.flat_output)
 
     def _add_proof_controls(self) -> None:
         """The proof mismatch warning, beside the Export profile it describes.
