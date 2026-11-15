@@ -50,40 +50,21 @@ _DETECT_HAIR_FILL_GAIN = 2.0  # cap on that σ, × the σ with hairs filled, so 
 # Below this normalized density the film is clear base or holder; noise there is not dust.
 _DETECT_PROXY_MIN = 0.15
 
-# Manual heal gate. A painted stroke marks a *search area*, not a stamp: only pixels that
-# stand out from the film around them are repaired, so clean grain under a generous brush
-# stays byte-identical. The gate is two-sided because dust is a bright outlier in density
-# and a scratch a dark one (#791).
-#
-# The excess is measured on a 3x3 mean of the local high-pass, against the MAD σ of that
-# same quantity over the stroke's neighbourhood. Averaging drops uncorrelated grain by 3
-# while a defect of 2 px or more keeps its full excess, and measuring σ keeps the bars
-# valid on any film and scanner. An absolute density threshold cannot separate the two.
-_MANUAL_Z_HI = 8.0
-# Grow bar for the hysteresis below: the floor a connected pixel must clear to join a
-# defect already found. Absolute, or a fraction of the core's strength for a defect whose
-# skirt is proportionally deep.
-_MANUAL_Z_GROW = 2.0
-_MANUAL_Z_GROW_FRAC = 0.25
-# Backstop bar: a stroke whose strongest pixel never reaches _MANUAL_Z_HI is rescaled
-# against its own maximum, so a faint but real defect still repairs. Under this bar the
-# stroke stays a no-op: the brush found clean film.
-_MANUAL_Z_MIN = 5.0
-# Local-statistics window, as a multiple of the brush radius. Wide enough that a defect
-# filling the brush cannot set its own baseline.
-_MANUAL_WIN_FACTOR = 3.0
+# Paint gate. A painted stroke marks a search area, not a stamp: only the marks the optical
+# detector finds under it are repaired, so clean grain under a generous brush stays
+# byte-identical. Dust is dense and a scratch thin (#791), so the detector runs on the
+# density and on its negative. One seed bar, no texture ramp: the paint says the mark is a
+# defect, so only clean grain has to stay under the bar.
+_PAINT_Z = 5.0
 # Soft edge on the search area, so a defect crossing the brush rim does not repair to a
 # hard line.
 _MANUAL_RIM_PX = 1.5
-# Paint gate: the optical detector under the brush, with one seed bar and no texture ramp.
-# The paint says the mark is a defect, so only clean grain has to stay under the bar.
-_PAINT_Z = 5.0
 # Cap on the detector size under paint, px at HEAL_SIZE_REF. The size follows the brush so a
 # mark that fills it is not its own background; the cap bounds the windows of a wide brush.
 _PAINT_SIZE_MAX = 16.0
 
 # Transport scratches (#788): a nearly straight mark a few px wide running the length of
-# the film. Per pixel it sits under the manual-heal seed bar, so no per-pixel gate can
+# the film. Per pixel it sits under the paint gate's seed bar, so no per-pixel gate can
 # reach it. Only integrating along the line finds it.
 #
 # Cross-section band-pass: film grain is finer, image structure broader.
