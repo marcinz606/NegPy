@@ -42,8 +42,8 @@ from negpy.features.retouch.logic import (  # noqa: E402
     ir_defect_score,
     ir_detect_cutoff,
     ir_ratio_and_gain,
+    paint_to_score,
     split_hairs,
-    strokes_to_score,
 )
 from negpy.features.retouch.models import RetouchConfig  # noqa: E402
 from negpy.infrastructure.loaders.constants import is_ir_sidecar_path  # noqa: E402
@@ -323,10 +323,14 @@ def bake_ab(
 
 def click_gate(p: dict, cx: int, cy: int) -> str:
     """One Heal click with the default brush: "gate", "fallback" or "" (no answer)."""
-    img = p["vis"]
-    h, w = img.shape[:2]
-    score = strokes_to_score(img, [([[cx / w, cy / h]], CLICK_BRUSH, 0.0, 0.0)], [])
-    return "gate" if score is not None else ""
+    h, w = p["small"].shape[:2]
+    at = [cx / w, cy / h]
+    # A two-point stroke on one spot has the click's footprint and no fallback: the gate alone.
+    gate = paint_to_score(p["small"], [([at, at], CLICK_BRUSH, 0.0, 0.0)], [], p["vis"])
+    if any(m is not None for m in gate):
+        return "gate"
+    click = paint_to_score(p["small"], [([at], CLICK_BRUSH, 0.0, 0.0)], [], p["vis"])
+    return "fallback" if any(m is not None for m in click) else ""
 
 
 def click_frame(p: dict, rng: np.random.Generator) -> tuple:
