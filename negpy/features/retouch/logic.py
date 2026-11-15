@@ -75,6 +75,12 @@ _MANUAL_WIN_FACTOR = 3.0
 # Soft edge on the search area, so a defect crossing the brush rim does not repair to a
 # hard line.
 _MANUAL_RIM_PX = 1.5
+# Paint gate: the optical detector under the brush, with one seed bar and no texture ramp.
+# The paint says the mark is a defect, so only clean grain has to stay under the bar.
+_PAINT_Z = 5.0
+# Cap on the detector size under paint, px at HEAL_SIZE_REF. The size follows the brush so a
+# mark that fills it is not its own background; the cap bounds the windows of a wide brush.
+_PAINT_SIZE_MAX = 16.0
 
 # Transport scratches (#788): a nearly straight mark a few px wide running the length of
 # the film. Per pixel it sits under the manual-heal seed bar, so no per-pixel gate can
@@ -445,6 +451,83 @@ def strokes_to_score(
         touched = True
 
     return score if touched else None
+
+
+def paint_to_score(
+    plane: ImageBuffer,
+    strokes: List[Tuple],
+    legacy_spots: List[Tuple[float, float, float]],
+) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
+    """Painted heal strokes on the detection plane → ``(score, hair_mask)`` at its shape, each
+    None when empty.
+
+    A stroke is a search area: the optical detector runs under it, on density for dust and on
+    negated density for a scratch, and clean film under the paint stays at 1. A click that
+    finds nothing takes its own footprint, so a click always repairs. Strokes carry raw-frame
+    normalized coordinates, so this runs before geometry.
+    """
+    entries: List[Tuple[List, float]] = [(list(s[0]), float(s[1])) for s in strokes]
+    entries += [([[nx, ny]], float(size)) for nx, ny, size in legacy_spots]
+    if not entries:
+        return None, None
+
+    h, w = plane.shape[:2]
+    score = np.ones((h, w), dtype=np.float32)
+    hair = np.zeros((h, w), dtype=np.uint8)
+    # Brush size is a diameter at HEAL_SIZE_REF, so the footprint matches the cursor at any
+    # resolution (overlay._brush_screen_radius draws size/(2*REF)).
+    scale = max(w, h) / HEAL_SIZE_REF
+    film = film_scale((h, w))
+
+    for points, size in entries:
+        radius = max(1.0, size * scale * 0.5)
+        chain = [(float(p[0]) * w, float(p[1]) * h) for p in points]
+        if len(chain) >= 3:
+            chain = smooth_polyline(chain, closed=False)
+        pts = np.array(chain, dtype=np.float32)
+
+        base = max(1.0, min(2.0 * radius, _PAINT_SIZE_MAX * film))
+        pad = int(radius) + _texture_win(base) // 2 + 1
+        x0 = max(0, int(pts[:, 0].min()) - pad)
+        y0 = max(0, int(pts[:, 1].min()) - pad)
+        x1 = min(w, int(pts[:, 0].max()) + pad + 1)
+        y1 = min(h, int(pts[:, 1].max()) + pad + 1)
+        if x1 <= x0 or y1 <= y0:
+            continue
+
+        local = np.ascontiguousarray(np.round(pts - (x0, y0)).astype(np.int32))
+        r = max(1, int(round(radius)))
+        cover = negpy_core.stroke_cover((y1 - y0, x1 - x0), [(local, r, max(1, int(round(2.0 * radius))))])
+        if not cover.any():
+            continue
+
+        dens = np.ascontiguousarray(_density(plane[y0:y1, x0:x1]), dtype=np.float32)
+        marks = np.zeros(cover.shape, dtype=bool)
+        for side in (dens, -dens):
+            s, hm = _detect_from_stats(_dust_stats_px(side, base), _PAINT_Z, _PAINT_Z, base, film, texture=False, proxy_min=-1.0)
+            if s is not None:
+                marks |= s <= _IR_SCORE_FLOOR + 1e-6
+            if hm is not None:
+                marks |= hm > 0
+        # Shape is read after the cut: the span of a long mark under a small brush is a speck.
+        marks &= cover > 0
+        compact, hm = split_hairs(marks.astype(np.uint8))
+        # Feather the rim inside the footprint: a mark that crosses it must not repair to a step.
+        rim = np.clip(negpy_core.distance_transform(cover, 2, 3) / _MANUAL_RIM_PX, 0.0, 1.0)
+        # The inpaint dilates its mask, so a hair stops short of the rim.
+        hairs = (hm > 0) & (rim >= 1.0) if hm is not None else np.zeros(cover.shape, dtype=bool)
+        if not compact.any() and not hairs.any():
+            if len(points) > 1:
+                continue
+            compact = cover
+        found = None
+        if compact.any():
+            found = (1.0 - rim * (1.0 - _mask_to_score(compact, _DETECT_PAD_PX * film))).astype(np.float32)
+        if found is not None:
+            np.minimum(score[y0:y1, x0:x1], found, out=score[y0:y1, x0:x1])
+        hair[y0:y1, x0:x1][hairs] = 1
+
+    return (score if (score < 1.0).any() else None), (hair if hair.any() else None)
 
 
 def manual_bake_token(retouch) -> str:
