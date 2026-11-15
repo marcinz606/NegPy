@@ -691,7 +691,7 @@ class ActionToolbar(QWidget):
         self._ov_flat_peek_action.setCheckable(True)
         self._menu_tip(
             self._ov_flat_peek_action,
-            tr("Peek flat scan: show the flat master for a moment, with no change to your edit"),
+            tr("Peek flat scan: show the flat master, with no change to your edit"),
             "toggle_flat_peek",
         )
         self._ov_negative_peek_action = view_menu.addAction(tr("Peek Negative"))

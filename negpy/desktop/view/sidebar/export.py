@@ -356,7 +356,7 @@ class ExportSidebar(BaseSidebar):
         peek_bake_row = QHBoxLayout()
         peek_bake_row.setSpacing(THEME.space_sm)
         self.flat_peek_btn = self._tool_toggle(
-            "fa5s.eye", tr("Preview Flat"), tr("Temporarily show the flat master in the canvas (does not change your edit)")
+            "fa5s.eye", tr("Preview Flat"), tr("Show the flat master in the canvas (does not change your edit)")
         )
         self.flat_peek_btn.setChecked(self.state.flat_peek)
         self.flat_bake_btn = labeled_action(
