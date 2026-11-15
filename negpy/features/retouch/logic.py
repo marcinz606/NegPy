@@ -433,7 +433,8 @@ def paint_to_score(
         # The inpaint dilates its mask, so a hair stops short of the rim.
         hairs = (hm > 0) & (rim >= 1.0) if hm is not None else np.zeros(cover.shape, dtype=bool)
         if not compact.any() and not hairs.any():
-            if len(points) > 1:
+            # A click whose pointer moved arrives as a short stroke; past the radius it is a drag.
+            if float(np.ptp(pts, axis=0).max()) > radius:
                 continue
             compact = cover
         found = None

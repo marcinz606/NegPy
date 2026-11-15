@@ -121,6 +121,14 @@ def test_silent_click_fills_its_disc():
     assert (score[np.hypot(xx - 50, yy - 50) > 7.0] == 1.0).all()
 
 
+def test_a_click_that_moved_a_little_still_fills_its_disc():
+    """The canvas adds a second point when the pointer moves between press and release."""
+    img = _grainy(100, 100)
+    stroke = ([[0.5, 0.5], [0.51, 0.5]], _size_at_ref(12.0, (100, 100)), 0.0, 0.0)
+    score, _ = paint_to_score(img, [stroke], [])
+    assert score is not None and score[50, 50] <= _IR_SCORE_FLOOR + 1e-6
+
+
 def test_click_on_a_mark_repairs_only_the_mark():
     img = _grainy(100, 100)
     img[49:52, 49:52] = 0.95

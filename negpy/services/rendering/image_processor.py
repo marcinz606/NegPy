@@ -483,6 +483,8 @@ class ImageProcessor:
         self._manual_inc_lines: tuple = ()
         self._manual_inc_threshold: Optional[float] = None
         self._manual_inc_hair: Optional[np.ndarray] = None
+        self._paint_planes_src: Optional[tuple] = None
+        self._paint_planes: Optional[Tuple[np.ndarray, np.ndarray]] = None
         self._manual_inc_score: Optional[np.ndarray] = None
         self._manual_inc_out: Optional[np.ndarray] = None
         # Clone cache, keyed on input identity like the manual baseline; a strict append extends it.
@@ -655,11 +657,15 @@ class ImageProcessor:
         ret = settings.retouch
         if self._is_flat(settings) or not (ret.manual_heal_strokes or ret.manual_dust_spots):
             return None
+        src = self._paint_planes_src
+        if src is not None and src[0] is img and src[1] is detect_buffer and self._paint_planes is not None:
+            return self._paint_planes
         pooled = detect_buffer if detect_buffer is not None else _detection_downsample(img)
         h, w = pooled.shape[:2]
-        if img.shape[:2] == (h, w):
-            return pooled, img
-        return pooled, negpy_core.resize_area(np.ascontiguousarray(img, dtype=np.float32), (w, h))
+        averaged = img if img.shape[:2] == (h, w) else negpy_core.resize_area(np.ascontiguousarray(img, dtype=np.float32), (w, h))
+        self._paint_planes_src = (img, detect_buffer)
+        self._paint_planes = (pooled, averaged)
+        return self._paint_planes
 
     def _manual_bake(
         self,
@@ -813,6 +819,7 @@ class ImageProcessor:
         crop_preview_full: bool = False,
         wants_uv_grid: bool = True,
         skip_flatfield: bool = False,
+        source_baked: bool = False,
         cam_xyz: Optional[list] = None,
         camera_wb: Optional[list] = None,
         cache_stages: bool = True,
@@ -821,7 +828,8 @@ class ImageProcessor:
         film_base: Optional[tuple] = None,
         wants_fade_grid: bool = False,
     ) -> Tuple[Any, Dict[str, Any]]:
-        """Executes rendering pipeline. Returns result (ndarray/GPUTexture) and metrics. ``skip_flatfield``: the export CPU
+        """Executes rendering pipeline. Returns result (ndarray/GPUTexture) and metrics. ``source_baked``: *img* already holds the painted heals, so
+        they are not gated a second time on repaired film. ``skip_flatfield``: the export CPU
         fallbacks pass an already flat-fielded buffer. ``gain_slices``: the ``slice_half`` cuts that took *img* out of the
         decoded frame. ``source_orientation``: the EXIF orientation baked into *img*. The flat-field gain takes both."""
         # Flat-field is a source pre-correction, before geometry and crop. Folding its token
@@ -878,7 +886,7 @@ class ImageProcessor:
         want_ir = settings.retouch.ir_dust_remove and ir_buffer is not None and not self._is_flat(settings)
         with self._prepare_gate:
             timing.lap("wait for prefetch")
-            paint_planes = self._paint_plane(img, settings, detect_buffer)
+            paint_planes = None if source_baked else self._paint_plane(img, settings, detect_buffer)
             img, ir_corrected_mask, ir_degenerate, ir_routed = self._ir_bake(img, ir_buffer, settings, auto_hash)
             timing.lap("IR repair")
 
@@ -891,7 +899,9 @@ class ImageProcessor:
             timing.lap("dust detect")
             img = self._luma_bake(img, detected_dust, auto_hash + hair_bake_token(orig_ret), dust_label)
             timing.lap("dust repair")
-            img, manual_routed = self._manual_bake(img, settings, repair_hash, paint_planes)
+            manual_routed: List[np.ndarray] = []
+            if not source_baked:
+                img, manual_routed = self._manual_bake(img, settings, repair_hash, paint_planes)
             timing.lap("heal")
             extra = [m for m in (ir_routed,) if m is not None] + manual_routed
             if extra:
@@ -1575,6 +1585,7 @@ class ImageProcessor:
                 wants_uv_grid=False,
                 cache_stages=False,
                 skip_flatfield=True,  # f32_buffer already flat-fielded by _load_source_f32
+                source_baked=True,
                 cam_xyz=cam_xyz,
                 camera_wb=camera_wb,
             )
@@ -2102,6 +2113,7 @@ class ImageProcessor:
                     wants_uv_grid=False,
                     readback_metrics=False,
                     skip_flatfield=True,  # f32_buffer already flat-fielded by _load_source_f32
+                    source_baked=True,
                     cam_xyz=self._cam_xyz_by_path.get(file_path, (None, None))[0],
                     camera_wb=self._cam_xyz_by_path.get(file_path, (None, None))[1],
                 )

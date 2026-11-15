@@ -230,3 +230,20 @@ class TestPaintPlane:
 
             out = np.asarray(apply_hair_inpaint(out, masks))
         assert out[239:241, 215:265].max() < 0.7
+
+    def test_an_already_baked_source_is_not_baked_again(self):
+        """The export fallback hands run_pipeline a buffer with the heals in it: a second gate
+        finds repaired film, and a click would then fill its whole disc."""
+        img, strokes = _scene()
+        settings = _config(strokes[:1])
+        proc = ImageProcessor()
+        with patch.object(ImageProcessor, "_manual_bake", side_effect=AssertionError("baked twice")):
+            proc.run_pipeline(img, settings, "src", render_size_ref=240, prefer_gpu=False, readback_metrics=False, source_baked=True)
+
+    def test_the_planes_are_pooled_once_per_source(self):
+        _, strokes = _scene()
+        img = _grainy(300, 6000, seed=2)
+        proc = ImageProcessor()
+        first = proc._paint_plane(img, _config(strokes[:1]), None)
+        assert first[0].shape != img.shape
+        assert proc._paint_plane(img, _config(strokes[:2]), None)[0] is first[0]

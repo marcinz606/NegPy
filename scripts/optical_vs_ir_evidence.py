@@ -325,8 +325,9 @@ def click_gate(p: dict, cx: int, cy: int) -> str:
     """One Heal click with the default brush: "gate", "fallback" or "" (no answer)."""
     h, w = p["small"].shape[:2]
     at = [cx / w, cy / h]
-    # A two-point stroke on one spot has the click's footprint and no fallback: the gate alone.
-    gate = paint_to_score(p["small"], [([at, at], CLICK_BRUSH, 0.0, 0.0)], [], p["vis"])
+    # A stroke just longer than its radius has no fallback: the gate alone, on about the click's footprint.
+    reach = 0.35 * CLICK_BRUSH * max(h, w) / 1600 / w
+    gate = paint_to_score(p["small"], [([[at[0] - reach, at[1]], [at[0] + reach, at[1]]], CLICK_BRUSH, 0.0, 0.0)], [], p["vis"])
     if any(m is not None for m in gate):
         return "gate"
     click = paint_to_score(p["small"], [([at], CLICK_BRUSH, 0.0, 0.0)], [], p["vis"])
