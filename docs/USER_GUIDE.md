@@ -331,7 +331,9 @@ How light or dark the print is, and how much contrast it has.
 
 The paper the picture prints on, and how it turns light into tones from black to white.
 
-*   **Print stock**: the paper. A real paper sets the contrast curve and the colors from its maker's data. **Digital (Adobe RGB)**, the default, is an ideal paper. **Digital (Pakon)** has the colors of a Pakon lab scanner. **Digital (Frontier)** has the colors and the contrast curve of a Fujifilm Frontier lab scan. **Digital (Nikon Scan)** has those of Nikon Scan, the software of the Nikon Coolscan film scanners.
+*   **Print stock**: the paper. A real paper sets the contrast curve and the colors from its maker's data. **Digital (Adobe RGB)**, the default, is an ideal paper. **Digital (Pakon)** has the colors of a Pakon lab scanner. **Digital (Frontier)** has the colors and the contrast curve of a Fujifilm Frontier lab scan. **Digital (Nikon Scan)** has those of Nikon Scan, the software of the Nikon Coolscan film scanners. Stocks under **Look profiles** are Camera Raw Look profiles that you import.
+*   **Import Look Profile** (the folder button): adds a Camera Raw Look profile (.xmp file) as a print stock. The look goes on top of the Digital print. The trash button deletes the selected look.
+*   **Stock Strength**: how much of the look shows. 0% is the Digital print, 100% the full look. A newly picked look starts at 100%.
 *   **Paper Test Strip** (the striped button): prints the frame on every paper. Click a paper to see it large, step with the arrow keys, and press **Keep** to use it.
 *   **Dye Separation**: color strength in the print. 1 is unchanged. **Separation Damping** puts more of the change on dull colors and less on strong ones. **Chroma** on the Look tab changes all colors evenly instead.
 *   **Paper White**: shows the white of real paper, a little darker than pure white.

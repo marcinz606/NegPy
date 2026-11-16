@@ -115,6 +115,8 @@ REGISTRY: dict[str, ShortcutEntry] = {
     "preset_save": ShortcutEntry("", tr("Save a preset from the current settings"), tr("Actions")),
     "toggle_test_strip": ShortcutEntry("Shift+T", tr("Density × grade test strip"), tr("Tools")),
     "toggle_paper_strip": ShortcutEntry("", tr("Paper test strip: the frame on every print stock"), tr("Tools")),
+    "import_look_profile": ShortcutEntry("", tr("Import a Camera Raw Look profile as a print stock…"), tr("Tools")),
+    "delete_look_profile": ShortcutEntry("", tr("Delete the selected Look profile…"), tr("Tools")),
     "toggle_pick_better": ShortcutEntry("", tr("Pick Better: pick the better of two images"), tr("Exposure")),
     "finish_pick_better": ShortcutEntry("", tr("Finish Pick Better"), tr("Exposure")),
     "undo_pick_better": ShortcutEntry("", tr("Undo Pick Better"), tr("Exposure")),

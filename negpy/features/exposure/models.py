@@ -113,6 +113,8 @@ class ExposureConfig:
     auto_normalize_contrast: bool = True
     render_intent: str = RenderIntent.PRINT
     paper_profile: str = "neutral"
+    # An imported look stock's Strength, the Look profile's Amount (1 = 100%). Inert on every other stock.
+    stock_strength: float = 1.0
     # Density-domain saturation, composed into the dye_mix kernel slot (see
     # papers.py: resolve_saturation_matrix). 1.0 = identity; trims are per-layer.
     dye_separation: float = 1.0

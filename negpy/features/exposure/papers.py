@@ -16,15 +16,16 @@ their knee/midtone values are light touches for character. paper_midtone_gamma s
 ±0.25, because Snap and its per-layer trims add to it below the kernel's |gamma| < 1 bound.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
-from negpy.features.exposure.models import EXPOSURE_CONSTANTS
+from negpy.features.exposure.models import EXPOSURE_CONSTANTS, ExposureConfig
+from negpy.features.exposure.rgb_table import LOOK_KEY_PREFIX, list_looks, load_look, look_print_lut
 from negpy.features.exposure.print_lut import DyeLut, DyeMatrix, DyeMatrixRows, PrintColor, PrintLut, flat_matrix, load_print_lut
 from negpy.features.process.models import ProcessMode
-from negpy.kernel.system.i18n import mark
+from negpy.kernel.system.i18n import mark, tr
 
 DEFAULT_PROFILE_KEY = "neutral"
 
@@ -68,7 +69,8 @@ class PaperProfile:
     Grade gives, for a paper whose knees take much of its ISO R. base_tint_cmy — per-channel (C, M, Y) additions to the minimum
     density floor (base tint, shows in highlights). print_color — the stock's dyes: a
     DyeMatrix coupling D_rgb = M · D_dye above base, or a DyeLut from dye density to color.
-    lith_path — the paper's lith color path, read by the Lith stage.
+    lith_path — the paper's lith color path, read by the Lith stage. look — an imported Camera Raw Look
+    profile (rgb_table.py), whose print_color carries Stock Strength.
     kind picks the process mode the paper shows in; medium is its group in the dropdown;
     short names it on a paper test strip band.
     """
@@ -76,7 +78,7 @@ class PaperProfile:
     label: str
     short: str = ""
     kind: str = "ra4"  # "default" | "bw" | "ra4"
-    medium: str = "paper"  # "digital" | "paper" | "film"
+    medium: str = "paper"  # "digital" | "paper" | "film" | "look"
     d_max: float = EXPOSURE_CONSTANTS["d_max"]
     d_min: float = EXPOSURE_CONSTANTS["d_min"]
     toe_sharpness_base: float = EXPOSURE_CONSTANTS["toe_sharpness_base"]
@@ -90,6 +92,7 @@ class PaperProfile:
     base_tint_cmy: Tuple[float, float, float] = (0.0, 0.0, 0.0)
     print_color: PrintColor = DyeMatrix(_IDENTITY_DYE)
     lith_path: LithPath = _DEFAULT_LITH_PATH
+    look: bool = False
 
 
 PAPER_PROFILES: Dict[str, PaperProfile] = {
@@ -351,9 +354,24 @@ def slope_gain(paper: PaperProfile | None) -> float:
     return 1.0 if paper is None else float(paper.slope_gain)
 
 
+def look_profile(key: str) -> PaperProfile | None:
+    """An imported Look profile as a print stock on Digital's curve, or None when it is not imported."""
+    look = load_look(key)
+    if look is None:
+        return None
+    return PaperProfile(label=look.name, short=look.name, kind="ra4", medium="look", print_color=DyeLut(key), look=True)
+
+
 def resolve_paper(key: str) -> PaperProfile:
-    """Profile for `key`, falling back to the Digital default on unknown keys."""
+    """Profile for `key`, falling back to the Digital default on unknown keys and on a removed look."""
+    if key.startswith(LOOK_KEY_PREFIX):
+        return look_profile(key) or PAPER_PROFILES[DEFAULT_PROFILE_KEY]
     return PAPER_PROFILES.get(key, PAPER_PROFILES[DEFAULT_PROFILE_KEY])
+
+
+def stock_label(paper: PaperProfile) -> str:
+    """The menu label: a look keeps its profile's own name, untranslated."""
+    return paper.label if paper.look else tr(paper.label)
 
 
 def resolve_print_color(paper: PaperProfile | None) -> Tuple[Optional[np.ndarray], Optional[PrintLut]]:
@@ -363,7 +381,8 @@ def resolve_print_color(paper: PaperProfile | None) -> Tuple[Optional[np.ndarray
     """
     color = None if paper is None else paper.print_color
     if isinstance(color, DyeLut):
-        return None, load_print_lut(color.key)
+        lut = look_print_lut(color.key, color.strength) if paper is not None and paper.look else None
+        return None, lut or load_print_lut(color.key)
     if color is None or color.rows == _IDENTITY_DYE:
         return None, None
     m = np.array(color.rows, dtype=np.float64)
@@ -372,10 +391,11 @@ def resolve_print_color(paper: PaperProfile | None) -> Tuple[Optional[np.ndarray
 
 def resolve_flat_matrix(paper: PaperProfile | None) -> Optional[np.ndarray]:
     """The stock's color as the Flat master's density 3×3: a matrix stock's own rows, a LUT stock's
-    stand-in (`flat_matrix`). None for identity, so the Digital flat master stays byte-exact."""
+    stand-in (`flat_matrix`). None for identity, so the Digital flat master stays byte-exact. A look stock
+    carries a tone curve no 3×3 holds, so its flat master is Digital's."""
     color = None if paper is None else paper.print_color
     if isinstance(color, DyeLut):
-        return flat_matrix(color.key)
+        return None if paper is not None and paper.look else flat_matrix(color.key)
     dye, _ = resolve_print_color(paper)
     return dye
 
@@ -422,7 +442,7 @@ def compose_density_matrices(dye: Optional[np.ndarray], sat: Optional[np.ndarray
 # Digital default. Keyed by ProcessMode, a StrEnum, so plain-string process_mode values
 # look up fine.
 _MODE_KIND: Dict[str, str] = {ProcessMode.C41: "ra4", ProcessMode.BW: "bw"}
-_MEDIUM_ORDER = ("digital", "paper", "film")
+_MEDIUM_ORDER = ("digital", "look", "paper", "film")
 
 
 def profiles_for_mode(process_mode: str) -> List[Tuple[str, PaperProfile]]:
@@ -432,6 +452,7 @@ def profiles_for_mode(process_mode: str) -> List[Tuple[str, PaperProfile]]:
     out = [(DEFAULT_PROFILE_KEY, PAPER_PROFILES[DEFAULT_PROFILE_KEY])]
     if allowed is not None:
         papers = [(k, p) for k, p in PAPER_PROFILES.items() if p.kind == allowed]
+        papers += [(k, p) for k, _ in list_looks() if (p := look_profile(k)) is not None and p.kind == allowed]
         out += sorted(papers, key=lambda kp: (_MEDIUM_ORDER.index(kp[1].medium), kp[1].label.casefold()))
     return out
 
@@ -446,6 +467,14 @@ def effective_paper_profile(key: str, process_mode: str | None) -> PaperProfile:
     if process_mode is not None and _MODE_KIND.get(process_mode) == paper.kind:
         return paper
     return PAPER_PROFILES[DEFAULT_PROFILE_KEY]
+
+
+def exposure_paper(exposure: ExposureConfig, process_mode: str | None) -> PaperProfile:
+    """effective_paper_profile with a look stock's Strength from the exposure."""
+    paper = effective_paper_profile(exposure.paper_profile, process_mode)
+    if not paper.look or not isinstance(paper.print_color, DyeLut):
+        return paper
+    return replace(paper, print_color=DyeLut(paper.print_color.key, strength=exposure.stock_strength))
 
 
 def effective_constants(paper: PaperProfile | None) -> Dict[str, Any]:

@@ -27,7 +27,7 @@ from negpy.features.exposure.logic import (
 )
 from negpy.features.exposure.bw_filter import BW_FILTER_WEIGHTS, collapse_matrix
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS, BwFilter, ExposureConfig, RenderIntent
-from negpy.features.exposure.papers import effective_paper_profile, resolve_flat_matrix
+from negpy.features.exposure.papers import effective_paper_profile, exposure_paper, resolve_flat_matrix
 from negpy.features.exposure.placement import limited_mask_params
 from negpy.features.exposure.normalization import (
     LogNegativeBounds,
@@ -223,7 +223,7 @@ class PhotometricProcessor:
         if self.config.render_intent == RenderIntent.FLAT:
             return self._process_flat(image, context)
 
-        paper = effective_paper_profile(self.config.paper_profile, context.process_mode)
+        paper = exposure_paper(self.config, context.process_mode)
         d_min = paper.d_min if self.config.paper_dmin else 0.0
         anchor = context.metrics.get("metered_anchor") if self.config.auto_exposure else None
         lum_range = context.metrics.get("norm_density_range")

@@ -127,7 +127,7 @@ class PaperStripLifecycle(unittest.TestCase):
 
             keys = [k for k, _ in profiles_for_mode(mode)]
             task = self.strip_tasks[0]
-            self.assertEqual(list(task.overrides), [{"paper_profile": k} for k in keys])
+            self.assertEqual(list(task.overrides), [{"paper_profile": k, "stock_strength": 1.0} for k in keys])
             self.assertEqual(task.grid, (1, len(keys)))
             self.assertTrue(task.keep_tiles)
             self.assertEqual(self.controller.state.test_strip_kind, "paper")
@@ -157,7 +157,7 @@ class PaperStripLifecycle(unittest.TestCase):
 
     def test_keep_commits_only_the_shown_paper_and_drops_the_proof(self):
         cfg = self.controller.state.config
-        self.controller.state.config = replace(cfg, exposure=replace(cfg.exposure, toe=0.3, density=1.2))
+        self.controller.state.config = replace(cfg, exposure=replace(cfg.exposure, toe=0.3, density=1.2, stock_strength=0.4))
         self._print()
         self.controller.show_paper_strip(2)
         self.controller.keep_paper_strip()
@@ -166,7 +166,7 @@ class PaperStripLifecycle(unittest.TestCase):
         self.assertTrue(committed.kwargs["persist"])
         exposure = self.controller.state.config.exposure
         self.assertEqual(exposure.paper_profile, C41_KEYS[2])
-        self.assertEqual((exposure.toe, exposure.density), (0.3, 1.2))
+        self.assertEqual((exposure.toe, exposure.density, exposure.stock_strength), (0.3, 1.2, 1.0))
         self.assertFalse(self.controller.state.test_strip)
         self.assertIsNone(self.controller.state.test_strip_expanded)
         self.assertIsNone(self.controller.state.test_strip_tiles)

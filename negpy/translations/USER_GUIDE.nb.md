@@ -154,12 +154,14 @@ Hvor lys eller mørk kopien er, og hvor mye kontrast den har.
 
 **Hvitpunkt** og **Svartpunkt** er på kortet **Lysmåling** i fanen Rull ([§10.6](#106-metering-negative--positive)).
 
-<!-- panel:paper src:ab51bc8d -->
+<!-- panel:paper src:201bbd01 -->
 ### 5.3 Papirrespons: papiret
 
 Papiret bildet kopieres på, og hvordan det gjør lys om til toner fra svart til hvitt.
 
-*   **Kopipapir**: papiret. Et ekte papir angir kontrastkurven og fargene ut fra produsentens data. **Digital (Adobe RGB)**, standarden, er et ideelt papir. **Digital (Pakon)** har fargene til en Pakon-laboratorieskanner. **Digital (Frontier)** har fargene og kontrastkurven til en laboratorieskanning fra Fujifilm Frontier. **Digital (Nikon Scan)** har dem fra Nikon Scan, programvaren til Nikon Coolscan-filmskannerne.
+*   **Kopipapir**: papiret. Et ekte papir angir kontrastkurven og fargene ut fra produsentens data. **Digital (Adobe RGB)**, standarden, er et ideelt papir. **Digital (Pakon)** har fargene til en Pakon-laboratorieskanner. **Digital (Frontier)** har fargene og kontrastkurven til en laboratorieskanning fra Fujifilm Frontier. **Digital (Nikon Scan)** har dem fra Nikon Scan, programvaren til Nikon Coolscan-filmskannerne. Papirene under **Utseendeprofiler** er Camera Raw-utseendeprofiler som du importerer.
+*   **Importer utseendeprofil** (mappeknappen): legger til en Camera Raw-utseendeprofil (.xmp-fil) som kopipapir. Utseendet legges oppå den digitale kopien. Søppelbøtte-knappen sletter det valgte utseendet.
+*   **Utseendestyrke**: hvor mye av utseendet som vises. 0 % er den digitale kopien, 100 % hele utseendet. Et nyvalgt utseende starter på 100 %.
 *   **Prøvestripe for papir** (den stripete knappen): kopierer bildet på hvert papir. Klikk et papir for å se det stort, bla med piltastene, og trykk **Behold** for å bruke det.
 *   **Fargestoffseparasjon**: fargestyrke i kopien. 1 er uendret. **Separasjonsdemping** legger mer av endringen på matte farger og mindre på sterke. **Kroma** i fanen Utseende endrer i stedet alle farger likt.
 *   **Papirhvitt**: viser hvitfargen til ekte papir, litt mørkere enn rent hvitt.

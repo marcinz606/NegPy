@@ -326,12 +326,14 @@ Quanto è chiara o scura la stampa, e quanto contrasto ha.
 
 **Punto del bianco** e **Punto del nero** si trovano nel riquadro **Misurazione** della scheda Rullino ([§10.6](#106-misurazione-negativo--positivo)).
 
-<!-- panel:paper src:ab51bc8d -->
+<!-- panel:paper src:201bbd01 -->
 ### 5.3 Risposta della carta: la carta
 
 La carta su cui viene stampata l'immagine, e il modo in cui trasforma la luce in toni dal nero al bianco.
 
-*   **Supporto di stampa**: la carta. Una carta reale stabilisce la curva di contrasto e i colori in base ai dati del produttore. **Digitale (Adobe RGB)**, quella predefinita, è una carta ideale. **Digitale (Pakon)** ha i colori di uno scanner da laboratorio Pakon. **Digitale (Frontier)** ha i colori e la curva di contrasto di una scansione da laboratorio Fujifilm Frontier. **Digitale (Nikon Scan)** ha quelli di Nikon Scan, il software degli scanner per pellicola Nikon Coolscan.
+*   **Supporto di stampa**: la carta. Una carta reale stabilisce la curva di contrasto e i colori in base ai dati del produttore. **Digitale (Adobe RGB)**, quella predefinita, è una carta ideale. **Digitale (Pakon)** ha i colori di uno scanner da laboratorio Pakon. **Digitale (Frontier)** ha i colori e la curva di contrasto di una scansione da laboratorio Fujifilm Frontier. **Digitale (Nikon Scan)** ha quelli di Nikon Scan, il software degli scanner per pellicola Nikon Coolscan. I supporti sotto **Profili look** sono profili look di Camera Raw che importi.
+*   **Importa profilo look** (il pulsante cartella): aggiunge un profilo look di Camera Raw (file .xmp) come supporto di stampa. Il look si applica sopra la stampa digitale. Il pulsante cestino elimina il look selezionato.
+*   **Intensità del look**: quanto look si vede. 0% è la stampa digitale, 100% il look completo. Un look appena scelto parte da 100%.
 *   **Striscia di prova della carta** (il pulsante a righe): stampa il fotogramma su ogni carta. Fai clic su una carta per vederla in grande, scorri con i tasti freccia e premi **Tieni** per usarla.
 *   **Separazione dei coloranti**: intensità del colore nella stampa. 1 è invariato. **Smorzamento della separazione** applica più modifica ai colori spenti e meno a quelli intensi. **Croma** nella scheda Aspetto cambia invece tutti i colori in modo uniforme.
 *   **Bianco carta**: mostra il bianco di una carta reale, un po' più scuro del bianco puro.

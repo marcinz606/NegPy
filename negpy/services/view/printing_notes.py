@@ -10,7 +10,7 @@ from typing import List
 
 from negpy.features.exposure.densitometer import zone_roman
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS, ExposureConfig
-from negpy.features.exposure.papers import resolve_paper
+from negpy.features.exposure.papers import resolve_paper, stock_label
 from negpy.features.finish.models import FinishConfig
 from negpy.features.local.logic import limited_indices
 from negpy.features.local.models import LocalAdjustmentsConfig, LocalMask, MaskKey
@@ -126,7 +126,7 @@ def recipe_lines(
     if frame:
         lines.append(frame)
 
-    paper = tr(resolve_paper(exposure.paper_profile).label)
+    paper = stock_label(resolve_paper(exposure.paper_profile))
     flags = [tr(name) for name, on in ((mark("Paper White"), exposure.paper_dmin), (mark("Paper Black"), exposure.paper_black)) if on]
     lines.append(" · ".join([paper, *flags]))
 

@@ -202,9 +202,9 @@ def print_curve(
     The paper profile is passed through to the curve, matching the render (which builds its
     constants from `effective_constants(paper)`): the RA4 papers raise d_max above the 2.3
     default, so omitting it drew a curve the print didn't have."""
-    from negpy.features.exposure.papers import effective_paper_profile
+    from negpy.features.exposure.papers import exposure_paper
 
-    profile = effective_paper_profile(exposure.paper_profile, process_mode)
+    profile = exposure_paper(exposure, process_mode)
     d_min = profile.d_min if exposure.paper_dmin else 0.0
     toe_eff, shoulder_eff = grade_coupled_shape(slope, exposure.toe, exposure.shoulder)
     sg, hg = split_grade_deltas(exposure.grade, exposure.shadow_grade, exposure.highlight_grade)
@@ -252,9 +252,9 @@ def curve_params_from_metrics(
     pre-first-render case). Bounds live under a different key per engine: CPU writes
     "final_bounds", GPU writes "log_bounds".
     """
-    from negpy.features.exposure.papers import effective_paper_profile
+    from negpy.features.exposure.papers import exposure_paper
 
-    profile = effective_paper_profile(exposure.paper_profile, process_mode)
+    profile = exposure_paper(exposure, process_mode)
     d_min = profile.d_min if exposure.paper_dmin else 0.0
     anchor = metrics.get("metered_anchor") if exposure.auto_exposure else None
     bounds = metrics.get("final_bounds") or metrics.get("log_bounds")
@@ -917,12 +917,12 @@ def auto_shadow_from_metrics(exposure: Any, process_mode: Optional[str], metrics
 def auto_highlight_from_metrics(exposure: Any, process_mode: Optional[str], metrics: Any) -> float:
     """The highlight hold burn the render applied, re-derived from the published metrics
     (companion of curve_params_from_metrics for the chart, wedge and zone placement)."""
-    from negpy.features.exposure.papers import effective_paper_profile
+    from negpy.features.exposure.papers import exposure_paper
 
     point = metrics.get("highlight_point")
     if not exposure.auto_normalize_contrast or point is None:
         return 0.0
-    profile = effective_paper_profile(exposure.paper_profile, process_mode)
+    profile = exposure_paper(exposure, process_mode)
     d_min = profile.d_min if exposure.paper_dmin else 0.0
     slopes, pivots, _ = curve_params_from_metrics(exposure, process_mode, metrics)
     return highlight_hold_offset(
