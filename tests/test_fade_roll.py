@@ -151,8 +151,10 @@ def test_the_roll_worker_pools_the_frames_and_names_the_ones_it_leaves_out():
         "fade_ratio_b",
         "fade_density_shift",
         "fade_auto_red",
+        "fade_red_trim",
         "fade_white_anchor",
     }
+    assert result.changes["fade_red_trim"] == 1.0
     assert abs(result.changes["fade_ratio_g"] - 0.8) < 0.03 and abs(result.changes["fade_ratio_b"] - 0.65) < 0.03
 
 

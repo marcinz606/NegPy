@@ -477,7 +477,7 @@ def test_auto_red_on_fits_red_and_estimate_keeps_it_and_off_puts_estimate_s_red_
         assert "fade_crossover_table" in again
         w.fade_auto_red_btn.setChecked(False)
     off = _apply(ctrl)
-    assert off["fade_auto_red"] is False and off["fade_density_shift"] == 0.0
+    assert off["fade_auto_red"] is False and off["fade_density_shift"] == 0.0 and off["fade_red_trim"] == 1.0
     assert off["fade_ratio_r"] == estimate_red(again["fade_ratio_g"], again["fade_ratio_b"])
 
 
@@ -497,12 +497,35 @@ def test_sync_shows_the_frame_s_auto_red():
     assert w.fade_auto_red_btn.isChecked()
 
 
-def test_a_hand_red_turns_auto_red_off():
-    w, ctrl = _slide_sidebar(fade_auto_red=True)
-    w.fade_ratio_r_slider.valueCommitted.emit(0.7)
+def test_a_hand_red_under_restore_range_fits_the_shift_while_it_drags():
+    from unittest.mock import patch
+
+    w, ctrl = _slide_sidebar(fade_auto_red=True, fade_density_shift=-0.2)
+    fit = ({"fade_ratio_r": 0.7, "fade_density_shift": -0.3, "fade_red_trim": 1.1}, "")
+    with (
+        patch("negpy.desktop.workers.chart_fit.fade_estimate_grid", return_value=_mix_grid()),
+        patch("negpy.desktop.view.sidebar.fade.auto_red_changes", return_value=fit) as fitted,
+    ):
+        w.fade_ratio_r_slider.valueChanged.emit(0.7)
+        drag = ctrl.set_roll_default.call_args.kwargs
+        w.fade_ratio_r_slider.valueCommitted.emit(0.7)
+    assert fitted.call_args.args[-1] == 0.7
+    release = ctrl.set_roll_default.call_args.kwargs
+    assert drag["persist"] is False and release["persist"] is True
+    for kwargs in (drag, release):
+        assert (kwargs["fade_ratio_r"], kwargs["fade_density_shift"], kwargs["fade_red_trim"]) == (0.7, -0.3, 1.1)
+        assert "fade_auto_red" not in kwargs
+
+
+def test_a_hand_red_with_nothing_to_read_turns_restore_range_off():
+    from unittest.mock import patch
+
+    w, ctrl = _slide_sidebar(fade_auto_red=True, fade_density_shift=-0.2)
+    with patch("negpy.desktop.workers.chart_fit.fade_estimate_grid", return_value=None):
+        w.fade_ratio_r_slider.valueCommitted.emit(0.7)
     kwargs = ctrl.set_roll_default.call_args.kwargs
     assert kwargs["fade_ratio_r"] == 0.7 and kwargs["fade_auto_red"] is False
-    assert kwargs["fade_density_shift"] == 0.0
+    assert kwargs["fade_density_shift"] == 0.0 and kwargs["fade_red_trim"] == 1.0
 
 
 def test_estimate_roll_sits_on_the_card():
@@ -552,3 +575,17 @@ def test_the_crossover_suggestion_goes_once_the_roll_shares_a_crossover():
     ctrl.roll_crossover_source.return_value = "c.tif"
     w.sync_ui()
     assert w.fade_roll_result_hint.text() == "Estimated from 4 of 5 slides."
+
+
+def test_restore_range_on_starts_a_fresh_fit_over_a_stale_trim():
+    from unittest.mock import patch
+
+    w, ctrl = _slide_sidebar(fade_red_trim=0.7)
+    fit = ({"fade_ratio_r": 0.6, "fade_density_shift": -0.2, "fade_red_trim": 1.0}, "")
+    with (
+        patch("negpy.desktop.workers.chart_fit.fade_estimate_grid", return_value=_mix_grid()),
+        patch("negpy.desktop.view.sidebar.fade.auto_red_changes", return_value=fit) as fitted,
+    ):
+        w.fade_auto_red_btn.setChecked(True)
+    assert fitted.call_args.args[0].fade_red_trim == 1.0
+    assert ctrl.set_roll_default.call_args.kwargs["fade_red_trim"] == 1.0

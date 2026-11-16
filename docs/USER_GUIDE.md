@@ -567,7 +567,7 @@ Gives a faded slide its dye layers back. The card shows only for slides.
 
 *   **Estimate**: sets Gray Mix and the Survivals.
 *   **Restore Range** (icon beside Estimate): on, sets Red Survival from the frame's range; Estimate keeps it.
-*   **Red Survival**: how much red dye is left. Lower it until contrast returns.
+*   **Red Survival**: how much red dye is left. Lower it until contrast returns. With Restore Range on, Restore Range keeps your change each time it sets Red again.
 *   **Green Survival** / **Blue Survival**: the same, measured against red.
 *   **Remove Stain**: whitens yellowed clear areas and estimates again. Turn it on when Estimate suggests it.
 *   **Gray Mix**: changes which grays Estimate trusts. Drag it if colors look off.

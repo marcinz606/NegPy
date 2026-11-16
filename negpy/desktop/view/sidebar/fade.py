@@ -152,10 +152,25 @@ class FadeSidebar(BaseSidebar):
         self.controller.fade_roll_hint.connect(self._show_roll_hint)
 
     def _on_fade_ratio_r_changed(self, val: float, persist: bool = True) -> None:
-        # A hand Red ends Restore Range, so the toggle never shows on over a value it did not set.
-        # The shift belongs to Restore Range's fit, so it goes with it, as when the toggle turns off.
-        changes = {"fade_ratio_r": val, "fade_auto_red": False, "fade_density_shift": 0.0}
+        """Under Restore Range a hand Red is a trim on its fit, and each drag step fits the shift for it."""
+        conf = self.state.config.process
+        changes: Optional[dict] = {"fade_ratio_r": val}
+        if conf.fade_auto_red:
+            changes, _ = self._restore_range(conf, target=val)
+            if changes is None:
+                changes = {"fade_ratio_r": val, "fade_auto_red": False, "fade_density_shift": 0.0, "fade_red_trim": 1.0}
         self.controller.set_roll_default("fade", persist=persist, readback_metrics=persist, **changes)
+
+    def _restore_range(self, conf, target: Optional[float] = None) -> tuple[Optional[dict], str]:
+        """Restore Range's changes from Estimate's Red with no shift, with *target* as the hand Red."""
+        from negpy.desktop.workers.chart_fit import fade_estimate_grid
+
+        source = self.controller.chart_fit_source()
+        grid = None if source is None else fade_estimate_grid(source)
+        if source is None or grid is None:
+            return None, tr("No image loaded to estimate from.")
+        base = replace(conf, fade_ratio_r=estimate_red(conf.fade_ratio_g, conf.fade_ratio_b), fade_density_shift=0.0)
+        return auto_red_changes(base, source.cam_xyz, source.camera_wb, grid, target)
 
     def _on_fade_ratio_changed(self, ratio_g: float, ratio_b: float, persist: bool = True) -> None:
         self.controller.set_roll_default("fade", persist=persist, readback_metrics=persist, fade_ratio_g=ratio_g, fade_ratio_b=ratio_b)
@@ -169,24 +184,18 @@ class FadeSidebar(BaseSidebar):
     def _on_auto_red_toggled(self, checked: bool) -> None:
         """On: Red Survival and the density shift from the frame's range. Off: Estimate's Red for the
         frame's green and blue, and no shift."""
-        from negpy.desktop.workers.chart_fit import fade_estimate_grid
-
         conf = self.state.config.process
         if not checked:
             changes = {
                 "fade_auto_red": False,
                 "fade_ratio_r": estimate_red(conf.fade_ratio_g, conf.fade_ratio_b),
                 "fade_density_shift": 0.0,
+                "fade_red_trim": 1.0,
             }
             self._show_red_hint("")
             self.controller.set_roll_default("fade", **changes)
             return
-        source = self.controller.chart_fit_source()
-        grid = None if source is None else fade_estimate_grid(source)
-        changes, reason = None, tr("No image loaded to estimate from.")
-        if grid is not None:
-            base = replace(conf, fade_ratio_r=estimate_red(conf.fade_ratio_g, conf.fade_ratio_b), fade_density_shift=0.0)
-            changes, reason = auto_red_changes(base, source.cam_xyz, source.camera_wb, grid)
+        changes, reason = self._restore_range(replace(conf, fade_red_trim=1.0))
         self._show_red_hint(reason)
         if changes is None:
             with QSignalBlocker(self.fade_auto_red_btn):

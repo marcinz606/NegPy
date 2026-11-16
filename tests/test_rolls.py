@@ -1169,7 +1169,7 @@ def test_a_stored_camera_raw_roll_white_is_not_read():
     store = repo.get_global_setting(ROLLS_KEY)
     store[roll_id]["defaults"] = dict(fade_ratio_r=0.5, fade_white_r=-0.4, fade_white_g=-0.5, fade_white_b=-0.6, fade_white_space="abc123")
     repo.save_global_setting(ROLLS_KEY, store)
-    assert roll_defaults(repo, roll_id) == dict(fade_ratio_r=0.5)
+    assert roll_defaults(repo, roll_id) == dict(fade_ratio_r=0.5, fade_red_trim=1.0)
 
 
 def test_a_measured_camera_raw_frame_keeps_its_white_over_a_scanner_roll_white():
@@ -1213,3 +1213,17 @@ def test_a_baseline_follows_its_lock_through_a_replacement_a_copy_and_a_removal(
 
     remove_members(repo, source, ["/scans/1-merged.tif"], ["h1", "h2"])
     assert roll_for_id(repo, source)["frame_baselines"] == {}
+
+
+def test_a_roll_red_with_no_trim_reads_as_no_trim():
+    from negpy.services.assets.rolls import roll_defaults
+
+    repo = _repo()
+    roll_id = create_virtual_roll(repo, "Slides", ["/s/a.tif"])
+    set_roll_defaults(repo, roll_id, fade_ratio_r=0.6, fade_auto_red=True)
+    assert roll_defaults(repo, roll_id)["fade_red_trim"] == 1.0
+    set_roll_defaults(repo, roll_id, fade_red_trim=0.8)
+    assert roll_defaults(repo, roll_id)["fade_red_trim"] == 0.8
+    other = create_virtual_roll(repo, "Negatives", ["/n/a.tif"])
+    set_roll_defaults(repo, other, film_stock_id="portra400")
+    assert "fade_red_trim" not in roll_defaults(repo, other)

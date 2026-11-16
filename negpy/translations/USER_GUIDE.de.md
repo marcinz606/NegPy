@@ -362,14 +362,14 @@ Korrigiert Farbfehler, die von Lichtquelle, Kamera und Film kommen.
 
 **Farbton-Trimmung** (Kamera mit schmalbandigem Licht): dreht alle Farben auf dem Farbkreis, für ein Licht, das Gelb orange oder Grün oliv färbt. Lass den Wert bei weißem Licht auf 0. Sie wirkt auch bei Dias, wo das Sensor-Farbvermischungsprofil nicht wirkt.
 
-<!-- panel:fade src:f1251435 -->
+<!-- panel:fade src:df17e8d2 -->
 ### 10.5 Ausbleichrestaurierung: ausgeblichene Dias
 
 Gibt einem ausgeblichenen Dia seine Farbstoffschichten zurück. Die Karte erscheint nur bei Dias.
 
 *   **Schätzen**: stellt Graumischung und die Erhalt-Regler ein.
 *   **Umfang wiederherstellen** (Symbol neben Schätzen): an, setzt Rot-Erhalt aus dem Umfang des Bildes, und Schätzen behält ihn.
-*   **Rot-Erhalt**: wie viel roter Farbstoff übrig ist. Senke den Wert, bis der Kontrast zurückkommt.
+*   **Rot-Erhalt**: wie viel roter Farbstoff übrig ist. Senke den Wert, bis der Kontrast zurückkommt. Ist Umfang wiederherstellen an, behält es deine Änderung jedes Mal, wenn es Rot neu setzt.
 *   **Grün-Erhalt** / **Blau-Erhalt**: dasselbe, gemessen an Rot.
 *   **Schleier entfernen**: macht gelb gewordene klare Bereiche weiß und führt Schätzen erneut aus. Schalte es ein, wenn Schätzen es vorschlägt.
 *   **Graumischung**: ändert, welchen Grautönen Schätzen vertraut. Ziehe den Regler, wenn die Farben nicht stimmen.

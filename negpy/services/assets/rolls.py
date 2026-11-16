@@ -777,7 +777,11 @@ def roll_defaults(repo: Any, roll_id: str) -> Dict[str, Any]:
     here has no roll default yet -- the frame's own saved value is what is used,
     exactly as before roll defaults existed."""
     entry = roll_for_id(repo, roll_id)
-    return _without_decode_white(dict(entry["defaults"])) if entry and entry.get("defaults") else {}
+    defaults = _without_decode_white(dict(entry["defaults"])) if entry and entry.get("defaults") else {}
+    # A roll Red stored before the Red trim existed has no trim, so a frame's own trim would sit on it.
+    if "fade_ratio_r" in defaults:
+        defaults.setdefault("fade_red_trim", 1.0)
+    return defaults
 
 
 def set_roll_defaults(repo: Any, roll_id: str, **fields: Any) -> None:
