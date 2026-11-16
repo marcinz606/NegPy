@@ -5,6 +5,7 @@ import threading
 
 import pytest
 
+from negpy.infrastructure.capture.base import CaptureSettings
 from negpy.services.capture.service import (
     CaptureError,
     CaptureService,
@@ -162,6 +163,15 @@ def test_verify_raw_size_rejects_small(tmp_path):
     p.write_bytes(b"\0" * 100)
     with pytest.raises(CaptureError):
         verify_raw_size(str(p), 20 * 1024 * 1024, 200 * 1024 * 1024)
+
+
+def test_verify_raw_size_accepts_a_gfx100s_trichrome_channel(tmp_path):
+    """A 102 MP body writes 200-210 MB per channel, so the default ceiling must clear it."""
+    p = tmp_path / "x.ARW"
+    with open(p, "wb") as f:
+        f.truncate(210 * 1024 * 1024)
+    settings = CaptureSettings(roll_name="Roll001", frame_number=1, output_folder=str(tmp_path), levels=(200, 180, 255))
+    verify_raw_size(str(p), settings.min_raw_bytes, settings.max_raw_bytes)
 
 
 def test_verify_raw_size_missing_file():
