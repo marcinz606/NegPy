@@ -30,9 +30,10 @@ class DyeMatrix:
 
 @dataclass(frozen=True)
 class DyeLut:
-    """The LUT in print_luts/<key>.npz."""
+    """The LUT in print_luts/<key>.npz. An imported look (rgb_table.py) reads its Strength."""
 
     key: str
+    strength: float = 1.0
 
 
 PrintColor = DyeMatrix | DyeLut

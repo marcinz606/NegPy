@@ -627,6 +627,8 @@ class ControlsPanel(QWidget):
             (self.tone_sidebar.auto_grade_action, "toggle_auto_grade"),
             (self.tone_sidebar.auto_both_action, "toggle_auto_both"),
             (self.tone_sidebar.hold_black_action, "toggle_hold_black"),
+            (self.paper_sidebar.look_import_btn, "import_look_profile"),
+            (self.paper_sidebar.look_delete_btn, "delete_look_profile"),
             (self.presets_sidebar.apply_btn, "preset_apply"),
             (self.presets_sidebar.save_btn, "preset_save"),
             (self.trichrome_sidebar.merge_btn, "triplet_merge"),

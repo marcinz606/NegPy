@@ -2134,13 +2134,13 @@ class GPUEngine:
         from negpy.features.exposure.papers import (
             compose_density_matrices,
             effective_constants,
-            effective_paper_profile,
+            exposure_paper,
             resolve_print_color,
             resolve_saturation_matrix,
         )
 
         exp = printed_exposure(settings.process, settings.exposure)
-        paper = effective_paper_profile(exp.paper_profile, settings.process.process_mode)
+        paper = exposure_paper(exp, settings.process.process_mode)
         pc = effective_constants(paper)  # tonal overrides; non-paper keys == EXPOSURE_CONSTANTS
         d_min = paper.d_min if exp.paper_dmin else 0.0
         # metered_anchor may be measured for stats even when auto_exposure is off, so let

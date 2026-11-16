@@ -17,7 +17,7 @@ from dataclasses import fields as dataclass_fields, replace
 from typing import Any, Callable, Iterable, Mapping, Optional
 
 from negpy.domain.models import WorkspaceConfig
-from negpy.features.exposure.papers import PAPER_PROFILES, effective_paper_profile
+from negpy.features.exposure.papers import PAPER_PROFILES, effective_paper_profile, look_profile
 from negpy.features.geometry.models import with_auto_crop_field
 from negpy.features.metadata.capture import place_summary
 from negpy.features.metadata.models import GEAR_FIELDS, PROCESS_FIELDS, PUSH_PULL_LABELS, SCANNING_FIELDS
@@ -96,7 +96,7 @@ def _fmt_source_encoding(values: tuple) -> str:
 
 
 def _fmt_print_stock(values: tuple) -> str:
-    profile = PAPER_PROFILES.get(values[0])
+    profile = PAPER_PROFILES.get(values[0]) or look_profile(str(values[0]))
     return profile.label if profile else str(values[0])
 
 
@@ -238,6 +238,7 @@ CATALOG: list[tuple[str, tuple[SettingRow, ...]]] = [
     )),
     (mark("Paper Response"), (
         _row(mark("Print Stock"), "exposure", "paper_profile", fmt=_fmt_print_stock, sticky=True),
+        _row(mark("Stock Strength"), "exposure", "stock_strength", sticky=True),
         _row(mark("Paper Black"), "exposure", "paper_black", sticky=True),
         _row(mark("Paper White"), "exposure", "paper_dmin", sticky=True),
         _row(mark("Snap"), "exposure", "midtone_gamma"),
@@ -578,6 +579,7 @@ TONE_FIELDS = (
 
 PAPER_FIELDS = (
     "paper_profile",
+    "stock_strength",
     "paper_black",
     "paper_dmin",
     "midtone_gamma",
@@ -658,6 +660,8 @@ def unused_in_mode(section: str, field: str, cfg: WorkspaceConfig) -> bool:
     mode = cfg.process.process_mode
     if section == "exposure" and field == "paper_profile":
         return effective_paper_profile(cfg.exposure.paper_profile, mode).kind == "default"
+    if section == "exposure" and field == "stock_strength":
+        return not effective_paper_profile(cfg.exposure.paper_profile, mode).look
     return section == "lab" and field in _BW_UNUSED_LAB_FIELDS and is_mono(cfg.process)
 
 

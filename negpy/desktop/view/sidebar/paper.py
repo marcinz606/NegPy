@@ -1,7 +1,8 @@
 from negpy.kernel.system.i18n import tr
 import qtawesome as qta
-from PyQt6.QtWidgets import QHBoxLayout
+from PyQt6.QtWidgets import QFileDialog, QHBoxLayout, QMessageBox
 
+from negpy.desktop.view.confirm import confirm_delete_named
 from negpy.desktop.view.sidebar.base import BaseSidebar, SliderPage
 from negpy.desktop.view.sidebar.tone import _CH_LABEL, _CH_SUFFIX, channel_pages, channel_selector
 from negpy.desktop.view.shortcut_registry import tooltip_with_shortcut
@@ -10,20 +11,23 @@ from negpy.desktop.view.styles.templates import (
     PAPER_STRIP_SWEEP,
     field_row,
     gradient_icon,
+    icon_button,
     wrap_tooltip,
 )
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.fold import group_fold, rail_fold
-from negpy.desktop.view.widgets.sliders import CompactSlider
+from negpy.desktop.view.widgets.sliders import CompactSlider, SliderGroup
 from negpy.desktop.view.widgets.step_combo import StepCombo
 from negpy.features.exposure.logic import per_channel_dye_separation
-from negpy.features.exposure.papers import DEFAULT_PROFILE_KEY, profiles_for_mode
+from negpy.features.exposure.papers import DEFAULT_PROFILE_KEY, effective_paper_profile, profiles_for_mode
+from negpy.features.exposure.rgb_table import delete_look, import_look_profile, load_look
 
 # Each PaperProfile.medium's (icon, header) in the Print stock list.
 _MEDIA = {
     "digital": ("mdi6.monitor", tr("Digital")),
     "paper": ("mdi6.file-image-outline", tr("Paper")),
     "film": ("mdi6.filmstrip", tr("Print film")),
+    "look": ("mdi6.palette-outline", tr("Look profiles")),
 }
 
 
@@ -83,9 +87,25 @@ class PaperSidebar(BaseSidebar):
         self.paper_strip_btn.setFixedWidth(ICON_BUTTON_WIDTH)
         self.paper_strip_btn.setProperty("value_column", True)
         self.paper_strip_btn.clicked.connect(lambda checked: self.controller.toggle_paper_strip(force=checked))
-        paper_row = field_row(tr("Print stock"), self.paper_combo, self.paper_strip_btn)
+        self.look_import_btn = icon_button(
+            "fa5s.folder-open", tr("Import Look Profile: add a Camera Raw Look profile (.xmp) to the print stocks.")
+        )
+        self.look_import_btn.clicked.connect(self._import_look_profiles)
+        self.look_delete_btn = icon_button("fa5s.trash", tr("Delete Look Profile: remove the selected look from the print stocks."))
+        self.look_delete_btn.clicked.connect(self._delete_look_profile)
+        self.look_delete_btn.setVisible(False)
+        paper_row = field_row(tr("Print stock"), self.paper_combo, self.paper_strip_btn, self.look_import_btn, self.look_delete_btn)
         self.paper_label = paper_row.itemAt(0).widget()
         self.layout.addLayout(paper_row)
+
+        # An imported look's Strength; the rail shows only on a look stock.
+        self.stock_strength_slider = CompactSlider(
+            tr("Stock Strength"), 0.0, 200.0, conf.stock_strength * 100.0, step=1.0, precision=1, unit="%"
+        )
+        self.stock_strength_slider.setToolTip(tr("How much of the look the stock adds to the picture. Over 100% makes the look stronger."))
+        self.stock_rail = SliderGroup(self.stock_strength_slider)
+        self.stock_rail.setVisible(False)
+        self.layout.addWidget(self.stock_rail)
 
         # Density-domain saturation on the dye amounts, before the stock's dyes, not a Lab a*/b* step.
         self.dye_separation_slider = CompactSlider(tr("Dye Separation"), 0.5, 1.5, conf.dye_separation, has_neutral=True)
@@ -129,7 +149,14 @@ class PaperSidebar(BaseSidebar):
 
         # Global-only controls, grayed while a channel page is active. The Paper Test Strip button
         # is one too, synced with the proof in _sync_paper_strip_btn.
-        self._global_only = (self.paper_dmin_btn, self.paper_black_btn, self.paper_combo)
+        self._global_only = (
+            self.paper_dmin_btn,
+            self.paper_black_btn,
+            self.paper_combo,
+            self.look_import_btn,
+            self.look_delete_btn,
+            self.stock_strength_slider,
+        )
 
     def _channel_index(self) -> int:
         return self.ch_btn.currentIndex()
@@ -166,7 +193,7 @@ class PaperSidebar(BaseSidebar):
         idx = self._channel_index()
         return base if idx == 0 else f"{base}_trim_{_CH_SUFFIX[idx - 1]}"
 
-    def _populate_paper_combo(self, process_mode: str) -> None:
+    def _populate_paper_combo(self, process_mode: str, force: bool = False) -> None:
         """Fill the paper dropdown with the papers valid for the current process
         mode (the Digital default + the mode's kind), under a header per medium."""
         entries: list[tuple[str, str | None, str]] = []
@@ -175,7 +202,7 @@ class PaperSidebar(BaseSidebar):
                 entries.append((_MEDIA[prof.medium][1], None, prof.medium))
             entries.append((prof.label, key, prof.medium))
         current = [(self.paper_combo.itemText(i), self.paper_combo.itemData(i)) for i in range(self.paper_combo.count())]
-        if [(label, key) for label, key, _ in entries] == current:
+        if [(label, key) for label, key, _ in entries] == current and not force:
             return
         self.paper_combo.clear()
         for label, key, medium in entries:
@@ -185,11 +212,39 @@ class PaperSidebar(BaseSidebar):
                 icon = qta.icon(_MEDIA[medium][0], color=THEME.text_primary, color_disabled=THEME.text_muted)
                 self.paper_combo.addItem(icon, label, key)
 
+    def _import_look_profiles(self) -> None:
+        paths, _ = QFileDialog.getOpenFileNames(self, tr("Import Look Profile"), "", tr("Look profiles (*.xmp)"))
+        keys, errors = [], []
+        for path in paths:
+            try:
+                keys.append(import_look_profile(path))
+            except (ValueError, OSError) as e:
+                errors.append(f"{path}: {e}")
+        if errors:
+            QMessageBox.warning(self, tr("Import Look Profile"), "\n".join(errors))
+        if keys:
+            self._populate_paper_combo(self.state.config.process.process_mode, force=True)
+            self.update_config_section(
+                "exposure", render=True, persist=True, readback_metrics=True, paper_profile=keys[0], stock_strength=1.0
+            )
+
+    def _delete_look_profile(self) -> None:
+        key = self.state.config.exposure.paper_profile
+        look = load_look(key)
+        if look is None or not confirm_delete_named(
+            self, tr("Look Profile"), look.name, informative=tr("Frames that use it print on Digital until you import it again.")
+        ):
+            return
+        delete_look(key)
+        self._populate_paper_combo(self.state.config.process.process_mode, force=True)
+        self.update_config_section("exposure", render=True, persist=True, readback_metrics=True, paper_profile=DEFAULT_PROFILE_KEY)
+
     def _on_paper_changed(self, _idx: int) -> None:
         key = self.paper_combo.currentData()
-        if key is None:  # separator row
+        if key is None or key == self.state.config.exposure.paper_profile:  # separator row, or the same stock
             return
-        self.update_config_section("exposure", render=True, persist=True, readback_metrics=True, paper_profile=key)
+        # A new stock starts at full Strength, as Camera Raw starts a new profile at Amount 100.
+        self.update_config_section("exposure", render=True, persist=True, readback_metrics=True, paper_profile=key, stock_strength=1.0)
 
     def _connect_signals(self) -> None:
         # Session state, not config, so the button follows the controller rather than sync_ui.
@@ -249,6 +304,13 @@ class PaperSidebar(BaseSidebar):
                 )
             )
 
+        self.stock_strength_slider.valueChanged.connect(
+            lambda v: self.update_config_section("exposure", render=True, persist=False, readback_metrics=False, stock_strength=v / 100.0)
+        )
+        self.stock_strength_slider.valueCommitted.connect(
+            lambda v: self.update_config_section("exposure", render=True, persist=True, readback_metrics=True, stock_strength=v / 100.0)
+        )
+
         for btn, field in ((self.paper_dmin_btn, "paper_dmin"), (self.paper_black_btn, "paper_black")):
             btn.toggled.connect(
                 lambda checked, f=field: self.update_config_section(
@@ -271,6 +333,14 @@ class PaperSidebar(BaseSidebar):
             self.paper_combo.setVisible(mode != ProcessMode.E6)
             self.paper_label.setVisible(mode != ProcessMode.E6)
             self.paper_strip_btn.setVisible(mode != ProcessMode.E6)
+            self.look_import_btn.setVisible(mode == ProcessMode.C41)
+            look = load_look(conf.paper_profile) if effective_paper_profile(conf.paper_profile, mode).look else None
+            # A profile without an Amount (its range is one value) has no Strength to set.
+            self.stock_rail.setVisible(look is not None and look.amounts[0] < look.amounts[1])
+            self.look_delete_btn.setVisible(look is not None)
+            if look is not None:
+                self.stock_strength_slider.set_range(look.amounts[0] * 100.0, look.amounts[1] * 100.0)
+            self.stock_strength_slider.setValue(conf.stock_strength * 100.0)
 
             # On the transfer path the render starts from the capture, so the paper model has
             # nothing to act on; Toe and Shoulder drive the transfer curve instead.
@@ -357,6 +427,7 @@ class PaperSidebar(BaseSidebar):
             self.dye_separation_slider,
             self.dye_separation_trim_slider,
             self.separation_damping_slider,
+            self.stock_strength_slider,
             self.paper_dmin_btn,
             self.paper_black_btn,
         ):

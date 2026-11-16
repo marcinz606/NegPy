@@ -55,6 +55,8 @@ class AppConfig:
     # inside the LRU: enough to make navigating back to the previous frame instant, without
     # letting HQ buffers push every small preview out.
     preview_cache_max_full_res_entries: int = 2
+    # Imported Camera Raw Look profiles (features/exposure/rgb_table.py).
+    looks_dir: str = ""
     # Rendered frames kept for instant navigate-back, tens of MB of VRAM each at
     # preview_render_size=1600. HQ frames stay on the full-res budget above.
     render_memo_max_entries: int = 8

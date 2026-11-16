@@ -212,6 +212,7 @@ def _bootstrap_environment() -> None:
         APP_CONFIG.crosstalk_dir,
         APP_CONFIG.sensor_dir,
         APP_CONFIG.gear_dir,
+        APP_CONFIG.looks_dir,
         APP_CONFIG.default_export_dir,
     ]
     for d in dirs:

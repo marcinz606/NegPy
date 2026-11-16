@@ -34,6 +34,12 @@ def _toggle_if_live(button) -> None:
         button.toggle()
 
 
+def _click_if_live(button) -> None:
+    """Click a panel button only while it can be used, as _toggle_if_live toggles one."""
+    if button.isEnabled() and not hidden_by_gating(button):
+        button.click()
+
+
 def _context_undo(controller) -> None:
     """Undo the active retouch tool's last stroke, else the last edit."""
     if controller.session.state.active_tool == ToolMode.CLONE:
@@ -531,6 +537,8 @@ class ShortcutManager:
             "flip_v": lambda: toolbar.flip("vertical"),
             "lock_bounds_toggle": lambda: controls.process_sidebar.lock_bounds_btn.toggle(),
             "reanalyze_frame": lambda: controls.process_sidebar.reanalyze_frame_btn.click(),
+            "import_look_profile": lambda: _click_if_live(controls.paper_sidebar.look_import_btn),
+            "delete_look_profile": lambda: _click_if_live(controls.paper_sidebar.look_delete_btn),
             "cast_average_toggle": lambda: controls.process_sidebar.use_cast_avg_btn.toggle(),
             "fade_white_anchor_toggle": lambda: controls.fade_sidebar.fade_white_anchor_btn.toggle(),
             "metadata_preset_load": lambda: right.gear_panel.presets.apply_btn.click(),

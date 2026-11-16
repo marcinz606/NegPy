@@ -3063,7 +3063,7 @@ class AppController(QObject):
         if kind == "color":
             exposure = replace(exposure, wb_magenta=0.0, wb_yellow=0.0)
         elif kind == "paper":
-            exposure = replace(exposure, paper_profile=DEFAULT_PROFILE_KEY)
+            exposure = replace(exposure, paper_profile=DEFAULT_PROFILE_KEY, stock_strength=1.0)
         else:
             density, grade = strip_center()
             exposure = replace(exposure, density=density, grade=grade)
@@ -4161,7 +4161,11 @@ class AppController(QObject):
         # Unrotated: one print yields every orientation, so rotating never re-renders.
         if kind == "paper":
             keys = self.paper_strip_keys()
-            grid, overrides, toast = (1, len(keys)), [{"paper_profile": key} for key in keys], tr("Printing the paper test strip…")
+            grid, overrides, toast = (
+                (1, len(keys)),
+                [{"paper_profile": key, "stock_strength": 1.0} for key in keys],
+                tr("Printing the paper test strip…"),
+            )
         elif kind == "color":
             grid, overrides, toast = RING_GRID, ring_overrides(), tr("Printing the color ring-around…")
         else:
@@ -4344,7 +4348,7 @@ class AppController(QObject):
         key = self.paper_strip_keys()[self.state.test_strip_expanded]
         self._clear_test_strip()
         self.session.update_config(
-            replace(self.state.config, exposure=replace(self.state.config.exposure, paper_profile=key)), persist=True
+            replace(self.state.config, exposure=replace(self.state.config.exposure, paper_profile=key, stock_strength=1.0)), persist=True
         )
         self.request_render()
 
