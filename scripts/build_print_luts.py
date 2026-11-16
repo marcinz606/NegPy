@@ -21,12 +21,15 @@ Sources:
                the negative's Pass1 matrix, then ColorData.dat's tone curves and 32³ LUT. The machine writes
                that F-Color untagged and its monitor shows it as is, so it is read as sRGB. Its input is the
                machine's 10-bit print density, so the gray axis is solved as for a printer profile.
+    nikon      Nikon Scan 4's color management for an LS-5000 color negative, from the CML4 tables read out of the
+               program (--nikon-dir): the scanner's positive to CIELAB, then to Nikon Adobe RGB. Its input is the
+               positive of each channel, so the gray axis is solved as for a printer profile.
 
 The CIE tables and the xenon spectrum are downloaded once into --cie-dir.
 
 Usage:
     uv run python scripts/build_print_luts.py [--key KEY ...] [--icc PATH --as KEY] [--against KEY] [--profiles DIR]
-        [--frontier-dir DIR] [--cie-dir DIR] [--check-only] [--flat-only]
+        [--frontier-dir DIR] [--nikon-dir DIR] [--cie-dir DIR] [--check-only] [--flat-only]
 
 Every LUT carries the Flat master's density 3x3 (fit_flat_matrix); --flat-only refits it on the bundled tables.
 """
@@ -81,7 +84,10 @@ D35 = {"frontier": "Fujifilm Frontier 350/370 file output (A1 v7.6 tables)"}
 # so the near-black neutral solve stays on Fuji's luminance.
 FRONTIER_CUBE_BLUR = 2.0
 FRONTIER_DIR = pathlib.Path.home() / "code" / "frontier" / "frontier_sw" / "EZ171" / "fujifilm" / "Frontier"
-SHIPPED = ("kodak_e4070", "kodak_e4021", "kodak_2383", "kodak_2393", *LOOKS, *FRONTIER, *D35)
+# LUT key -> source, for Nikon Scan 4's CML4 tables read from --nikon-dir (not in the repo).
+NIKON = {"nikon_scan": "Nikon Scan 4 color management, LS-5000 color negative (CML4 tables)"}
+NIKON_DIR = pathlib.Path.home() / "code" / "cool-colors" / "assets" / "nikon_cml4"
+SHIPPED = ("kodak_e4070", "kodak_e4021", "kodak_2383", "kodak_2393", *LOOKS, *FRONTIER, *D35, *NIKON)
 
 ADOBE_XY = ((0.64, 0.33), (0.21, 0.71), (0.15, 0.06))
 BRADFORD = np.array([[0.8951, 0.2664, -0.1614], [-0.7502, 1.7135, 0.0367], [0.0389, -0.0685, 1.0296]])
@@ -403,6 +409,11 @@ def d35_lab(frontier_dir):
         s = np.clip(trilinear(cube, u / 32), 0, 255) / 255
         return np.where(s <= 0.04045, s / 12.92, ((s + 0.055) / 1.055) ** 2.4) @ SRGB_TO_XYZ.T
 
+    return white_relative_lab(xyz)
+
+
+def white_relative_lab(xyz):
+    """A device's XYZ function as Lab relative to its own white, D50."""
     w = xyz(np.ones(3))
     adapt = np.linalg.inv(BRADFORD) @ np.diag((BRADFORD @ D50) / (BRADFORD @ (w / w[1]))) @ BRADFORD
 
@@ -412,10 +423,50 @@ def d35_lab(frontier_dir):
     return lab_fn
 
 
+def nikon_lab(nikon_dir):
+    """Device RGB in 0..1 (the LS-5000's positive, gamma 2.2) -> Lab of Nikon Scan's Adobe RGB output, relative to its
+    white, D50. CML4 runs two 32³ tables with 16-bit CIELAB codes between them; this is its arithmetic in floats."""
+    nikon_dir = pathlib.Path(nikon_dir)
+    code = np.arange(65536.0)
+
+    def curves(name):
+        return np.fromfile(nikon_dir / f"cml4-{name}-lut0.bin", "<u2").reshape(3, 65536).astype(np.float64)
+
+    def cube(name):
+        return np.fromfile(nikon_dir / f"cml4-{name}-clut0.bin", "<u2").reshape(32, 32, 32, 4)[..., :3].astype(np.float64)
+
+    def through(tables, v):
+        return np.stack([np.interp(v[..., c], code, tables[c]) for c in range(3)], -1)
+
+    s1_in, s1_out, s2_out = curves("stage1-input"), curves("stage1-output"), curves("stage2-output")
+    c1, c2 = cube("stage1"), cube("stage2")
+
+    def xyz(device):
+        v = trilinear(c1, through(s1_in, np.clip(device, 0, 1) * 65535) * (31 / 65535))
+        # The first table writes a and b on codes 8192..57343. CML4 widens them to the full range and holds the
+        # chroma inside the code square, then the second table reads them.
+        ab = (v[..., 1:] - 8192) * (65535 / 49151) - 32768
+        ab = ab * np.minimum(1.0, 32768 / np.maximum(np.abs(ab).max(-1, keepdims=True), 1e-9))
+        lab_code = np.concatenate([np.interp(v[..., :1], code, s1_out[0]), ab + 32768], -1)
+        out = through(s2_out, trilinear(c2, lab_code * (31 / 65535))) / 65535
+        return out**GAMMA @ ADOBE_TO_XYZ.T
+
+    return white_relative_lab(xyz)
+
+
 def frontier_d35_lut(frontier_dir, source, d_black=3.0):
-    """(table, e_max, source, model) from a Frontier 350/370's file output. Its black is Y = 0, so the gray axis
-    stops at d_black."""
-    lab_fn = d35_lab(frontier_dir)
+    """(table, e_max, source, model) from a Frontier 350/370's file output."""
+    return device_lut(d35_lab(frontier_dir), source, d_black)
+
+
+def nikon_scan_lut(nikon_dir, source, d_black=3.0):
+    """(table, e_max, source, model) from Nikon Scan 4's color management."""
+    return device_lut(nikon_lab(nikon_dir), source, d_black)
+
+
+def device_lut(lab_fn, source, d_black):
+    """(table, e_max, source, model) from a device's Lab function. Its black is Y = 0, so the gray axis stops at
+    d_black."""
     d, rgb = gray_axis(lab_fn, 1.0, d_black)
     model = gray_axis_model(lab_fn, d, rgb, 1.0, d_black)
     e_max = np.full(3, d_black)
@@ -515,6 +566,7 @@ def main():
     ap.add_argument("--against", help="a spectral key to compare the built LUT with")
     ap.add_argument("--profiles", type=pathlib.Path, default=pathlib.Path.home() / "Pobrane" / "papers", help="the Frontier profiles")
     ap.add_argument("--frontier-dir", type=pathlib.Path, default=FRONTIER_DIR, help="the Frontier 350/370 software's Frontier folder")
+    ap.add_argument("--nikon-dir", type=pathlib.Path, default=NIKON_DIR, help="the Nikon Scan CML4 tables (cool-colors assets/nikon_cml4)")
     ap.add_argument("--cie-dir", type=pathlib.Path, default=pathlib.Path.home() / ".cache" / "negpy" / "cie")
     ap.add_argument("--check-only", action="store_true", help="report, write nothing")
     ap.add_argument("--flat-only", action="store_true", help="refit the Flat master 3x3 of the bundled LUTs, keep their tables")
@@ -541,6 +593,8 @@ def main():
     for key, icc_path in jobs:
         if key in D35 and not args.icc:
             table, e_max, source, model = frontier_d35_lut(args.frontier_dir, D35[key])
+        elif key in NIKON and not args.icc:
+            table, e_max, source, model = nikon_scan_lut(args.nikon_dir, NIKON[key])
         elif icc_path is None:
             table, e_max, source, model = spectral_lut(*SPECTRAL[key][:2], args.cie_dir)
         else:

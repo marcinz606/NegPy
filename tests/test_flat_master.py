@@ -138,8 +138,8 @@ class TestFlatStockMatrix(unittest.TestCase):
     # ICC-derived LUTs, so a rebuilt LUT with a stale matrix fails here.
     MEDIAN_DE00 = 1.5
     P95_DE00 = 4.0
-    # The Frontier's hue turns are not linear in density, so a 3x3 holds its color only roughly.
-    LOOSE = {"frontier": (2.5, 8.5)}
+    # The Frontier's and Nikon Scan's hue turns are not linear in density, so a 3x3 holds their color only roughly.
+    LOOSE = {"frontier": (2.5, 8.5), "nikon_scan": (1.5, 6.0)}
 
     def test_every_bundled_lut_carries_a_matrix_with_unit_rows(self):
         from negpy.features.exposure.print_lut import LUT_DIR, flat_matrix

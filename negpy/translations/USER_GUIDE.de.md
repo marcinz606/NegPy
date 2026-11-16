@@ -154,12 +154,12 @@ Wie hell oder dunkel der Abzug ist und wie viel Kontrast er hat.
 
 **Weißpunkt** und **Schwarzpunkt** findest du auf der Karte **Messung** im Tab Rolle ([§10.6](#106-metering-negative--positive)).
 
-<!-- panel:paper src:00cfca5d -->
+<!-- panel:paper src:ab51bc8d -->
 ### 5.3 Papierverhalten: das Papier
 
 Das Papier, auf das das Bild abgezogen wird, und wie es Licht in Tonwerte von Schwarz bis Weiß umsetzt.
 
-*   **Papier**: das Abzugspapier. Ein echtes Papier legt Kontrastkurve und Farben nach den Daten seines Herstellers fest. **Digital (Adobe RGB)**, der Standard, ist ein ideales Papier. **Digital (Pakon)** hat die Farben eines Pakon-Laborscanners. **Digital (Frontier)** hat die Farben und die Kontrastkurve eines Fujifilm-Frontier-Laborscans.
+*   **Papier**: das Abzugspapier. Ein echtes Papier legt Kontrastkurve und Farben nach den Daten seines Herstellers fest. **Digital (Adobe RGB)**, der Standard, ist ein ideales Papier. **Digital (Pakon)** hat die Farben eines Pakon-Laborscanners. **Digital (Frontier)** hat die Farben und die Kontrastkurve eines Fujifilm-Frontier-Laborscans. **Digital (Nikon Scan)** hat die von Nikon Scan, der Software der Nikon-Coolscan-Filmscanner.
 *   **Papier-Probestreifen** (die gestreifte Schaltfläche): zieht das Bild auf jedem Papier ab. Klicke auf ein Papier für die große Ansicht, wechsle mit den Pfeiltasten und drücke **Behalten**, um es zu nutzen.
 *   **Farbstofftrennung**: Farbstärke im Abzug. 1 ist unverändert. **Trennungsdämpfung** legt mehr von der Änderung auf matte Farben und weniger auf kräftige. **Chroma** im Tab Look ändert stattdessen alle Farben gleichmäßig.
 *   **Papierweiß**: zeigt das Weiß von echtem Papier, etwas dunkler als reines Weiß.
