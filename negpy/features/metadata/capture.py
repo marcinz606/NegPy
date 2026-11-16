@@ -27,6 +27,9 @@ _DATE_RE = re.compile(
 _MIN_YEAR = 1800
 _MAX_YEAR = 2999
 
+# A date without a time pads to noon, so a timezone shift of up to 12 hours keeps it on its day.
+_PAD_HOUR = 12
+
 
 @dataclass(frozen=True)
 class CaptureDate:
@@ -44,7 +47,7 @@ class CaptureDate:
         return f"{self.text}{self.tz_offset}"
 
     def exif_text(self) -> str:
-        """EXIF cannot hold a partial date, so the unknown parts are padded."""
+        """EXIF cannot hold a partial date. A missing month or day pads to 1, a missing time to noon."""
         y, mo, d, h, mi, s = _parts(self)
         return f"{y:04d}:{mo:02d}:{d:02d} {h:02d}:{mi:02d}:{s:02d}"
 
@@ -56,13 +59,13 @@ class CaptureDate:
 def _parts(cd: CaptureDate) -> tuple[int, int, int, int, int, int]:
     m = _DATE_RE.match(cd.text)
     if m is None:
-        return int(cd.text[:4]), 1, 1, 0, 0, 0
+        return int(cd.text[:4]), 1, 1, _PAD_HOUR, 0, 0
 
     def num(key: str, default: int) -> int:
         raw = m.group(key)
         return int(raw) if raw else default
 
-    return num("y", 1), num("mo", 1), num("d", 1), num("h", 0), num("mi", 0), num("s", 0)
+    return num("y", 1), num("mo", 1), num("d", 1), num("h", _PAD_HOUR), num("mi", 0), num("s", 0)
 
 
 def _normalize_offset(raw: str) -> str:
