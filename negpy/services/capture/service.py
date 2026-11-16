@@ -89,7 +89,7 @@ def capture_single(
     output_folder: str,
     shutter: Optional[str] = None,
     min_raw_bytes: int = 8 * 1024 * 1024,
-    max_raw_bytes: int = 200 * 1024 * 1024,
+    max_raw_bytes: int = 256 * 1024 * 1024,
     cancel: Optional[threading.Event] = None,
 ) -> str:
     """One camera exposure with NO light control — for normal white-light scanning without the
@@ -294,7 +294,7 @@ class CaptureService:
         aperture: Optional[str] = None,
         settle_s: float = 0.4,
         min_raw_bytes: int = 8 * 1024 * 1024,
-        max_raw_bytes: int = 200 * 1024 * 1024,
+        max_raw_bytes: int = 256 * 1024 * 1024,
         cancel: Optional[threading.Event] = None,
         end_light: Optional[LightLevels] = None,
     ) -> str:
@@ -332,7 +332,7 @@ class CaptureService:
         shutter: Optional[str] = None,
         settle_s: float = 0.4,
         min_raw_bytes: int = 8 * 1024 * 1024,
-        max_raw_bytes: int = 200 * 1024 * 1024,
+        max_raw_bytes: int = 256 * 1024 * 1024,
         cancel: Optional[threading.Event] = None,
         end_light: Optional[LightLevels] = None,
     ) -> str:
