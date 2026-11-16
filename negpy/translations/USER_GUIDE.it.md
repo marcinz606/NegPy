@@ -326,12 +326,12 @@ Quanto è chiara o scura la stampa, e quanto contrasto ha.
 
 **Punto del bianco** e **Punto del nero** si trovano nel riquadro **Misurazione** della scheda Rullino ([§10.6](#106-misurazione-negativo--positivo)).
 
-<!-- panel:paper src:00cfca5d -->
+<!-- panel:paper src:ab51bc8d -->
 ### 5.3 Risposta della carta: la carta
 
 La carta su cui viene stampata l'immagine, e il modo in cui trasforma la luce in toni dal nero al bianco.
 
-*   **Supporto di stampa**: la carta. Una carta reale stabilisce la curva di contrasto e i colori in base ai dati del produttore. **Digitale (Adobe RGB)**, quella predefinita, è una carta ideale. **Digitale (Pakon)** ha i colori di uno scanner da laboratorio Pakon. **Digitale (Frontier)** ha i colori e la curva di contrasto di una scansione da laboratorio Fujifilm Frontier.
+*   **Supporto di stampa**: la carta. Una carta reale stabilisce la curva di contrasto e i colori in base ai dati del produttore. **Digitale (Adobe RGB)**, quella predefinita, è una carta ideale. **Digitale (Pakon)** ha i colori di uno scanner da laboratorio Pakon. **Digitale (Frontier)** ha i colori e la curva di contrasto di una scansione da laboratorio Fujifilm Frontier. **Digitale (Nikon Scan)** ha quelli di Nikon Scan, il software degli scanner per pellicola Nikon Coolscan.
 *   **Striscia di prova della carta** (il pulsante a righe): stampa il fotogramma su ogni carta. Fai clic su una carta per vederla in grande, scorri con i tasti freccia e premi **Tieni** per usarla.
 *   **Separazione dei coloranti**: intensità del colore nella stampa. 1 è invariato. **Smorzamento della separazione** applica più modifica ai colori spenti e meno a quelli intensi. **Croma** nella scheda Aspetto cambia invece tutti i colori in modo uniforme.
 *   **Bianco carta**: mostra il bianco di una carta reale, un po' più scuro del bianco puro.

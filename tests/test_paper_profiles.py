@@ -152,7 +152,9 @@ class TestPaperProfiles(unittest.TestCase):
             lstar = 116.0 * np.cbrt(y) - 16.0
             return float(x[np.argmax(lstar <= 10.0)] - x[np.argmax(lstar <= 90.0)])
 
-        self.assertAlmostEqual(span("frontier") / span(DEFAULT_PROFILE_KEY), 1.0, delta=0.05)
+        for key in ("frontier", "nikon_scan"):
+            with self.subTest(key):
+                self.assertAlmostEqual(span(key) / span(DEFAULT_PROFILE_KEY), 1.0, delta=0.05)
 
     def test_slope_gain_keeps_a_neutral_film_neutral_under_cast_removal(self):
         # Cast Removal matches R and B to green's slope, so the gain applies once to all three layers.

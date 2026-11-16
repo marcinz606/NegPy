@@ -113,6 +113,23 @@ PAPER_PROFILES: Dict[str, PaperProfile] = {
         slope_gain=1.2,
         print_color=DyeLut("frontier"),
     ),
+    # Nikon Scan 4's color for an LS-5000 color negative, from its CML4 tables, with a neutral gray axis. The curve shape
+    # is fitted to Nikon's gray curve (fixed tone curve, gamma 2.2, CML4); its log E scale is free, because Nikon sets it
+    # per frame. slope_gain prints L* 90 to 10 over Digital's log E span at the same Grade.
+    "nikon_scan": PaperProfile(
+        label=mark("Digital (Nikon Scan)"),
+        short="Nikon Scan",
+        kind="ra4",
+        medium="digital",
+        d_max=2.72,
+        d_min=0.005,
+        toe_sharpness_base=4.72,
+        shoulder_sharpness_base=1.22,
+        paper_midtone_gamma=-0.21,
+        paper_gamma_width=1.28,
+        slope_gain=1.6,
+        print_color=DyeLut("nikon_scan"),
+    ),
     # ── B&W (tonal only) ──────────────────────────────────────────────────────
     "ilford_mg_rc": PaperProfile(
         label="Ilford Multigrade RC",

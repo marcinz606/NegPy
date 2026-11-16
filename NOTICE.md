@@ -48,6 +48,13 @@ The print LUT negpy/features/exposure/print_luts/frontier.npz is derived from th
 color reproduction tables (ColorData.dat) of the Fujifilm Frontier
 350/370 A1 system software v7.6. The tables are not distributed with NegPy.
 
+The print LUT negpy/features/exposure/print_luts/nikon_scan.npz and the curve of
+the Digital (Nikon Scan) stock in papers.py are derived from the color
+management tables (CML4) and the LS-5000 tone curve of Nikon Scan 4, as
+documented by the cool-colors project (Rohan Pandula,
+https://github.com/rohanpandula/cool-colors). The tables are not distributed
+with NegPy.
+
 scripts/crosstalk_dyes/kodak_vision3_dyes.csv is the mean of spektrafilm's
 traces of the Kodak VISION3 50D, 200T, 250D and 500T dye curves (H-1-5203,
 H-1-5207, H-1-5213, H-1-5219), resampled to 5 nm, under the same license. The
