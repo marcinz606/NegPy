@@ -104,7 +104,7 @@ class ScanSetupSidebar(BaseSidebar):
         if process.process_mode == ProcessMode.C41:
             paper = self.state.config.exposure.paper_profile
             stock = (
-                tr("Prints on {stock}.", stock=resolve_paper(scan_setup_values(resolved, light)[1]).label)
+                tr("Prints on {stock}.", stock=tr(resolve_paper(scan_setup_values(resolved, light)[1]).label))
                 if paper in SCAN_SETUP_PAPERS
                 else tr("Keeps the print stock you picked.")
             )

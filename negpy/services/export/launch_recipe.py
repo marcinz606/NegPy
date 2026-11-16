@@ -5,6 +5,7 @@ settings stay as saved, and every value the recipe leaves out comes from them.""
 
 from __future__ import annotations
 
+from negpy.kernel.system.i18n import tr
 import os
 from dataclasses import dataclass, fields, replace
 from typing import Optional
@@ -43,21 +44,23 @@ def parse_format(value: str) -> str:
     try:
         return _FORMATS[_slug(value)]
     except KeyError:
-        raise ValueError(f"unknown format {value!r}; use jpeg, tiff, png, jxl or webp") from None
+        raise ValueError(tr("unknown format {value!r}; use jpeg, tiff, png, jxl or webp", value=value)) from None
 
 
 def parse_color_space(value: str) -> str:
     try:
         return _COLOR_SPACES[_slug(value)]
     except KeyError:
-        raise ValueError(f"unknown color space {value!r}; use one of {', '.join(sorted(_COLOR_SPACES))}") from None
+        raise ValueError(
+            tr("unknown color space {value!r}; use one of {value1}", value=value, value1=", ".join(sorted(_COLOR_SPACES)))
+        ) from None
 
 
 def parse_ratio(value: str) -> str:
     try:
         return _RATIOS[value.strip().lower()]
     except KeyError:
-        raise ValueError(f"unknown paper ratio {value!r}; use original or a ratio such as 3:2") from None
+        raise ValueError(tr("unknown paper ratio {value!r}; use original or a ratio such as 3:2", value=value)) from None
 
 
 @dataclass(frozen=True)

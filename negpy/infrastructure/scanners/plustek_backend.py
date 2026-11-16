@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from negpy.kernel.system.i18n import tr
 import sys
 import threading
 from collections.abc import Callable
@@ -89,13 +90,14 @@ def _bring_up(scanner: Scanner) -> None:
     """Initialize the ASIC and home the carriage. A locked model raises before any USB write:
     a film loader (135i) must never be homed by the host."""
     if not model_is_scan_ready(scanner.model):
-        msg = (
-            f"{scanner.model.model} ({scanner.model.asic}) cannot scan with "
-            "pyOpticfilm in this release — only scan-ready pyopticfilm models are supported. "
-            "See the pyopticfilm release notes for the current list."
+        msg = tr(
+            "{model} ({asic}) cannot scan with pyOpticfilm in this release: only scan-ready pyopticfilm models are "
+            "supported. See the pyopticfilm release notes for the current list.",
+            model=scanner.model.model,
+            asic=scanner.model.asic,
         )
         if sys.platform != "win32":
-            msg += " Try Backend → SANE if that backend lists this scanner."
+            msg += " " + tr("Try Backend → SANE if that backend lists this scanner.")
         raise RuntimeError(msg)
     if not scanner.asic._initialized:
         scanner.asic.init()
@@ -160,15 +162,15 @@ def _make_scan_progress(
     def scan_progress(p: float) -> None:
         frac = min(1.0, max(0.0, float(p)))
         if frac >= 1.0 - 1e-9:
-            _safe_progress(progress, 0.85, "Merging exposures")
+            _safe_progress(progress, 0.85, tr("Merging exposures"))
             return
         if frac > plateau + 1e-6:
             state["long_started"] = True
-            _safe_progress(progress, 0.10 + 0.72 * frac, "Scanning")
+            _safe_progress(progress, 0.10 + 0.72 * frac, tr("Scanning"))
         elif abs(frac - plateau) < 1e-6 and not state["long_started"]:
-            _safe_progress(progress, 0.83, "Preparing long exposure")
+            _safe_progress(progress, 0.83, tr("Preparing long exposure"))
         else:
-            _safe_progress(progress, 0.10 + 0.72 * frac, "Scanning")
+            _safe_progress(progress, 0.10 + 0.72 * frac, tr("Scanning"))
 
     return scan_progress
 
@@ -185,45 +187,54 @@ def _validate_params(params: ScanParams, *, model: Any | None = None) -> None:
     if not isinstance(bpp, (tuple, list)) or not bpp:
         bpp = MODEL_8200I.bpp_color
     if dpi not in resolutions:
-        raise RuntimeError(f"Unsupported dpi={dpi}; supported={sorted(resolutions)}")
+        raise RuntimeError(tr("Unsupported dpi={value}; supported={value1}", value=dpi, value1=sorted(resolutions)))
     if depth not in bpp:
-        raise RuntimeError(f"Unsupported depth={depth}; supported={sorted(bpp)}")
+        raise RuntimeError(tr("Unsupported depth={value}; supported={value1}", value=depth, value1=sorted(bpp)))
 
     if params.frame is not None:
-        raise RuntimeError(f"Frame {params.frame} requested but the device has no frame-selection option")
+        raise RuntimeError(tr("Frame {value} requested but the device has no frame-selection option", value=params.frame))
     if params.auto_exposure:
-        raise RuntimeError("Auto-exposure requested but the device has no 'ae' option")
+        raise RuntimeError(tr("Auto-exposure requested but the device has no 'ae' option"))
     if params.autofocus:
-        raise RuntimeError("Autofocus requested but the device has no autofocus option")
+        raise RuntimeError(tr("Autofocus requested but the device has no autofocus option"))
     if params.capture_ir and model is not None and getattr(model, "supports_infrared", None) is False:
-        raise RuntimeError(f"{getattr(model, 'model', 'device')} does not support infrared")
+        raise RuntimeError(tr("{value} does not support infrared", value=getattr(model, "model", "device")))
     if params.capture_ir and model is not None:
         ir_resolutions = getattr(model, "infrared_resolutions_dpi", None)
         if isinstance(ir_resolutions, (tuple, list)) and ir_resolutions and dpi not in ir_resolutions:
             raise RuntimeError(
-                f"{getattr(model, 'model', 'device')} scans infrared at {', '.join(str(d) for d in sorted(ir_resolutions))} dpi"
+                tr(
+                    "{value} scans infrared at {value1} dpi",
+                    value=getattr(model, "model", "device"),
+                    value1=", ".join(str(d) for d in sorted(ir_resolutions)),
+                )
             )
     mode = params.multi_exposure_mode
     if mode != MultiExposureMode.OFF and model is not None and not getattr(model, "exposure_long", None):
-        raise RuntimeError(f"{getattr(model, 'model', 'device')} does not support multi-exposure")
+        raise RuntimeError(tr("{value} does not support multi-exposure", value=getattr(model, "model", "device")))
     if mode == MultiExposureMode.FIXED and model is not None and not _supports_fixed_me(model):
-        raise RuntimeError(f"{getattr(model, 'model', 'device')} does not support Fixed Multi-Exposure")
+        raise RuntimeError(tr("{value} does not support Fixed Multi-Exposure", value=getattr(model, "model", "device")))
     if not (MIN_N_PASSES <= params.n_passes <= MAX_N_PASSES):
-        raise RuntimeError(f"n_passes={params.n_passes} out of range ({MIN_N_PASSES}-{MAX_N_PASSES})")
+        raise RuntimeError(
+            tr("n_passes={value} out of range ({value1}-{value2})", value=params.n_passes, value1=MIN_N_PASSES, value2=MAX_N_PASSES)
+        )
     if params.n_passes > 1:
         from pyopticfilm.scan.bringup import is_gl128_opticfilm
 
         if model is not None and not is_gl128_opticfilm(model):
-            raise RuntimeError(f"{getattr(model, 'model', 'device')} does not support Multi-Pass")
+            raise RuntimeError(tr("{value} does not support Multi-Pass", value=getattr(model, "model", "device")))
         if params.capture_ir:
-            raise RuntimeError("IR and Multi-Pass cannot be combined yet — scan IR separately, or set Passes to 1.")
+            raise RuntimeError(tr("IR and Multi-Pass cannot be combined yet: scan IR separately, or set Passes to 1."))
     if (mode != MultiExposureMode.OFF or params.n_passes > 1) and model is not None:
         from pyopticfilm.scan.session_gl128 import gl128_multi_pass_allowed
 
         if not gl128_multi_pass_allowed(model, dpi):
             raise RuntimeError(
-                f"Multi-Exposure and Multi-Pass are not available at {dpi} dpi on "
-                f"{getattr(model, 'model', 'this device')}. Choose a lower resolution."
+                tr(
+                    "Multi-Exposure and Multi-Pass are not available at {value} dpi on {value1}. Choose a lower resolution.",
+                    value=dpi,
+                    value1=getattr(model, "model", "this device"),
+                )
             )
 
 
@@ -248,12 +259,12 @@ class PlustekSession:
         cancel: threading.Event,
     ) -> ScanResult:
         if self._closed:
-            raise RuntimeError(f"Scanner session for {self.device_id} is closed")
+            raise RuntimeError(tr("Scanner session for {value} is closed", value=self.device_id))
         return self._backend._scan_on_scanner(self._scanner, params, progress, cancel)
 
     def eject(self) -> bool:
         if self._closed:
-            raise RuntimeError(f"Scanner session for {self.device_id} is closed")
+            raise RuntimeError(tr("Scanner session for {value} is closed", value=self.device_id))
         self.close()
         return False
 
@@ -281,9 +292,9 @@ class PlustekBackend:
             import usb.core  # noqa: F401
         except ImportError as exc:
             raise ScannerUnavailable(
-                "Plustek USB needs pyopticfilm (uv sync --group plustek). "
-                "On Windows, bind the scanner's USB id to WinUSB with Zadig (see docs/PLUSTEK_WINDOWS.md) — "
-                "e.g. 07b3:1825 (8200i SE), 07b3:1824 (8100 V2), 07b3:181f (8300i SE), or 07b3:0c3b (7600i v1 and v2)."
+                tr(
+                    "Plustek USB needs pyopticfilm (uv sync --group plustek). On Windows, bind the scanner's USB id to WinUSB with Zadig (see docs/PLUSTEK_WINDOWS.md), for example 07b3:1825 (8200i SE), 07b3:1824 (8100 V2), 07b3:181f (8300i SE), or 07b3:0c3b (7600i v1 and v2)."
+                )
             ) from exc
         self._calib_cache = calib_cache
         self._sessions: dict[str, PlustekSession] = {}
@@ -302,7 +313,7 @@ class PlustekBackend:
 
     def open_session(self, device_id: str) -> ScannerSession:
         if device_id in self._sessions:
-            raise RuntimeError(f"Device already held in a session: {device_id}")
+            raise RuntimeError(tr("Device already held in a session: {value}", value=device_id))
         self._ensure_known_device(device_id)
         try:
             scanner = Scanner.open(device_id, calib_cache=self._calib_cache)
@@ -316,7 +327,7 @@ class PlustekBackend:
         except UsbError as exc:
             raise TransientScanError(str(exc)) from exc
         except DeviceNotFoundError as exc:
-            raise RuntimeError(f"Unknown or disconnected device: {device_id}") from exc
+            raise RuntimeError(tr("Unknown or disconnected device: {value}", value=device_id)) from exc
 
         session = PlustekSession(self, device_id, scanner)
         self._sessions[device_id] = session
@@ -333,7 +344,7 @@ class PlustekBackend:
         cancel: threading.Event,
     ) -> ScanResult:
         if device_id in self._sessions:
-            raise RuntimeError(f"Device {device_id} is held by an open session; use session.scan()")
+            raise RuntimeError(tr("Device {value} is held by an open session; use session.scan()", value=device_id))
         self._ensure_known_device(device_id)
         try:
             with Scanner.open(device_id, calib_cache=self._calib_cache) as scanner:
@@ -348,7 +359,7 @@ class PlustekBackend:
         except UsbError as exc:
             raise TransientScanError(str(exc)) from exc
         except DeviceNotFoundError as exc:
-            raise RuntimeError(f"Unknown or disconnected device: {device_id}") from exc
+            raise RuntimeError(tr("Unknown or disconnected device: {value}", value=device_id)) from exc
 
     def eject(self, device_id: str) -> bool:
         del device_id
@@ -361,10 +372,12 @@ class PlustekBackend:
         known = {d.device_id: d for d in list_devices()}
         if device_id in known:
             raise RuntimeError(
-                f"{device_id} is not a supported Plustek film scanner "
-                "(e.g. 07b3:1825 8200i SE, 07b3:1824 8100 V2, 07b3:181f 8300i SE, 07b3:0c3b 7600i v1 and v2)."
+                tr(
+                    "{value} is not a supported Plustek film scanner (e.g. 07b3:1825 8200i SE, 07b3:1824 8100 V2, 07b3:181f 8300i SE, 07b3:0c3b 7600i v1 and v2).",
+                    value=device_id,
+                )
             )
-        raise RuntimeError(f"Unknown or disconnected device: {device_id}")
+        raise RuntimeError(tr("Unknown or disconnected device: {value}", value=device_id))
 
     def _scan_on_scanner(
         self,
@@ -384,7 +397,7 @@ class PlustekBackend:
 
         _safe_progress(progress, 0.0)
         if cancel.is_set():
-            raise RuntimeError("Scan cancelled before start")
+            raise RuntimeError(tr("Scan cancelled before start"))
 
         try:
             self._ensure_colour_calib(
@@ -405,9 +418,9 @@ class PlustekBackend:
 
             def on_status(status: str) -> None:
                 if status == "priming":
-                    _safe_progress(progress, 0.05, "Priming")
+                    _safe_progress(progress, 0.05, tr("Priming"))
                 elif status == "scanning":
-                    _safe_progress(progress, 0.1, "Scanning")
+                    _safe_progress(progress, 0.1, tr("Scanning"))
                 # "prime_skipped" when gl128_prime is off (default on both GL128 models).
 
             scan_area = None if geometry is not None else window
@@ -427,7 +440,7 @@ class PlustekBackend:
             )
             ir_plane = np.asarray(rgb_image.ir) if capture_ir and rgb_image.ir is not None else None
         except ScanCancelled as exc:
-            raise RuntimeError("Scan cancelled") from exc
+            raise RuntimeError(tr("Scan cancelled")) from exc
         except UsbError as exc:
             raise TransientScanError(str(exc)) from exc
         except PlustekError as exc:
@@ -460,14 +473,14 @@ class PlustekBackend:
         GL128 only: other scan-ready leaves (7600i v1, 7600i v2) calibrate live in-scan.
         """
         if cancel.is_set():
-            raise RuntimeError("Scan cancelled before start")
-        _safe_progress(progress, 0.02, "Calibrating")
+            raise RuntimeError(tr("Scan cancelled before start"))
+        _safe_progress(progress, 0.02, tr("Calibrating"))
         from pyopticfilm.exceptions import CalibrationError
         from pyopticfilm.scan.bringup import bringup_scan_geometry, is_gl128_opticfilm
         from pyopticfilm.scan.geometry import ScanGeometry
 
         if not is_gl128_opticfilm(scanner.model):
-            _safe_progress(progress, 0.1, "Calibrating")
+            _safe_progress(progress, 0.1, tr("Calibrating"))
             return
 
         geo = geometry if isinstance(geometry, ScanGeometry) else None
@@ -478,14 +491,14 @@ class PlustekBackend:
         if geo is None:
             geo, _ = bringup_scan_geometry(scanner.model, dpi, profile="preview_safe")
         if geo is None:
-            _safe_progress(progress, 0.1, "Calibrating")
+            _safe_progress(progress, 0.1, tr("Calibrating"))
             return
 
         asic = scanner.asic
         calibrator = scanner.calibrator
         hit = calibrator.find_for_scan(method="transparency", geometry=geo)
         if hit is not None and hit.has_asic_blob and getattr(asic, "asic_shading_ready", False):
-            _safe_progress(progress, 0.1, "Calibrating")
+            _safe_progress(progress, 0.1, tr("Calibrating"))
             return
 
         logger.info("Ensuring colour ASIC shading for dpi=%d", dpi)
@@ -504,8 +517,8 @@ class PlustekBackend:
         except CalibrationError as exc:
             raise RuntimeError(str(exc)) from exc
         if cancel.is_set():
-            raise RuntimeError("Scan cancelled")
-        _safe_progress(progress, 0.1, "Calibrating")
+            raise RuntimeError(tr("Scan cancelled"))
+        _safe_progress(progress, 0.1, tr("Calibrating"))
 
     @staticmethod
     def _default_scan_geometry(

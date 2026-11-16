@@ -1,6 +1,7 @@
 """Merge an assembled frame into one linear TIFF negative that replaces its source files.
 The buffer is the render decode (`ImageProcessor._load_source_f32`), not Linear Output's."""
 
+from negpy.kernel.system.i18n import tr
 import hashlib
 import os
 import tempfile
@@ -114,7 +115,7 @@ def decode_params(params: WorkspaceConfig, kind: str) -> WorkspaceConfig:
         return replace(params, flatfield=FlatFieldConfig(), stitch=StitchConfig(), hdr=HdrConfig())
     if kind == "stitch":
         return replace(params, hdr=HdrConfig())
-    raise ValueError(f"Cannot merge a {kind or 'plain'} frame")
+    raise ValueError(tr("Cannot merge a {value} frame", value=kind or "plain"))
 
 
 def needs_camera_matrix(params: WorkspaceConfig) -> bool:
@@ -166,7 +167,7 @@ def write_merged_frame(
             )
         written = tifffile.imread(tmp_path)
         if written.dtype != np.uint16 or written.shape != f32.shape or _digest(written) != expected:
-            raise MergeVerifyError(f"{os.path.basename(out_path)} did not read back as written")
+            raise MergeVerifyError(tr("{value} did not read back as written", value=os.path.basename(out_path)))
         if should_cancel is not None and should_cancel():
             raise MergeCancelled(os.path.basename(out_path))
         if os.path.exists(out_path):

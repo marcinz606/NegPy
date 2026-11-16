@@ -4,6 +4,7 @@ Where the film passes almost none of a band, the subtraction falls below grain a
 density; `SensorUnmix` picks how that case is handled.
 """
 
+from negpy.kernel.system.i18n import tr
 from typing import Optional
 
 import negpy_core
@@ -66,9 +67,9 @@ def build_sensor_matrix(
     s = np.column_stack([rgb_red, rgb_green, rgb_blue]).astype(np.float64)
     diag = np.diag(s).copy()
     if np.any(diag <= _EPS * s.max(axis=0)):
-        raise ValueError("a capture has no signal in its own channel — check the R/G/B assignment")
+        raise ValueError(tr("a capture has no signal in its own channel — check the R/G/B assignment"))
     s_norm = s / diag
-    not_independent = "captures are not independent — three distinct single-band exposures are required"
+    not_independent = tr("captures are not independent — three distinct single-band exposures are required")
     # Near-singular: the inverse would amplify capture noise into the correction.
     if np.linalg.cond(s_norm) > _MAX_CONDITION:
         raise ValueError(not_independent)

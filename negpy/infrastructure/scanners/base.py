@@ -1,3 +1,4 @@
+from negpy.kernel.system.i18n import tr
 import threading
 from dataclasses import dataclass
 from typing import Callable, Protocol
@@ -30,10 +31,10 @@ class StripReturned(RuntimeError):
     def __init__(self, *, loaded: bool) -> None:
         self.loaded = loaded
         if loaded:
-            first, then = "The scanner sat idle long enough to return the strip.", "Preview the strip again."
+            first, then = tr("The scanner sat idle long enough to return the strip."), tr("Preview the strip again.")
         else:
-            first, then = "The scanner returned the strip while it sat idle.", "Insert it again, then preview it."
-        super().__init__(f"{first} Its frame selection, crops and per-frame offsets were cleared. {then}")
+            first, then = tr("The scanner returned the strip while it sat idle."), tr("Insert it again, then preview it.")
+        super().__init__(f"{first} {tr('Its frame selection, crops and per-frame offsets were cleared.')} {then}")
 
 
 @dataclass(frozen=True)

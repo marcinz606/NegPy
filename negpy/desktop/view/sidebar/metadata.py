@@ -157,7 +157,7 @@ class MetadataSidebar(BaseSidebar):
 
         cap_body, cap = self._card_body()
         self.capture_date_edit = QLineEdit()
-        self.capture_date_edit.setPlaceholderText(CAPTURE_DATE_HINT)
+        self.capture_date_edit.setPlaceholderText(tr(CAPTURE_DATE_HINT))
         self.capture_date_edit.setText(conf.capture_date)
         self.capture_date_edit.setToolTip(tr("When the picture was taken: a year, a month, a date, or a date and time."))
         cap.addLayout(field_row(tr("Date"), self.capture_date_edit))
@@ -213,7 +213,7 @@ class MetadataSidebar(BaseSidebar):
         proc.addLayout(field_row(tr("Push / Pull"), self.push_pull_combo))
 
         self.dev_time_edit = QLineEdit()
-        self.dev_time_edit.setPlaceholderText(DEV_TIME_HINT)
+        self.dev_time_edit.setPlaceholderText(tr(DEV_TIME_HINT))
         self.dev_time_edit.setText(format_dev_time(conf.process_time_seconds))
         self.dev_time_edit.setToolTip(tr("Development time, as mm:ss or plain minutes."))
         proc.addLayout(field_row(tr("Time"), self.dev_time_edit))

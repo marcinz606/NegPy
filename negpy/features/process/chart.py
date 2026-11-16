@@ -6,6 +6,7 @@ chart's published colors. Lightness counts at half weight, because the print cur
 tone and the matrix should not bend to it.
 """
 
+from negpy.kernel.system.i18n import mark
 from dataclasses import dataclass
 from typing import Callable, Optional
 
@@ -31,10 +32,10 @@ class ChartSpec:
 SPYDERCHECKR_24 = ChartSpec(
     "SpyderCheckr 24",
     (
-        "Card White", "20% Gray", "40% Gray", "60% Gray", "80% Gray", "Card Black",
-        "Primary Cyan", "Primary Magenta", "Primary Yellow", "Primary Red", "Primary Green", "Primary Blue",
-        "Primary Orange", "Blueprint", "Pink", "Violet", "Apple Green", "Sunflower",
-        "Aqua", "Lavender", "Evergreen", "Steel Blue", "Classic Light Skin", "Classic Dark Skin",
+        mark("Card White"), mark("20% Gray"), mark("40% Gray"), mark("60% Gray"), mark("80% Gray"), mark("Card Black"),
+        mark("Primary Cyan"), mark("Primary Magenta"), mark("Primary Yellow"), mark("Primary Red"), mark("Primary Green"), mark("Primary Blue"),
+        mark("Primary Orange"), mark("Blueprint"), mark("Pink"), mark("Violet"), mark("Apple Green"), mark("Sunflower"),
+        mark("Aqua"), mark("Lavender"), mark("Evergreen"), mark("Steel Blue"), mark("Classic Light Skin"), mark("Classic Dark Skin"),
     ),
     (
         (96.04, 2.16, 2.60), (80.44, 1.17, 2.05), (65.52, 0.69, 1.86), (49.62, 0.58, 1.56), (33.55, 0.35, 1.40), (16.91, 1.43, -0.81),
@@ -49,10 +50,10 @@ SPYDERCHECKR_24 = ChartSpec(
 COLORCHECKER_24 = ChartSpec(
     "ColorChecker 24",
     (
-        "Dark Skin", "Light Skin", "Blue Sky", "Foliage", "Blue Flower", "Bluish Green",
-        "Orange", "Purplish Blue", "Moderate Red", "Purple", "Yellow Green", "Orange Yellow",
-        "Blue", "Green", "Red", "Yellow", "Magenta", "Cyan",
-        "White", "Neutral 8", "Neutral 6.5", "Neutral 5", "Neutral 3.5", "Black",
+        mark("Dark Skin"), mark("Light Skin"), mark("Blue Sky"), mark("Foliage"), mark("Blue Flower"), mark("Bluish Green"),
+        mark("Orange"), mark("Purplish Blue"), mark("Moderate Red"), mark("Purple"), mark("Yellow Green"), mark("Orange Yellow"),
+        mark("Blue"), mark("Green"), mark("Red"), mark("Yellow"), mark("Magenta"), mark("Cyan"),
+        mark("White"), mark("Neutral 8"), mark("Neutral 6.5"), mark("Neutral 5"), mark("Neutral 3.5"), mark("Black"),
     ),
     (
         (37.54, 14.37, 14.92), (64.66, 19.27, 17.50), (49.32, -3.82, -22.54), (43.46, -12.74, 22.72), (54.94, 9.61, -24.79), (70.48, -32.26, -0.37),

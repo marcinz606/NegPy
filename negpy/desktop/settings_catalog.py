@@ -97,7 +97,7 @@ def _fmt_source_encoding(values: tuple) -> str:
 
 def _fmt_print_stock(values: tuple) -> str:
     profile = PAPER_PROFILES.get(values[0])
-    return profile.label if profile else str(values[0])
+    return tr(profile.label) if profile else str(values[0])
 
 
 def _fmt_process(values: tuple) -> str:

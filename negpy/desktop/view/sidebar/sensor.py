@@ -51,7 +51,7 @@ class SensorSidebar(BaseSidebar):
         row = QHBoxLayout()
         self.sensor_label = field_label(tr("Profile"))
         self.sensor_combo = StepCombo()
-        self.sensor_combo.addItems(SensorProfiles.list_profiles())
+        self._fill_sensor_combo(SensorProfiles.list_profiles())
         self.sensor_combo.setToolTip(
             tr(
                 "Sensor crosstalk profile: removes the color leak between channels in a single exposure under narrowband light; "
@@ -197,7 +197,9 @@ class SensorSidebar(BaseSidebar):
         """
         reason = self._unmix_reason()
         available = not reason
-        self.sensor_combo.setCurrentText(conf.sensor_profile if available else SensorProfiles.NONE_NAME)
+        self.sensor_combo.setCurrentIndex(
+            max(0, self.sensor_combo.findData(conf.sensor_profile if available else SensorProfiles.NONE_NAME))
+        )
         self.sensor_combo.setEnabled(available)
         self.unmix_btn.setEnabled(available and conf.sensor_matrix is not None)
         self.sensor_hint.setVisible(bool(reason))
@@ -213,8 +215,15 @@ class SensorSidebar(BaseSidebar):
             config.process
         )  # the frame's own reason first: a decode change cannot lift it
 
+    def _fill_sensor_combo(self, profiles: list) -> None:
+        """Profile names as data; the built-in "None" entry shows translated."""
+        for name in profiles:
+            self.sensor_combo.addItem(tr("None") if name == SensorProfiles.NONE_NAME else name, name)
+
     def _connect_signals(self) -> None:
-        self.sensor_combo.currentTextChanged.connect(self._on_sensor_profile_changed)
+        self.sensor_combo.currentIndexChanged.connect(
+            lambda _i: self._on_sensor_profile_changed(self.sensor_combo.currentData() or SensorProfiles.NONE_NAME)
+        )
         self.unmix_btn.currentIndexChanged.connect(self._on_unmix_changed)
         self.calibrate_sensor_btn.clicked.connect(self._open_sensor_calibration)
 
@@ -390,9 +399,9 @@ class SensorSidebar(BaseSidebar):
         self.block_signals(True)
         try:
             profiles = SensorProfiles.list_profiles()
-            if profiles != [self.sensor_combo.itemText(i) for i in range(self.sensor_combo.count())]:
+            if profiles != [self.sensor_combo.itemData(i) for i in range(self.sensor_combo.count())]:
                 self.sensor_combo.clear()
-                self.sensor_combo.addItems(profiles)
+                self._fill_sensor_combo(profiles)
             self.unmix_btn.setCurrentIndex(max(0, self.unmix_btn.findData(str(conf.sensor_unmix))))
             self._apply_gate(conf)
 

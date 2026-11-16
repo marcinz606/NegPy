@@ -1,3 +1,4 @@
+from negpy.kernel.system.i18n import tr
 import os
 from collections.abc import Callable
 from typing import Any, ContextManager, Optional, Tuple
@@ -111,7 +112,7 @@ class NoritsuLoader(IImageLoader):
     def load(self, file_path: str) -> Tuple[ContextManager[Any], dict]:
         dims = detect_noritsu_dims(file_path)
         if dims is None:
-            raise ValueError(f"Unknown Noritsu dimensions for {file_path}")
+            raise ValueError(tr("Unknown Noritsu dimensions for {value}", value=file_path))
         w, h = dims
         expected_pixels = w * h * 3
 
@@ -119,7 +120,7 @@ class NoritsuLoader(IImageLoader):
             data = np.fromfile(f, dtype="<u2", count=expected_pixels)
 
         if len(data) < expected_pixels:
-            raise ValueError(f"File too small: expected {expected_pixels} samples, got {len(data)}")
+            raise ValueError(tr("File too small: expected {value} samples, got {value1}", value=expected_pixels, value1=len(data)))
 
         arr = data.reshape(h, w, 3)[:, :, ::-1]  # BGR → RGB
         metadata = {"orientation": 0, "ir": None}
@@ -134,7 +135,7 @@ class NoritsuLoader(IImageLoader):
         should_cancel: Optional[Callable[[], bool]] = None,
     ) -> Optional[Image.Image]:
         if should_cancel is not None and should_cancel():
-            raise InterruptedError("preview cancelled")
+            raise InterruptedError(tr("preview cancelled"))
         dims = detect_noritsu_dims(file_path)
         if dims is None:
             return None

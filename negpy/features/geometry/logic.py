@@ -1,3 +1,4 @@
+from negpy.kernel.system.i18n import tr
 import math
 from dataclasses import dataclass, field, replace
 from functools import lru_cache
@@ -45,7 +46,7 @@ class AutocropDetection:
         if self.roi is not None:
             y1, y2, x1, x2 = (int(value) for value in self.roi)
             if y2 <= y1 or x2 <= x1:
-                raise ValueError("AutocropDetection.roi must be a non-empty half-open ROI")
+                raise ValueError(tr("AutocropDetection.roi must be a non-empty half-open ROI"))
             object.__setattr__(self, "roi", (y1, y2, x1, x2))
         object.__setattr__(self, "correction_angle", float(np.clip(self.correction_angle, -FINE_ROTATION_LIMIT, FINE_ROTATION_LIMIT)))
         object.__setattr__(self, "confidence", float(np.clip(self.confidence, 0.0, 1.0)))
@@ -1003,7 +1004,7 @@ def solve_keystone_from_edges(
     required = ("left", "right", "top", "bottom")
     missing = [name for name in required if name not in edges]
     if missing:
-        raise ValueError(f"solve_keystone_from_edges needs all four edges; missing {missing}")
+        raise ValueError(tr("solve_keystone_from_edges needs all four edges; missing {value}", value=missing))
 
     pre = {
         name: tuple(
@@ -1028,7 +1029,7 @@ def solve_keystone_from_edges(
         mapped2 = map_point_keystone(px2, py2, converge_v, converge_h, width, height)
         dy = mapped2[1] - mapped1[1]
         if abs(dy) < 1e-9:
-            raise ValueError(f"the {name} edge is horizontal after correction; mark it along its length")
+            raise ValueError(tr("the {value} edge is horizontal after correction; mark it along its length", value=name))
         return (mapped2[0] - mapped1[0]) / dy
 
     def slope_h(name: str, converge_v: float, converge_h: float) -> float:
@@ -1037,7 +1038,7 @@ def solve_keystone_from_edges(
         mapped2 = map_point_keystone(px2, py2, converge_v, converge_h, width, height)
         dx = mapped2[0] - mapped1[0]
         if abs(dx) < 1e-9:
-            raise ValueError(f"the {name} edge is vertical after correction; mark it along its length")
+            raise ValueError(tr("the {value} edge is vertical after correction; mark it along its length", value=name))
         return (mapped2[1] - mapped1[1]) / dx
 
     def residuals(converge_v: float, converge_h: float) -> np.ndarray:

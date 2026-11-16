@@ -4,6 +4,7 @@ Owns the live Scanlight serial connection (so the RGB sliders stay responsive)
 and one libgphoto2 session, held open across captures and shared with live view.
 """
 
+from negpy.infrastructure.capture.scanlight import ScanlightNotFoundError
 from negpy.kernel.system.i18n import mark, tr
 
 import math
@@ -358,7 +359,7 @@ class CaptureWorker(QObject):
             logger.warning("set_light failed: %s", msg)
             # A missing Scanlight is a persistent condition the Light LED already shows, so keep
             # it out of the shared status line, where it would linger and go stale.
-            if not ("auto-discover" in msg or "No serial ports" in msg):
+            if not isinstance(e, ScanlightNotFoundError):
                 self.error.emit(tr("Scanlight: {e}", e=e))
 
     # ----- capture -----
@@ -756,7 +757,7 @@ class CaptureWorker(QObject):
         while (left := deadline - time.monotonic()) > 0:
             self.countdown.emit(math.ceil(left))
             if self._cancel.wait(min(left, 1.0)):
-                raise CaptureError("canceled before the first exposure")
+                raise CaptureError(tr("canceled before the first exposure"))
         self.countdown.emit(0)
 
     def _cleanup_partial_frame(self, req: CaptureRequest) -> None:
@@ -1099,7 +1100,7 @@ class CaptureWorker(QObject):
             candidates = scan_ladder(o.get("label", "") for o in shutter.get("options", []))
             if not candidates or not shutter.get("writable", True):
                 # The built-in ladder is one vendor's vocabulary; another body ignores it (#768).
-                raise RuntimeError("This camera is not reporting settable shutter speeds. Set it to Manual (M), then try again.")
+                raise RuntimeError(tr("This camera is not reporting settable shutter speeds. Set it to Manual (M), then try again."))
             aperture = settings.get("aperture") or {}
             start_levels, start_shutter = normalize_start_point(
                 _setting_label(settings.get("iso")),
@@ -1121,7 +1122,10 @@ class CaptureWorker(QObject):
         except CalibrationExposureError as e:
             logger.info("sensor measurement aborted: %s", e)
             self.sensor_response_failed.emit(
-                f"The {e.channel} exposure clips even at the fastest shutter. Close the aperture or lower the ISO, then try again."
+                tr(
+                    "The {channel} exposure clips even at the fastest shutter. Close the aperture or lower the ISO, then try again.",
+                    channel=e.channel,
+                )
             )
         except Exception as e:
             if req.cancel.is_set() or self._cancel.is_set():

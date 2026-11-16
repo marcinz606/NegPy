@@ -5,6 +5,7 @@ PWM_MAX_SAFE. The injected demosaic scales by the camera's white level, never pe
 
 from __future__ import annotations
 
+from negpy.kernel.system.i18n import tr
 import math
 import re
 import statistics
@@ -151,7 +152,7 @@ def shutter_seconds(label: str) -> float:
             # Some bodies publish a bulb-like label with a zero denominator. Raise
             # ValueError, not ZeroDivisionError, so _available_shutters drops the label
             # instead of crashing the run.
-            raise ValueError(f"invalid shutter label {label!r}: zero denominator")
+            raise ValueError(tr("invalid shutter label {value!r}: zero denominator", value=label))
         return float(num) / denominator
     return float(label)
 
@@ -552,7 +553,7 @@ class CalibrationService:
             k: dict[str, float] = {}
             for i, ch in enumerate(CAPTURE_ORDER):
                 _check_cancel()
-                _report(0.1 + 0.2 * i, f"Probing {ch.letter}…")
+                _report(0.1 + 0.2 * i, tr("Probing {letter}…", letter=ch.letter))
                 k[ch.letter] = self._measure_response(i, ch, start_levels[i], start_shutter, candidates, _shoot)
                 # Reachability, settled at the probe: the most light this channel can get is
                 # k * PWM_MAX * slowest shutter. If that stays under target the verify would
@@ -564,17 +565,17 @@ class CalibrationService:
             logger.info("calibration response: kR=%.1f kG=%.1f kB=%.1f (spread %.2f stops)", k["R"], k["G"], k["B"], spread)
 
             # --- Phase 3: solve the shared shutter + per-channel levels analytically -----------
-            _report(0.7, "Solving…")
+            _report(0.7, tr("Solving…"))
             shutter, levels = _solve_shared(k, T, candidates)
 
             # --- Phase 4: verify + one trim + clip guard --------------------------------------
             channels: dict[str, ChannelCalibration] = {}
             for i, ch in enumerate(CAPTURE_ORDER):
                 _check_cancel()
-                _report(0.75 + 0.08 * i, f"Setting {ch.letter}…")
+                _report(0.75 + 0.08 * i, tr("Setting {letter}…", letter=ch.letter))
                 channels[ch.letter] = self._verify_channel(i, ch, levels[ch.letter], shutter, T, _shoot)
 
-            _report(1.0, "Calibration done")
+            _report(1.0, tr("Calibration done"))
             sensor = _sensor_matrix(np.column_stack([last_means[i] for i in range(3)])) if measure_sensor else None
             return CalibrationResult(channels=channels, spread_stops=spread, sensor_matrix=sensor)
         finally:
@@ -590,7 +591,7 @@ class CalibrationService:
         mean_response = np.zeros((3, 3))
         for i, ch in enumerate(CAPTURE_ORDER):
             check_cancel()
-            report(0.1 + 0.2 * i, f"Probing {ch.letter}…")
+            report(0.1 + 0.2 * i, tr("Probing {letter}…", letter=ch.letter))
             signals, means, level, shutter = self._probe_led(i, ch, start_levels[i], start_shutter, candidates, roi, scratch_path)
             m[:, i] = signals / (level * true_seconds(shutter, candidates))
             mean_response[:, i] = means
@@ -599,14 +600,14 @@ class CalibrationService:
         spread = _spread_stops(k)
         logger.info("single-capture response matrix (rows = sensor R/G/B, columns = LED R/G/B): %s", np.round(m, 2).tolist())
 
-        report(0.7, "Solving…")
+        report(0.7, tr("Solving…"))
         shutter, levels = _solve_single(m, T, candidates)
 
         check_cancel()
-        report(0.8, "Setting exposure…")
+        report(0.8, tr("Setting exposure…"))
         channels = self._verify_single(levels, shutter, T, m, candidates, roi, scratch_path, check_cancel)
 
-        report(1.0, "Calibration done")
+        report(1.0, tr("Calibration done"))
         return CalibrationResult(channels=channels, spread_stops=spread, single_capture=True, sensor_matrix=_sensor_matrix(mean_response))
 
     def _probe_led(self, i, ch, level, shutter, candidates, roi, scratch_path):
@@ -642,7 +643,7 @@ class CalibrationService:
         try:
             for i, ch in enumerate(CAPTURE_ORDER):
                 check_cancel()
-                report(i / 3.0, f"Measuring {ch.letter}…")
+                report(i / 3.0, tr("Measuring {letter}…", letter=ch.letter))
                 signals, means, level, shutter = self._probe_led(i, ch, start_levels[i], start_shutter, candidates, roi, scratch_path)
                 if signals[i] < _SENSOR_PROBE_LOW * T:
                     check_cancel()
@@ -650,10 +651,13 @@ class CalibrationService:
                     signals, means, level, shutter = self._probe_led(i, ch, level, shutter, candidates, roi, scratch_path)
                 if means[i] < MIN_PROFILE_SIGNAL:
                     raise RuntimeError(
-                        f"The {ch.letter} light is too dim to measure even at maximum exposure. Open the aperture or raise the ISO."
+                        tr(
+                            "The {value} light is too dim to measure even at maximum exposure. Open the aperture or raise the ISO.",
+                            value=ch.letter,
+                        )
                     )
                 response[:, i] = means
-            report(1.0, "Measured")
+            report(1.0, tr("Measured"))
             return response
         finally:
             try:
@@ -777,8 +781,10 @@ class CalibrationService:
         # Only "no signal even at maximum exposure" reaches here. Over-exposure returns above,
         # under-exposure is handled by the solver and _verify_channel.
         raise RuntimeError(
-            f"calibration failed: no signal from the {ch.letter} channel even at maximum exposure "
-            f"(check the ROI is on the clear film base and the Scanlight is on)"
+            tr(
+                "calibration failed: no signal from the {value} channel even at maximum exposure (check the ROI is on the clear film base and the Scanlight is on)",
+                value=ch.letter,
+            )
         )
 
     def _verify_channel(self, i, ch, level, shutter, T, shoot) -> ChannelCalibration:
@@ -840,10 +846,10 @@ class CalibrationService:
             try:
                 linearity, plateau = raw_channel_clip_fraction(path, channel_index, roi)
             except Exception as exc:
-                raise RuntimeError(f"calibration failed: raw source-clip check failed for {path}") from exc
+                raise RuntimeError(tr("calibration failed: raw source-clip check failed for {value}", value=path)) from exc
         linearity, plateau = float(linearity), float(plateau)
         if not (np.isfinite(linearity) and np.isfinite(plateau)):
-            raise RuntimeError(f"calibration failed: non-finite raw source-clip measurement for {path}")
+            raise RuntimeError(tr("calibration failed: non-finite raw source-clip measurement for {value}", value=path))
         return linearity, plateau
 
     def _capture(self, path: str, shutter: Optional[str]) -> tuple[np.ndarray, str]:
@@ -902,7 +908,7 @@ def _run_setup(candidates, start_shutter, progress, cancel):
 
     def check_cancel() -> None:
         if cancel is not None and cancel.is_set():
-            raise RuntimeError("calibration cancelled")
+            raise RuntimeError(tr("calibration cancelled"))
 
     return candidates, start_shutter, report, check_cancel
 
@@ -939,8 +945,9 @@ def _solve_single(m: np.ndarray, T: int, candidates: tuple[str, ...]) -> tuple[s
     except np.linalg.LinAlgError:
         weights = np.zeros(3)
     unbalanced = RuntimeError(
-        "calibration failed: the sensor channels overlap too much for one exposure to balance them "
-        "(check the ROI is on the clear film base, or calibrate a triplet preset)"
+        tr(
+            "calibration failed: the sensor channels overlap too much for one exposure to balance them (check the ROI is on the clear film base, or calibrate a triplet preset)"
+        )
     )
     if not (np.all(np.isfinite(weights)) and np.all(weights > 0)):
         raise unbalanced

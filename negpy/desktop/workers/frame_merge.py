@@ -1,3 +1,4 @@
+from negpy.kernel.system.i18n import tr
 import gc
 import os
 import threading
@@ -73,7 +74,7 @@ class FrameMergeWorker(QObject):
                     del f32
                     new_hash = calculate_file_hash(task.out_path)
                     if new_hash.startswith("err_"):
-                        raise OSError(f"Could not read {os.path.basename(task.out_path)} back")
+                        raise OSError(tr("Could not read {value} back", value=os.path.basename(task.out_path)))
                     results.append(FrameMergeResult(task.asset, task.out_path, kind=task.kind, new_hash=new_hash))
                 except MergeCancelled:
                     # No result: the controller trashes sources only for a result it was handed.

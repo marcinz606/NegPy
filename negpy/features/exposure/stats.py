@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from typing import List, Optional, Tuple
 
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS
+from negpy.kernel.system.i18n import mark, tr
 
 _CLIP_WARN = 0.01  # >1% of a channel clipped flags a warning
 _REPAIR_WARN = 0.05  # a route rewriting >5% of the scan is repairing the picture, not the dust
@@ -39,27 +40,33 @@ class StatRow:
 _LOG10_2 = 0.30103  # one stop in log10-density
 
 
-_NO_BASE = (
+_NO_BASE = mark(
     "Dmax, Dmed and Dmin need a film base. Click the clear rebate with the Film Base tool on the "
     "Metering card; without one, the base is read from the rebate when the scan shows a film edge."
 )
 _SOURCE = {
-    "picked": "Above the film base set with the Film Base tool",
-    "read": "Above the clear base read from the rebate",
+    "picked": mark("Above the film base set with the Film Base tool"),
+    "read": mark("Above the clear base read from the rebate"),
 }
-_READ_CAVEAT = " The rebate reader can take bare light or a neighbor frame for the base; the Film Base tool pins it."
+_READ_CAVEAT = mark("The rebate reader can take bare light or a neighbor frame for the base; the Film Base tool pins it.")
+_DENSITY_EXPLAINED = mark(
+    "Dmin and Dmax are the bounds the frame is normalized with, before the White and Black Point trims "
+    "(the roll's under Roll Analysis); Dmed is the metered median. A Dmin below zero means the metered area "
+    "holds something thinner than the base: bare light through a perforation or past the film's edge. "
+    "An estimate from the scan: flare reads dense areas low."
+)
+_NEGATIVE_WORDS = {"Flat": mark("Flat negative."), "Contrasty": mark("Contrasty negative."), "Normal": mark("Normal negative.")}
+_REPAIR_LABELS = (mark("IR"), mark("dust"), mark("painted"))
 
 
 def _density_detail(density_above_base: Optional[Tuple[float, float, float]], base_source: str) -> str:
     if density_above_base is None:
-        return _NO_BASE
+        return tr(_NO_BASE)
     dmin, dmed, dmax = (float(v) for v in density_above_base)
     return (
-        f"{_SOURCE.get(base_source, _SOURCE['read'])}: Dmax {dmax:.2f} · Dmed {dmed:.2f} · Dmin {dmin:.2f}. "
-        "Dmin and Dmax are the bounds the frame is normalized with, before the White and Black Point trims "
-        "(the roll's under Roll Analysis); Dmed is the metered median. A Dmin below zero means the metered area "
-        "holds something thinner than the base: bare light through a perforation or past the film's edge. "
-        "An estimate from the scan: flare reads dense areas low." + (_READ_CAVEAT if base_source != "picked" else "")
+        f"{tr(_SOURCE.get(base_source, _SOURCE['read']))}: Dmax {dmax:.2f} · Dmed {dmed:.2f} · Dmin {dmin:.2f}. "
+        + tr(_DENSITY_EXPLAINED)
+        + (" " + tr(_READ_CAVEAT) if base_source != "picked" else "")
     )
 
 
@@ -74,7 +81,7 @@ def _negative_row(
     ratio = float(norm_density_range) / default_grade_range()
     word = "Flat" if ratio < _DIAG_FLAT else "Contrasty" if ratio > _DIAG_CONTRASTY else "Normal"
     # The value is only the range, so the read-out fits a narrow panel; the hover names it.
-    return StatRow("Negative", f"Δ{float(norm_density_range):.2f}", detail=f"{word} negative. {detail}")
+    return StatRow("Negative", f"Δ{float(norm_density_range):.2f}", detail=f"{tr(_NEGATIVE_WORDS[word])} {detail}")
 
 
 def _exposure_row(metered_anchor: Optional[float], norm_density_range: Optional[float]) -> StatRow:
@@ -96,9 +103,12 @@ def clipping_row(clip_low: Optional[float], clip_high: Optional[float], compact:
     warn = lo > _CLIP_WARN or hi > _CLIP_WARN
     if compact:
         return StatRow(
-            "Clipping", f"{lo * 100:.1f} · {hi * 100:.1f}%", warn=warn, detail=f"Shadows {lo * 100:.1f}% · highlights {hi * 100:.1f}%"
+            "Clipping",
+            f"{lo * 100:.1f} · {hi * 100:.1f}%",
+            warn=warn,
+            detail=tr("Shadows {lo}% · highlights {hi}%", lo=f"{lo * 100:.1f}", hi=f"{hi * 100:.1f}"),
         )
-    return StatRow("Clipping", f"Sh {lo * 100:.1f}% · Hi {hi * 100:.1f}%", warn=warn)
+    return StatRow("Clipping", tr("Sh {lo}% · Hi {hi}%", lo=f"{lo * 100:.1f}", hi=f"{hi * 100:.1f}"), warn=warn)
 
 
 def _scan_clip_row(scan_clip: Optional[Tuple[float, float, float]]) -> StatRow:
@@ -110,7 +120,7 @@ def _scan_clip_row(scan_clip: Optional[Tuple[float, float, float]]) -> StatRow:
         "Scan clip",
         f"{r * 100:.1f} · {g * 100:.1f} · {b * 100:.1f}%",
         warn=warn,
-        detail=f"Red {r * 100:.1f}% · green {g * 100:.1f}% · blue {b * 100:.1f}%",
+        detail=tr("Red {r}% · green {g}% · blue {b}%", r=f"{r * 100:.1f}", g=f"{g * 100:.1f}", b=f"{b * 100:.1f}"),
         per_channel=True,
     )
 
@@ -118,9 +128,9 @@ def _scan_clip_row(scan_clip: Optional[Tuple[float, float, float]]) -> StatRow:
 def _repair_row(repair: Optional[Tuple[float, float, float]]) -> StatRow:
     if repair is None:
         return StatRow("Repair", _EMPTY)
-    parts = [f"{label} {frac * 100:.2f}%" for label, frac in zip(("IR", "dust", "painted"), repair) if frac > 0.0]
+    parts = [f"{tr(label)} {frac * 100:.2f}%" for label, frac in zip(_REPAIR_LABELS, repair) if frac > 0.0]
     if not parts:
-        return StatRow("Repair", "none")
+        return StatRow("Repair", tr("none"))
     return StatRow("Repair", " · ".join(parts), warn=max(repair) > _REPAIR_WARN)
 
 

@@ -14,6 +14,7 @@ from negpy.features.exposure.papers import resolve_paper
 from negpy.features.finish.models import FinishConfig
 from negpy.features.local.logic import limited_indices
 from negpy.features.local.models import LocalAdjustmentsConfig, LocalMask, MaskKey
+from negpy.kernel.system.i18n import mark, tr
 
 # Vulgar fractions a printer would actually write; anything else prints as a decimal.
 _FRACTIONS = ((0.25, "¼"), (1.0 / 3.0, "⅓"), (0.5, "½"), (2.0 / 3.0, "⅔"), (0.75, "¾"))
@@ -64,8 +65,8 @@ class MaskNote:
     @property
     def kind(self) -> str:
         if self.stops == "0":
-            return "Flash" if self.flash and not self.local_r else "Grade"
-        return "Burn" if self.is_burn else "Dodge"
+            return tr(mark("Flash") if self.flash and not self.local_r else mark("Grade"))
+        return tr(mark("Burn") if self.is_burn else mark("Dodge"))
 
     @property
     def badge(self) -> str:
@@ -92,7 +93,7 @@ class MaskNote:
         if self.flash:
             text += f" {self.flash}"
         if self.key:
-            text += f" on {self.key}"
+            text += " " + tr("on {key}", key=self.key)
         return text
 
 
@@ -108,7 +109,7 @@ def mask_notes(local: LocalAdjustmentsConfig, grade: float = 0.0) -> List[MaskNo
             is_burn=m.stops > 0,
             stops=stops_label(m.stops),
             local_r=local_grade_label(grade, m.grade),
-            flash=f"flash {m.flash:.2f}" if m.flash and i not in limited else "",
+            flash=tr("flash {value:.2f}", value=m.flash) if m.flash and i not in limited else "",
             key=tone_limit_label(m) if i in limited else "",
         )
         for i, m in enumerate(local.masks)
@@ -125,44 +126,54 @@ def recipe_lines(
     if frame:
         lines.append(frame)
 
-    paper = resolve_paper(exposure.paper_profile).label
-    flags = [name for name, on in (("Paper White", exposure.paper_dmin), ("Paper Black", exposure.paper_black)) if on]
+    paper = tr(resolve_paper(exposure.paper_profile).label)
+    flags = [tr(name) for name, on in ((mark("Paper White"), exposure.paper_dmin), (mark("Paper Black"), exposure.paper_black)) if on]
     lines.append(" · ".join([paper, *flags]))
 
-    density = f"Print Density {exposure.density:.2f}"
+    density = tr("Print Density {value}", value=f"{exposure.density:.2f}")
     if exposure.auto_exposure:
-        density += " (auto)"
+        density += tr(" (auto)")
     lines.append(density)
 
     if not brief and (exposure.shadow_density or exposure.highlight_density):
-        lines.append(f"Zone density: shadows {exposure.shadow_density:+.2f} · highlights {exposure.highlight_density:+.2f}")
+        lines.append(
+            tr(
+                "Zone density: shadows {shadows} · highlights {highlights}",
+                shadows=f"{exposure.shadow_density:+.2f}",
+                highlights=f"{exposure.highlight_density:+.2f}",
+            )
+        )
 
-    grade = f"Grade ISO-R {exposure.grade:.0f}"
+    grade = tr("Grade ISO-R {value}", value=f"{exposure.grade:.0f}")
     if exposure.auto_normalize_contrast:
-        grade += " (auto)"
+        grade += tr(" (auto)")
     if exposure.shadow_grade or exposure.highlight_grade:
-        grade += f" · split {exposure.shadow_grade:+.0f}/{exposure.highlight_grade:+.0f}"
+        grade += " · " + tr(
+            "split {shadows}/{highlights}", shadows=f"{exposure.shadow_grade:+.0f}", highlights=f"{exposure.highlight_grade:+.0f}"
+        )
     lines.append(grade)
     if brief:
         return lines
 
     if exposure.wb_cyan or exposure.wb_magenta or exposure.wb_yellow:
-        lines.append(f"Filtration C{exposure.wb_cyan:+.2f} M{exposure.wb_magenta:+.2f} Y{exposure.wb_yellow:+.2f}")
+        lines.append(
+            tr("Filtration C{c} M{m} Y{y}", c=f"{exposure.wb_cyan:+.2f}", m=f"{exposure.wb_magenta:+.2f}", y=f"{exposure.wb_yellow:+.2f}")
+        )
 
     if exposure.toe or exposure.shoulder:
-        lines.append(f"Toe {exposure.toe:+.2f} · Shoulder {exposure.shoulder:+.2f}")
+        lines.append(tr("Toe {toe} · Shoulder {shoulder}", toe=f"{exposure.toe:+.2f}", shoulder=f"{exposure.shoulder:+.2f}"))
 
     if exposure.midtone_gamma:
-        lines.append(f"Snap {exposure.midtone_gamma:+.2f}")
+        lines.append(tr("Snap {value}", value=f"{exposure.midtone_gamma:+.2f}"))
 
     if exposure.preflash:
-        lines.append(f"Preflash {exposure.preflash:.2f} of threshold")
+        lines.append(tr("Preflash {value} of threshold", value=f"{exposure.preflash:.2f}"))
 
     if finish.vignette_stops:
-        lines.append(f"Edge burn {stops_label(finish.vignette_stops)} stop")
+        lines.append(tr("Edge burn {value} stop", value=stops_label(finish.vignette_stops)))
 
     notes = mask_notes(local, exposure.grade)
     if notes:
-        lines.append("Dodge & burn: " + " · ".join(n.summary for n in notes))
+        lines.append(tr("Dodge & burn: {value}", value=" · ".join(n.summary for n in notes)))
 
     return lines

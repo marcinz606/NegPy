@@ -3,7 +3,7 @@ from enum import StrEnum
 from typing import TYPE_CHECKING, Optional
 
 from negpy.domain.migrations import CROSSTALK_PROFILE_RENAMES
-from negpy.kernel.system.i18n import mark
+from negpy.kernel.system.i18n import mark, tr
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS, ExposureConfig
 
 if TYPE_CHECKING:
@@ -42,7 +42,7 @@ class SensorUnmix(StrEnum):
 
     @property
     def label(self) -> str:
-        return {"linear": "Linear", "two_scale": "Two-Scale", "density": "Density"}[self.value]
+        return tr({"linear": mark("Linear"), "two_scale": mark("Two-Scale"), "density": mark("Density")}[self.value])
 
 
 class DemosaicMode(StrEnum):
