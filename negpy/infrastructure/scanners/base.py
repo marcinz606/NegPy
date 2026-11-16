@@ -78,6 +78,8 @@ class ScannerCapabilities:
     roll_discovery: bool = False
     #: Previews are cut from one pass over the whole strip; previewing one frame again shows the same pixels.
     strip_pass: bool = False
+    #: The holder or adapter sets where every frame is, so no offset moves a frame.
+    fixed_frames: bool = False
     #: Film formats the transport must be told, because it cannot measure the frame length
     #: itself. Empty when the holder fixes it.
     film_formats: tuple[str, ...] = ()
