@@ -27,7 +27,7 @@ class DescriptionFieldsDialog(QDialog):
         self._checks: dict[str, QPushButton] = {}
         grid = QGridLayout()
         for i, key in enumerate(DESCRIPTION_FIELD_ORDER):
-            label = DESCRIPTION_FIELD_LABELS[key]
+            label = tr(DESCRIPTION_FIELD_LABELS[key])
             box = labeled_toggle("", label, key in enabled, tr("Join {value} into the ImageDescription", value=label))
             self._checks[key] = box
             grid.addWidget(box, i // 2, i % 2)

@@ -179,7 +179,7 @@ class ScanWorker(QObject):
                         params=req.params,
                         # A one-phase backend calls progress(fraction), which a two-argument signal's emit
                         # rejects on its own.
-                        progress=lambda fraction, phase="Scanning": self.progress.emit(fraction, phase),
+                        progress=lambda fraction, phase=tr("Scanning"): self.progress.emit(fraction, phase),
                         cancel=self._cancel_event,
                     )
                 except Exception as error:
@@ -322,7 +322,7 @@ class ScanWorker(QObject):
         """Every frame on the loaded film, for a request that named none."""
         count = service.detect_frames(req.device_id, film_format=req.params.film_format, film_type=req.params.film_type)
         if count <= 0:
-            raise RuntimeError("No frames were detected on the loaded film")
+            raise RuntimeError(tr("No frames were detected on the loaded film"))
         return list(range(1, count + 1))
 
     @pyqtSlot(RollPreviewRequest)
@@ -380,7 +380,7 @@ class ScanWorker(QObject):
         if req.prescan_dpi <= 0:
             with self._state_lock:
                 self._request_prepared = False
-            self.prescan_error.emit("Device does not support Prescan")
+            self.prescan_error.emit(tr("Device does not support Prescan"))
             return
 
         with self._state_lock:
@@ -426,7 +426,7 @@ class ScanWorker(QObject):
         if kind == "cancelled":
             self.cancelled.emit()
         elif kind == "error":
-            self.prescan_error.emit(str(payload or "Unknown prescan error"))
+            self.prescan_error.emit(str(payload or tr("Unknown prescan error")))
         else:
             self.prescan_ready.emit(payload)
         if returned is not None:
@@ -456,7 +456,7 @@ class ScanWorker(QObject):
                 exposures = self._ensure_service().meter(
                     req.device_id,
                     params,
-                    lambda fraction, phase="Metering": self.progress.emit(fraction, phase),
+                    lambda fraction, phase=tr("Metering"): self.progress.emit(fraction, phase),
                     self._cancel_event,
                 )
                 outcome = ("cancelled", None) if self._cancel_event.is_set() else ("finished", exposures)
@@ -472,7 +472,7 @@ class ScanWorker(QObject):
         if kind == "cancelled":
             self.cancelled.emit()
         elif kind == "error":
-            self.meter_error.emit(str(payload or "Unknown metering error"))
+            self.meter_error.emit(str(payload or tr("Unknown metering error")))
         else:
             self.exposure_metered.emit(payload, frame)
         if returned is not None:
@@ -483,7 +483,7 @@ class ScanWorker(QObject):
 
         with self._state_lock:
             if self._scanning or self._request_prepared:
-                raise RuntimeError("A scanner request is already active")
+                raise RuntimeError(tr("A scanner request is already active"))
             self._cancel_event.clear()
             self._request_prepared = True
 
@@ -506,7 +506,7 @@ class ScanWorker(QObject):
         """Eject the loaded medium without blocking the UI thread."""
 
         if self._scanning:
-            self.eject_error.emit("Cannot eject while a scan is active")
+            self.eject_error.emit(tr("Cannot eject while a scan is active"))
             return
         try:
             self.ejected.emit(self._ensure_service().eject(device_id))

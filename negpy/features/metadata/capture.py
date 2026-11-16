@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from negpy.kernel.system.i18n import mark
 import math
 import re
 from dataclasses import dataclass
@@ -12,7 +13,7 @@ import piexif
 
 PRECISIONS = ("year", "month", "day", "minute", "second")
 
-CAPTURE_DATE_HINT = "YYYY, YYYY-MM, YYYY-MM-DD or YYYY-MM-DD HH:MM"
+CAPTURE_DATE_HINT = mark("YYYY, YYYY-MM, YYYY-MM-DD or YYYY-MM-DD HH:MM")
 
 _DATE_RE = re.compile(
     r"^(?P<y>\d{4})"
@@ -219,7 +220,7 @@ def tile2deg(x: float, y: float, zoom: int) -> tuple[float, float]:
     return lat, lon
 
 
-DEV_TIME_HINT = "mm:ss or minutes"
+DEV_TIME_HINT = mark("mm:ss or minutes")
 
 
 def parse_dev_time(text: str) -> Optional[int]:

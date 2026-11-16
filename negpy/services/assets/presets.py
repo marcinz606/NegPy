@@ -1,3 +1,4 @@
+from negpy.kernel.system.i18n import tr
 import json
 import os
 from typing import List, Dict, Any, Optional
@@ -82,7 +83,7 @@ class Presets:
         # Written through a temp file: notes save on every keystroke, and a crash
         # mid-write would otherwise leave a truncated preset behind.
         if not is_valid_preset_name(name):
-            raise ValueError(f"Unusable preset name: {name!r}")
+            raise ValueError(tr("Unusable preset name: {value!r}", value=name))
         os.makedirs(cls._dir(), exist_ok=True)
         filepath = cls._path(name.strip())
         tmp = filepath + ".tmp"

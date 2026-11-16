@@ -1,3 +1,4 @@
+from negpy.kernel.system.i18n import mark
 from dataclasses import dataclass
 from enum import StrEnum
 
@@ -106,9 +107,9 @@ class FilmType(StrEnum):
 #: Plain `str` keys, not the enum: these cross into Qt as combo data, and a QVariant holding a
 #: StrEnum does not compare equal to the string a caller looks it up with.
 FILM_TYPES: dict[str, tuple[str, bool]] = {
-    FilmType.NEGATIVE.value: ("Color negative", True),
-    FilmType.MONO.value: ("B&W negative", False),
-    FilmType.POSITIVE.value: ("Slide", True),
+    FilmType.NEGATIVE.value: (mark("Color negative"), True),
+    FilmType.MONO.value: (mark("B&W negative"), False),
+    FilmType.POSITIVE.value: (mark("Slide"), True),
     FilmType.KODACHROME.value: ("Kodachrome", False),
 }
 

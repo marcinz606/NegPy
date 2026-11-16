@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from negpy.kernel.system.i18n import tr
+from negpy.kernel.system.i18n import mark, tr
 
 import math
 import threading
@@ -18,7 +18,7 @@ from negpy.desktop.view.styles.theme import THEME
 from negpy.features.metadata.capture import deg2tile, tile2deg
 from negpy.services.maps import MAX_ZOOM, MIN_ZOOM, TILE_SIZE, fetch_tile
 
-_ATTRIBUTION = "© OpenStreetMap contributors"
+_ATTRIBUTION = mark("© OpenStreetMap contributors")
 _DRAG_SLOP_PX = 4
 # Panning requests tiles faster than they arrive. Cap the requests so stale ones cannot pile up.
 _MAX_PENDING_TILES = 24
@@ -230,11 +230,11 @@ class SlippyMapWidget(QWidget):
         font.setPixelSize(THEME.font_size_small)
         painter.setFont(font)
         metrics = painter.fontMetrics()
-        width = metrics.horizontalAdvance(_ATTRIBUTION) + 8
+        width = metrics.horizontalAdvance(tr(_ATTRIBUTION)) + 8
         height = metrics.height() + 2
         painter.fillRect(self.width() - width, self.height() - height, width, height, with_alpha(THEME.mark_shadow, 150))
         painter.setPen(QColor(THEME.text_primary))
-        painter.drawText(self.width() - width + 4, self.height() - 3 - metrics.descent(), _ATTRIBUTION)
+        painter.drawText(self.width() - width + 4, self.height() - 3 - metrics.descent(), tr(_ATTRIBUTION))
 
     # ── interaction ──────────────────────────────────────────────────────
 

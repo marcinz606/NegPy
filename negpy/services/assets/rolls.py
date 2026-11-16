@@ -621,9 +621,14 @@ def rename_folder_roll_disk(repo: Any, roll_id: str, new_name: str) -> Optional[
 def rehome_paths(repo: Any, move: Callable[[str], str]) -> None:
     """Pass every folder and member path of every roll through *move*."""
     store = _read(repo)
-    for entry in store.values():
+    owned = {_folder_key(e["folder_path"]): rid for rid, e in store.items() if e.get("kind") == "folder" and e.get("folder_path")}
+    for roll_id, entry in store.items():
         if entry.get("folder_path"):
-            entry["folder_path"] = move(entry["folder_path"])
+            moved = move(entry["folder_path"])
+            # A folder roll never moves onto a folder that another folder roll holds; its removed frames stay with it.
+            if owned.get(_folder_key(moved), roll_id) != roll_id:
+                continue
+            entry["folder_path"] = moved
         for key in ("member_paths", "excluded_paths"):
             if key in entry:
                 entry[key] = [move(p) for p in entry[key]]
@@ -788,6 +793,24 @@ def set_roll_defaults(repo: Any, roll_id: str, **fields: Any) -> None:
     defaults.update(_without_decode_white(fields))
     entry["defaults"] = defaults
     _write(repo, store)
+
+
+def set_roll_crossover_source(repo: Any, roll_id: str, name: str, table: Any) -> None:
+    """Records the frame *name* whose crossover *table* Share Crossover gave the roll. No-op for an unknown id."""
+    store = _read(repo)
+    entry = store.get(roll_id)
+    if entry is None:
+        return
+    entry["fade_crossover_source"] = {"name": name, "table": list(table)}
+    _write(repo, store)
+
+
+def roll_crossover_source(repo: Any, roll_id: str, table: Any) -> str:
+    """The frame Share Crossover took *table* from, "" when the roll's table came from elsewhere since."""
+    source = (roll_for_id(repo, roll_id) or {}).get("fade_crossover_source")
+    if not isinstance(source, dict) or table is None or not same_value(tuple(source.get("table") or ()), tuple(table)):
+        return ""
+    return str(source.get("name", ""))
 
 
 # A snapshot value for a field the roll had no default for.

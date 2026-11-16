@@ -1,3 +1,4 @@
+from negpy.kernel.system.i18n import tr
 import os
 import threading
 from typing import Callable
@@ -104,7 +105,7 @@ class ScannerService:
         """Per-channel exposures for `params.frame`, for later scans to reuse. Writes nothing."""
         meter = getattr(self._get_backend(), "meter", None)
         if meter is None:
-            raise RuntimeError("This scanner cannot meter a frame on its own")
+            raise RuntimeError(tr("This scanner cannot meter a frame on its own"))
         return meter(device_id, params, progress, cancel)
 
     def run_scan(

@@ -2,17 +2,17 @@
 
 NegPy gjør skanninger av filmnegativer og dias til ferdige bilder. Originalfilene dine endres aldri. NegPy lagrer redigeringene dine i en lokal database. Velg språk under Innstillinger → Grensesnitt → Språk, og start NegPy på nytt. Systemstandard følger systemspråket og bruker engelsk når NegPy ikke har det språket. Når et panel mangler oversettelse, viser NegPy den engelske teksten.
 
-<!-- panel:library src:9b53b788 -->
+<!-- panel:library src:dbd5438d -->
 ### Bibliotek
 
 Fanen **Bibliotek** (`Ctrl+L`) viser **rullene** dine. En rull er en navngitt gruppe bilder, vanligvis én film: en **mapperull** eller en **virtuell rull**. Importen husker mappen. NegPy flytter, gir nytt navn til eller sletter aldri filene dine.
 
 *   **+**: **Importer mappe som rull…** gjør en mappe til én rull og åpner den. **Importer undermapper som ruller…** gjør hver undermappe med bilder til en rull. Mapper du slipper på Biblioteket, importeres også.
 *   **Dobbeltklikk** en rull (eller trykk Enter) for å åpne den.
-*   **⋮** eller høyreklikk en rull: **Åpne**, **Last ut alle…** (den åpne rullen), **Rullanalyse**, **Gi nytt navn…**, **Finn mappe…**, **Lagre i mapperull**, **Gjenopprett fjernede bilder…** og **Slett…**. Gjenopprett fjernede bilder henter tilbake bilder som Fjern fra rull tok ut. Slett beholder filene og de delte redigeringene deres. Rullens innstillinger, grunnlag, filmbase, scener, kortlåser og redigeringene som bare ble gjort i den rullen, går tapt. Oppdater legger ikke til en slettet mapperull igjen.
+*   **⋮** eller høyreklikk en rull: **Åpne**, **Last ut alle…** (den åpne rullen), **Rullanalyse**, **Gi nytt navn…**, **Finn mappe…**, **Fjern manglende bilder…**, **Lagre i mapperull**, **Gjenopprett fjernede bilder…** og **Slett…**. Gjenopprett fjernede bilder henter tilbake bilder som Fjern fra rull tok ut. Slett beholder filene og de delte redigeringene deres. Rullens innstillinger, grunnlag, filmbase, scener, kortlåser og redigeringene som bare ble gjort i den rullen, går tapt. Oppdater legger ikke til en slettet mapperull igjen.
 *   **Filtrer ruller…** og **Sorter** hjelper deg å finne en rull. **⋮ → Oppdater** finner nye undermapper og teller bildene på nytt. **⋮ → Søkefiltre…** viser mappenavn som hoppes over (først `export`).
 
-En rull der mappen er borte, viser **mappen mangler**. **Finn mappe…** peker den mot den nye mappen. Et mappenavn som samsvarer med utstyret ditt ("penf" for "Pen F"), åpner Rullinnstillinger ferdig utfylt.
+En rull der mappen eller bildene er flyttet utenfor NegPy, viser **mappen mangler** eller **filer mangler**. **Finn mappe…** finner den nye mappen. Et mappenavn som samsvarer med utstyret ditt ("penf" for "Pen F"), åpner Rullinnstillinger ferdig utfylt.
 
 En mapperull inneholder bare filene i sin egen mappe. En fil du legger til fra en annen mappe, blir værende bare i denne økten.
 
@@ -154,12 +154,12 @@ Hvor lys eller mørk kopien er, og hvor mye kontrast den har.
 
 **Hvitpunkt** og **Svartpunkt** er på kortet **Lysmåling** i fanen Rull ([§10.6](#106-metering-negative--positive)).
 
-<!-- panel:paper src:8db19596 -->
+<!-- panel:paper src:201bbd01 -->
 ### 5.3 Papirrespons: papiret
 
 Papiret bildet kopieres på, og hvordan det gjør lys om til toner fra svart til hvitt.
 
-*   **Kopipapir**: papiret. Et ekte papir angir kontrastkurven og fargene ut fra produsentens data. **Digital (Adobe RGB)**, standarden, er et ideelt papir. **Digital (Pakon)** har fargene til en Pakon-laboratorieskanner. **Digital (Frontier)** har fargene og kontrastkurven til en laboratorieskanning fra Fujifilm Frontier. Papirene under **Utseendeprofiler** er Camera Raw-utseendeprofiler som du importerer.
+*   **Kopipapir**: papiret. Et ekte papir angir kontrastkurven og fargene ut fra produsentens data. **Digital (Adobe RGB)**, standarden, er et ideelt papir. **Digital (Pakon)** har fargene til en Pakon-laboratorieskanner. **Digital (Frontier)** har fargene og kontrastkurven til en laboratorieskanning fra Fujifilm Frontier. **Digital (Nikon Scan)** har dem fra Nikon Scan, programvaren til Nikon Coolscan-filmskannerne. Papirene under **Utseendeprofiler** er Camera Raw-utseendeprofiler som du importerer.
 *   **Importer utseendeprofil** (mappeknappen): legger til en Camera Raw-utseendeprofil (.xmp-fil) som kopipapir. Utseendet legges oppå den digitale kopien. Søppelbøtte-knappen sletter det valgte utseendet.
 *   **Utseendestyrke**: hvor mye av utseendet som vises. 0 % er den digitale kopien, 100 % hele utseendet. Et nyvalgt utseende starter på 100 %.
 *   **Prøvestripe for papir** (den stripete knappen): kopierer bildet på hvert papir. Klikk et papir for å se det stort, bla med piltastene, og trykk **Behold** for å bruke det.
@@ -252,7 +252,7 @@ På en lith-kopi virker bare Selen og Gull. På en cyanotypi virker ingen toner.
 
 **Delt toning** (alle kopier): **Skyggestyrke** og **Høylysstyrke** legger farge til skyggene og høylysene. **Skyggetone** og **Høylystone** velger fargen, og vises når styrken er over 0.
 
-<!-- panel:retouch src:8d07a6c2 -->
+<!-- panel:retouch src:85e58a6a -->
 ### 7.1 Retusj: støv, hår, riper
 
 Fjerner støv, hår og riper. Hver reparasjon bygges opp fra den rene filmen rundt den.
@@ -260,7 +260,7 @@ Fjerner støv, hår og riper. Hver reparasjon bygges opp fra den rene filmen run
 *   **Overlegg**: **Merket** viser hva støvfjerningen fant, **IR** skanningens infrarøde kanal.
 *   **Optisk fjerning** (også på linjen i fanen Etterarbeid): finner støv og hår selv. **Flekkterskel** og **Hårterskel**: lavere finner flere, men kan fjerne ekte detaljer; 1 er av. **Størrelse**: det største støvet som fjernes. For å beskytte et område høyredrar du over det eller høyreklikker et merke; pekerknappen hopper over høyreklikkmenyen.
 *   **IR-fjerning** (skanninger med en infrarød kanal, også på linjen i fanen Etterarbeid): finner støv i infrarødt, der bildet ikke vises. **IR-terskel**: lavere finner flere. S/H og Kodachrome hoppes over: bildet vises også i infrarødt. Kanalen kommer fra TIFF- og DNG-skanninger med fire kanaler eller en `_IR.tif`-fil ved siden av skanningen.
-*   **Lege**: klikk eller mal over støv. Bare merker som skiller seg ut, repareres, så mal romslig.
+*   **Lege**: klikk på et merke for å reparere det. Et klikk reparerer alltid. Mal over et område for å reparere bare merker som skiller seg ut, så mal romslig.
 *   **Ripe**: klikk punkter langs en ripe eller et hår, og trykk så Enter.
 *   **Linje**: klikk én gang på en lang, rett ripe, så finner og reparerer NegPy hele linjen. **Linjefølsomhet**: lavere finner svakere linjer.
 *   **Penselstørrelse**: også `Alt`+rulling på bildet.
@@ -364,7 +364,7 @@ Korrigerer fargefeil som kommer fra lyset, kameraet og filmen din.
 
 **Justering av fargetone** (kamera med smalbåndslys): dreier alle fargetoner, for et lys som gjør gult oransje eller grønt olivenfarget. Behold 0 for hvitt lys. I motsetning til sensorprofilen virker den også på dias.
 
-<!-- panel:fade src:fbd4f136 -->
+<!-- panel:fade src:f1251435 -->
 ### 10.5 Fargegjenoppretting: falmede dias
 
 Gir et falmet dias fargelagene tilbake. Kortet vises bare for dias.
@@ -375,7 +375,12 @@ Gir et falmet dias fargelagene tilbake. Kortet vises bare for dias.
 *   **Grønn overlevelse** / **Blå overlevelse**: det samme, målt mot rødt.
 *   **Fjern flekk**: gjør gulnede klare områder hvite og kjører Beregn på nytt. Slå det på når Beregn foreslår det.
 *   **Gråmiks**: endrer hvilke grå toner Beregn stoler på. Dra den hvis fargene ser feil ut.
-*   **Crossover**: fjerner en fargeforskyvning mellom skygger og høylys. Still den inn på et bilde med tydelige gråtoner, og klikk så **Rull** på kortet.
+*   **Crossover**: fjerner en fargeforskyvning mellom skygger og høylys. Dra den på hvert bilde, eller del ett bildes crossover med Del Crossover.
+
+Gruppen Rull nederst på kortet virker på hvert bilde på rullen:
+
+*   **Beregn rull**: leser hvert dias på rullen, eller de valgte, og gir hvert bilde samme overlevelse og Gjenopprett tonevidde. Dias som leses ulikt, for eksempel i innelys, holdes utenfor målingen, men får resultatet. Hvert bilde beholder sin egen Crossover.
+*   **Del Crossover**: måler crossoveren i dette bildet og gir den til hvert bilde, med dette bildets styrke. Bruk et bilde med tydelige gråtoner i lyse og mørke områder, for eksempel en vei og hvite klær. Rullehintet kan foreslå ett.
 
 <!-- panel:process src:2c179de9 -->
 ### 10.6 Lysmåling: negativ → positiv

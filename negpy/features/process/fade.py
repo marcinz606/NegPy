@@ -471,12 +471,45 @@ def _table_after(
 ) -> Optional[tuple[float, ...]]:
     """The crossover table measured on the Estimate *grid* after *survivals* and *shift*, zero at the
     midtone of *refs* (read above the anchor when one acts) through the same fade."""
+    return measure_crossover(*_faded_after(grid, refs, white, white_anchor, camera_raw, white_space, survivals, shift))
+
+
+def _faded_after(
+    grid: ImageBuffer,
+    refs: NeutralAxisRefs,
+    white: Optional[tuple[float, float, float]],
+    white_anchor: bool,
+    camera_raw: bool,
+    white_space: str,
+    survivals: tuple[float, float, float],
+    shift: float = 0.0,
+) -> tuple[np.ndarray, float]:
+    """(grid, zero): the Estimate *grid* through *survivals* and *shift*, and the mean log of the midtone
+    of *refs* through the same fade, where a table measured on it is zero."""
     density = survival_density(*survivals, white, white_anchor, camera_raw, white_space, shift)
     mid = np.asarray(refs[0], dtype=np.float32).reshape(1, 1, 3)
     if white is not None and (white_anchor or camera_raw):
         mid = mid + np.asarray(density_anchor(white, white_anchor), dtype=np.float32)
     zero = float(_mean_log(through_density(mid, density).reshape(1, 3).astype(np.float64))[0])
-    return measure_crossover(through_density(grid, density), zero)
+    return through_density(grid, density), zero
+
+
+def survival_faded(
+    grid: ImageBuffer,
+    reader: Callable[[ImageBuffer], tuple[Optional[NeutralAxisRefs], str]],
+    survivals: tuple[float, float, float],
+    white_anchor: bool = False,
+    camera_raw: bool = False,
+    white_space: str = "",
+    shift: float = 0.0,
+) -> Optional[tuple[np.ndarray, float]]:
+    """(grid, zero) that `survival_crossover` measures its table on; None where it measures none."""
+    white = measure_white(grid)
+    if white_anchor and white is None:
+        return None
+    camera_raw = camera_raw or bool(white_space)
+    refs, _ = reader(_gray_grid(grid, white, white_anchor, camera_raw))
+    return None if refs is None else _faded_after(grid, refs, white, white_anchor, camera_raw, white_space, survivals, shift)
 
 
 def _gray_grid(grid: ImageBuffer, white: Optional[tuple[float, float, float]], white_anchor: bool, camera_raw: bool) -> ImageBuffer:
@@ -497,12 +530,8 @@ def survival_crossover(
 ) -> Optional[tuple[float, ...]]:
     """The table Estimate would store with *survivals* and *shift* set by hand: the same grid, gray
     reader and zero, so a survival change keeps the Gray Mix the table was read with."""
-    white = measure_white(grid)
-    if white_anchor and white is None:
-        return None
-    camera_raw = camera_raw or bool(white_space)
-    refs, _ = reader(_gray_grid(grid, white, white_anchor, camera_raw))
-    return None if refs is None else _table_after(grid, refs, white, white_anchor, camera_raw, white_space, survivals, shift)
+    faded = survival_faded(grid, reader, survivals, white_anchor, camera_raw, white_space, shift)
+    return None if faded is None else measure_crossover(*faded)
 
 
 # Crossover table: the per-density lean of the neutrals that the survivals leave. Ported from

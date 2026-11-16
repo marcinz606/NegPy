@@ -50,7 +50,7 @@ from negpy.desktop.view.styles.templates import (
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.split_button import make_split_button
 from negpy.desktop.view.widgets.step_combo import StepCombo
-from negpy.features.exposure.papers import resolve_paper
+from negpy.features.exposure.papers import resolve_paper, stock_label
 from negpy.features.process.models import ProcessMode
 from negpy.features.process.path import RenderPath, render_path
 from negpy.services.assets import rolls
@@ -1005,7 +1005,7 @@ class ActionToolbar(QWidget):
 
     def _sync_paper_row(self) -> None:
         combo = self.paper_strip_combo
-        labels = [resolve_paper(key).label for key in self.controller.paper_strip_keys()]
+        labels = [stock_label(resolve_paper(key)) for key in self.controller.paper_strip_keys()]
         state = self.session.state
         shown = state.test_strip_expanded
         self.paper_layout.blockSignals(True)

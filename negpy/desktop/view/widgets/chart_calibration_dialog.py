@@ -267,7 +267,7 @@ class ChartCalibrationDialog(QDialog):
                 value7=shown.size - close - far,
                 value8=_DE_NOTICEABLE,
                 value9=far,
-                value10=chart.patch_names[worst],
+                value10=tr(chart.patch_names[worst]),
                 value11=fit.after_color[worst],
             )
         )

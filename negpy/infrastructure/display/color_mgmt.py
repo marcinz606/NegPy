@@ -7,6 +7,7 @@ from typing import Any, Optional, Tuple
 import numpy as np
 from PIL import ImageCms
 from negpy.kernel.system.config import APP_CONFIG
+from negpy.kernel.system.i18n import tr
 from negpy.kernel.system.paths import get_resource_path
 from negpy.kernel.system.logging import get_logger
 from negpy.domain.models import ColorSpace
@@ -43,12 +44,12 @@ def profile_description(data: Optional[bytes]) -> str:
     ``None`` (no profile detected → sRGB assumed) returns a labelled fallback.
     """
     if not data:
-        return "sRGB fallback"
+        return tr("sRGB fallback")
     try:
         return ImageCms.getProfileDescription(open_profile_from_bytes(data)).strip()
     except Exception as e:
         logger.debug("Could not read profile description: %s", e)
-        return "Unknown profile"
+        return tr("Unknown profile")
 
 
 @lru_cache(maxsize=16)
@@ -190,7 +191,7 @@ def import_icc_profile(src_path: str, dest_dir: str) -> str:
     try:
         ImageCms.getOpenProfile(src_path)
     except Exception as e:
-        raise ValueError(f"Not a readable ICC profile: {e}") from e
+        raise ValueError(tr("Not a readable ICC profile: {value}", value=e)) from e
 
     with open(src_path, "rb") as f:
         payload = f.read()

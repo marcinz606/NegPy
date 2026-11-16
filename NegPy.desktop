@@ -6,4 +6,5 @@ StartupWMClass=NegPy
 Type=Application
 Categories=Graphics;Photography;
 Comment=Film Negative Editor
+Comment[it]=Editor di negativi su pellicola
 Terminal=false

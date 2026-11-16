@@ -6,7 +6,7 @@ from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.styles.templates import hint_label
 from negpy.desktop.view.widgets.segmented_choice import SegmentedChoice
 from negpy.desktop.session import camera_raw_preview
-from negpy.features.exposure.papers import resolve_paper
+from negpy.features.exposure.papers import resolve_paper, stock_label
 from negpy.features.process.models import SCAN_SETUP_PAPERS, ProcessMode, scan_setup_rig, scan_setup_values
 
 _LIGHT_HINT = {
@@ -104,7 +104,7 @@ class ScanSetupSidebar(BaseSidebar):
         if process.process_mode == ProcessMode.C41:
             paper = self.state.config.exposure.paper_profile
             stock = (
-                tr("Prints on {stock}.", stock=resolve_paper(scan_setup_values(resolved, light)[1]).label)
+                tr("Prints on {stock}.", stock=stock_label(resolve_paper(scan_setup_values(resolved, light)[1])))
                 if paper in SCAN_SETUP_PAPERS
                 else tr("Keeps the print stock you picked.")
             )

@@ -778,9 +778,7 @@ class WaveformWidget(QWidget):
     def _split(self) -> bool:
         return self._parade and not (self._overlay and self._aligned())
 
-    def set_scan_domain(
-        self, enabled: bool, marks: Any = None, caption: str = "Scan density", full_scale: Any = None, base: Any = None
-    ) -> None:
+    def set_scan_domain(self, enabled: bool, marks: Any = None, caption: str = "", full_scale: Any = None, base: Any = None) -> None:
         """Read the counts as scan density (Peek Negative) rather than print tone. ``marks`` is the
         (3, 2) per-channel stretch ends and ``base`` the (3,) clear film base, 0..1 up the panel;
         ``full_scale`` the (3, cols) counts of scan pixels at sensor clip, which set the top ticks.
@@ -798,7 +796,7 @@ class WaveformWidget(QWidget):
         new_shifts = self._base_shifts()
         if (old_shifts is None) != (new_shifts is None) or (new_shifts is not None and not np.array_equal(old_shifts, new_shifts)):
             self._images = None
-        self._scan_caption = caption if enabled else ""
+        self._scan_caption = (caption or tr("Scan density")) if enabled else ""
         self._full_scale = None if full_scale is None or not enabled else np.asarray(full_scale, dtype=float)
         self.update()
 
@@ -997,7 +995,7 @@ class WaveformWidget(QWidget):
         if self._scan:
             caption = self._scan_caption
             if ranges is not None and not self._split():
-                caption += " · range " + "  ".join(f"{letter} {r:.2f}" for letter, r in zip("RGB", ranges))
+                caption += " · " + tr("range") + " " + "  ".join(f"{letter} {r:.2f}" for letter, r in zip("RGB", ranges))
             _draw_plated_text(
                 painter, QRect(THEME.space_xs, THEME.space_xs, w, 12), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop, caption
             )

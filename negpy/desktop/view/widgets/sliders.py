@@ -708,7 +708,7 @@ def clone_slider(src: CompactSlider) -> CompactSlider:
         # Decimals are not a constructor argument, so a fine slider would drop back to 2.
         clone.spin.setDecimals(src.spin.decimals())
         return clone
-    raise TypeError(f"clone_slider: unhandled slider class {cls.__name__}")
+    raise TypeError(tr("clone_slider: unhandled slider class {value}", value=cls.__name__))
 
 
 class SliderGroup(QWidget):

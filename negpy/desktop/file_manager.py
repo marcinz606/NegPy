@@ -1,5 +1,6 @@
 """The OS file manager: the Trash and showing a file in its folder, alike on every platform."""
 
+from negpy.kernel.system.i18n import tr
 import os
 import subprocess
 import sys
@@ -61,14 +62,14 @@ def _linux_trash_error(path: str, qt_error: str) -> str:
     uid = os.getuid()
     trash = os.path.join(QStorageInfo(path).rootPath(), f".Trash-{uid}")
     if os.path.isdir(trash) and os.stat(trash).st_uid != uid:
-        return f"{trash} belongs to another user. Mount its drive with uid={uid}"
+        return tr("{trash} belongs to another user. Mount its drive with uid={uid}", trash=trash, uid=uid)
     return qt_error
 
 
 def move_to_trash(path: str) -> str:
     """Empty when *path* went to the Trash, else why it stayed. Never deletes for good."""
     if sys.platform == "win32" and not _windows_bin_takes(path):
-        return "the Recycle Bin would delete it for good"
+        return tr("the Recycle Bin would delete it for good")
     f = QFile(path)
     if f.moveToTrash():
         return ""

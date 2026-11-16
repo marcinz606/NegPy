@@ -19,7 +19,7 @@ from negpy.desktop.view.widgets.fold import group_fold, rail_fold
 from negpy.desktop.view.widgets.sliders import CompactSlider, SliderGroup
 from negpy.desktop.view.widgets.step_combo import StepCombo
 from negpy.features.exposure.logic import per_channel_dye_separation
-from negpy.features.exposure.papers import DEFAULT_PROFILE_KEY, effective_paper_profile, profiles_for_mode
+from negpy.features.exposure.papers import DEFAULT_PROFILE_KEY, effective_paper_profile, profiles_for_mode, stock_label
 from negpy.features.exposure.rgb_table import delete_look, import_look_profile, load_look
 
 # Each PaperProfile.medium's (icon, header) in the Print stock list.
@@ -200,7 +200,7 @@ class PaperSidebar(BaseSidebar):
         for key, prof in profiles_for_mode(process_mode):
             if not entries or entries[-1][2] != prof.medium:
                 entries.append((_MEDIA[prof.medium][1], None, prof.medium))
-            entries.append((prof.label, key, prof.medium))
+            entries.append((stock_label(prof), key, prof.medium))
         current = [(self.paper_combo.itemText(i), self.paper_combo.itemData(i)) for i in range(self.paper_combo.count())]
         if [(label, key) for label, key, _ in entries] == current and not force:
             return

@@ -17,7 +17,7 @@ from dataclasses import fields as dataclass_fields, replace
 from typing import Any, Callable, Iterable, Mapping, Optional
 
 from negpy.domain.models import WorkspaceConfig
-from negpy.features.exposure.papers import PAPER_PROFILES, effective_paper_profile, look_profile
+from negpy.features.exposure.papers import PAPER_PROFILES, effective_paper_profile, look_profile, stock_label
 from negpy.features.geometry.models import with_auto_crop_field
 from negpy.features.metadata.capture import place_summary
 from negpy.features.metadata.models import GEAR_FIELDS, PROCESS_FIELDS, PUSH_PULL_LABELS, SCANNING_FIELDS
@@ -97,7 +97,9 @@ def _fmt_source_encoding(values: tuple) -> str:
 
 def _fmt_print_stock(values: tuple) -> str:
     profile = PAPER_PROFILES.get(values[0]) or look_profile(str(values[0]))
-    return profile.label if profile else str(values[0])
+    if profile is None:
+        return str(values[0])
+    return stock_label(profile)
 
 
 def _fmt_process(values: tuple) -> str:

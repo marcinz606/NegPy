@@ -25,6 +25,7 @@ from negpy.features.exposure.models import EXPOSURE_CONSTANTS, ExposureConfig
 from negpy.features.exposure.rgb_table import LOOK_KEY_PREFIX, list_looks, load_look, look_print_lut
 from negpy.features.exposure.print_lut import DyeLut, DyeMatrix, DyeMatrixRows, PrintColor, PrintLut, flat_matrix, load_print_lut
 from negpy.features.process.models import ProcessMode
+from negpy.kernel.system.i18n import mark, tr
 
 DEFAULT_PROFILE_KEY = "neutral"
 
@@ -95,14 +96,14 @@ class PaperProfile:
 
 
 PAPER_PROFILES: Dict[str, PaperProfile] = {
-    DEFAULT_PROFILE_KEY: PaperProfile(label="Digital (Adobe RGB)", short="Digital", kind="default", medium="digital"),
+    DEFAULT_PROFILE_KEY: PaperProfile(label=mark("Digital (Adobe RGB)"), short=mark("Digital"), kind="default", medium="digital"),
     # Digital's curve with a Pakon minilab's colors: the LUT is RGBScan.icc applied to Digital's print.
-    "pakon": PaperProfile(label="Digital (Pakon)", short="Pakon", kind="ra4", medium="digital", print_color=DyeLut("pakon")),
+    "pakon": PaperProfile(label=mark("Digital (Pakon)"), short="Pakon", kind="ra4", medium="digital", print_color=DyeLut("pakon")),
     # A Frontier 350/370's file output, from its own tables, with a neutral gray axis. The curve shape is fitted to its
     # gray curve on the print density axis (543 codes per log E). slope_gain prints L* 90 to 10 over Digital's log E span
     # at the same Grade. The fit's equal-ISO-R gain (1.5) separates the layers so far that warm shadows block in two.
     "frontier": PaperProfile(
-        label="Digital (Frontier)",
+        label=mark("Digital (Frontier)"),
         short="Frontier",
         kind="ra4",
         medium="digital",
@@ -114,6 +115,23 @@ PAPER_PROFILES: Dict[str, PaperProfile] = {
         paper_gamma_width=2.0,
         slope_gain=1.2,
         print_color=DyeLut("frontier"),
+    ),
+    # Nikon Scan 4's color for an LS-5000 color negative, from its CML4 tables, with a neutral gray axis. The curve shape
+    # is fitted to Nikon's gray curve (fixed tone curve, gamma 2.2, CML4); its log E scale is free, because Nikon sets it
+    # per frame. slope_gain prints L* 90 to 10 over Digital's log E span at the same Grade.
+    "nikon_scan": PaperProfile(
+        label=mark("Digital (Nikon Scan)"),
+        short="Nikon Scan",
+        kind="ra4",
+        medium="digital",
+        d_max=2.72,
+        d_min=0.005,
+        toe_sharpness_base=4.72,
+        shoulder_sharpness_base=1.22,
+        paper_midtone_gamma=-0.21,
+        paper_gamma_width=1.28,
+        slope_gain=1.6,
+        print_color=DyeLut("nikon_scan"),
     ),
     # ── B&W (tonal only) ──────────────────────────────────────────────────────
     "ilford_mg_rc": PaperProfile(
@@ -349,6 +367,11 @@ def resolve_paper(key: str) -> PaperProfile:
     if key.startswith(LOOK_KEY_PREFIX):
         return look_profile(key) or PAPER_PROFILES[DEFAULT_PROFILE_KEY]
     return PAPER_PROFILES.get(key, PAPER_PROFILES[DEFAULT_PROFILE_KEY])
+
+
+def stock_label(paper: PaperProfile) -> str:
+    """The menu label: a look keeps its profile's own name, untranslated."""
+    return paper.label if paper.look else tr(paper.label)
 
 
 def resolve_print_color(paper: PaperProfile | None) -> Tuple[Optional[np.ndarray], Optional[PrintLut]]:

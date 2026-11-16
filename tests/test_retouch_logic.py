@@ -10,6 +10,8 @@ from negpy.domain.models import WorkspaceConfig
 from negpy.features.retouch.logic import (
     _IR_SCORE_FLOOR,
     _IR_WRITE_HI,
+    _density,
+    _dust_stats_px,
     apply_hair_inpaint,
     apply_score_repair,
     compute_dust_stats,
@@ -25,10 +27,10 @@ from negpy.features.retouch.logic import (
     luma_bake_token,
     manual_bake_token,
     normalize_ir,
+    paint_to_score,
     repair_components,
     route_wide_defects,
     scratch_detect_bar,
-    strokes_to_score,
     trace_scratch,
 )
 from negpy.features.retouch.models import HEAL_SIZE_REF, RetouchConfig
@@ -47,10 +49,30 @@ def _grainy(h, w, level=0.5, sigma=0.01, seed=21):
 def _heal(img, points, diameter_px):
     """Paint one stroke over ``img`` and repair it, the way the source bake does."""
     size = _size_at_ref(diameter_px, img.shape[:2])
-    score = strokes_to_score(img, [(points, size, 0.0, 0.0)], [])
-    if score is None:
-        return img, None
-    return np.asarray(repair_components(img, score, floor=False)), score
+    score, hair = paint_to_score(img, [(points, size, 0.0, 0.0)], [])
+    out = img
+    if score is not None:
+        out = np.asarray(repair_components(out, score, floor=False))
+    if hair is not None:
+        out = np.asarray(apply_hair_inpaint(out, [hair]))
+    return out, score
+
+
+def _click(shape, diameter_px, nx=0.5, ny=0.5):
+    return ([[nx, ny]], _size_at_ref(diameter_px, shape), 0.0, 0.0)
+
+
+def _drag(shape, diameter_px):
+    return ([[0.3, 0.5], [0.5, 0.5], [0.7, 0.5]], _size_at_ref(diameter_px, shape), 0.0, 0.0)
+
+
+def _touched(score, hair, shape):
+    out = np.zeros(shape, bool)
+    if score is not None:
+        out |= score < 1.0
+    if hair is not None:
+        out |= hair > 0
+    return out
 
 
 def test_brush_repairs_the_defect_and_leaves_clean_grain_alone():
@@ -83,21 +105,63 @@ def test_brush_repairs_a_dark_scratch():
     assert err_after < err_before * 0.2, f"scratch not repaired ({err_before:.3f} -> {err_after:.3f})"
 
 
-def test_brush_on_clean_film_is_a_noop():
+def test_drag_on_clean_film_is_a_noop():
     """Painting over film with nothing wrong with it must not smooth its grain away."""
     img = _grainy(100, 100)
-    assert strokes_to_score(img, [([[0.5, 0.5]], _size_at_ref(15.0, (100, 100)), 0.0, 0.0)], []) is None
+    assert paint_to_score(img, [_drag((100, 100), 15.0)], []) == (None, None)
 
 
-def test_faint_defect_still_repairs():
-    """A mark too weak for the absolute bar is rescaled against the stroke's own peak,
-    so the tool never silently does nothing where the user saw something."""
-    img = _grainy(100, 100, sigma=0.004)
-    img[49:52, 49:52] = 0.53  # ~1.5 sigma of density: under the absolute bar
+def test_silent_click_fills_its_disc():
+    """A click always answers: with no mark under it, it repairs its own footprint."""
+    img = _grainy(100, 100)
+    score, hair = paint_to_score(img, [_click((100, 100), 12.0)], [])
+    assert hair is None
+    assert score[50, 50] <= _IR_SCORE_FLOOR + 1e-6
+    yy, xx = np.mgrid[0:100, 0:100]
+    assert (score[np.hypot(xx - 50, yy - 50) > 7.0] == 1.0).all()
 
-    out, score = _heal(img, [[0.5, 0.5]], 15.0)
-    assert score is not None, "a faint but real defect must still be found"
-    assert abs(float(out[49:52, 49:52].mean()) - 0.5) < abs(float(img[49:52, 49:52].mean()) - 0.5)
+
+def test_a_click_that_moved_a_little_still_fills_its_disc():
+    """The canvas adds a second point when the pointer moves between press and release."""
+    img = _grainy(100, 100)
+    stroke = ([[0.5, 0.5], [0.51, 0.5]], _size_at_ref(12.0, (100, 100)), 0.0, 0.0)
+    score, _ = paint_to_score(img, [stroke], [])
+    assert score is not None and score[50, 50] <= _IR_SCORE_FLOOR + 1e-6
+
+
+def test_click_on_a_mark_repairs_only_the_mark():
+    img = _grainy(100, 100)
+    img[49:52, 49:52] = 0.95
+    score, _ = paint_to_score(img, [_click((100, 100), 30.0)], [])
+    assert score[50, 50] < _IR_WRITE_HI
+    assert score[50, 62] == 1.0, "clean film inside the brush"
+
+
+def test_painted_hair_goes_to_the_inpaint_mask():
+    img = _grainy(200, 200)
+    for i in range(40, 160):
+        img[100 + (i - 100) // 6, i] = 0.95
+    stroke = ([[0.2, 0.47], [0.5, 0.5], [0.8, 0.53]], _size_at_ref(20.0, (200, 200)), 0.0, 0.0)
+    _, hair = paint_to_score(img, [stroke], [])
+    assert hair is not None and hair[100, 100] > 0
+
+
+def test_click_at_the_frame_corner():
+    img = _grainy(100, 100)
+    score, _ = paint_to_score(img, [_click((100, 100), 12.0, 0.0, 0.0)], [])
+    assert score is not None and score[0, 0] < 1.0 and np.isfinite(score).all()
+
+
+def test_largest_brush_on_a_large_plane():
+    img = _grainy(2400, 3600, seed=3)
+    score, _ = paint_to_score(img, [([[0.5, 0.5]], 64.0, 0.0, 0.0)], [])
+    assert score is not None and np.isfinite(score).all()
+
+
+def test_click_on_flat_clipped_film():
+    img = np.ones((100, 100, 3), dtype=np.float32)
+    score, _ = paint_to_score(img, [_click((100, 100), 12.0)], [])
+    assert score is not None and np.isfinite(score).all() and score[50, 50] < 1.0
 
 
 def test_repair_footprint_stays_within_the_brush():
@@ -124,10 +188,9 @@ def test_stroke_radius_matches_cursor_fraction():
     for h, w in ((300, 450), (600, 900)):
         img = _grainy(h, w, seed=17)
         img[h // 2 - 1 : h // 2 + 2, :] = 0.95  # a strip crossing the whole frame
-        score = strokes_to_score(img, [([[0.5, 0.5]], size, 0.0, 0.0)], [])
-        assert score is not None
+        score, hair = paint_to_score(img, [([[0.5, 0.5]], size, 0.0, 0.0)], [])
 
-        _ys, xs = np.where(score < 1.0)
+        _ys, xs = np.where(_touched(score, hair, (h, w)))
         reach = float(np.abs(xs - w / 2.0).max())
         expected = size / (2.0 * HEAL_SIZE_REF) * max(h, w)
         assert abs(reach - expected) <= 2.0, f"{h}x{w}: footprint {reach:.2f}px, cursor {expected:.2f}px"
@@ -137,7 +200,7 @@ def test_legacy_spots_repair():
     """Pre-stroke (nx, ny, size) spots still repair — they are just a one-point stroke."""
     img = _grainy(100, 100)
     img[48:53, 48:53] = 0.95
-    score = strokes_to_score(img, [], [(0.5, 0.5, _size_at_ref(12.0, (100, 100)))])
+    score, _ = paint_to_score(img, [], [(0.5, 0.5, _size_at_ref(12.0, (100, 100)))])
     assert score is not None
     out = np.asarray(repair_components(img, score, floor=False))
     assert out[48:53, 48:53].max() < 0.7
@@ -147,7 +210,7 @@ def test_repair_components_matches_the_whole_frame_repair():
     """Cropping per defect is an optimization, not a different result."""
     img = _grainy(120, 120, seed=5)
     img[58:62, 58:62] = 0.95
-    score = strokes_to_score(img, [([[0.5, 0.5]], _size_at_ref(14.0, (120, 120)), 0.0, 0.0)], [])
+    score, _ = paint_to_score(img, [([[0.5, 0.5]], _size_at_ref(14.0, (120, 120)), 0.0, 0.0)], [])
     assert score is not None
     cropped = np.asarray(repair_components(img, score, floor=False))
     whole = np.asarray(apply_score_repair(img, score, floor=False))
@@ -157,7 +220,7 @@ def test_repair_components_matches_the_whole_frame_repair():
 def test_repair_leaves_unscored_pixels_byte_identical():
     img = _grainy(120, 120, seed=8)
     img[58:62, 58:62] = 0.95
-    score = strokes_to_score(img, [([[0.5, 0.5]], _size_at_ref(14.0, (120, 120)), 0.0, 0.0)], [])
+    score, _ = paint_to_score(img, [([[0.5, 0.5]], _size_at_ref(14.0, (120, 120)), 0.0, 0.0)], [])
     out = np.asarray(repair_components(img, score, floor=False))
     untouched = np.repeat((score >= 1.0)[..., None], 3, axis=2)
     assert np.array_equal(out[untouched], img[untouched])
@@ -231,6 +294,18 @@ def _two_speck_source(h=200, w=200, seed=7):
     for y, x in spots:
         img[y : y + 3, x : x + 3] = 0.005
     return img, spots
+
+
+def test_dust_stats_px_on_a_crop_matches_the_frame_windows():
+    """A crop detects with the windows of its frame, not of its own shape."""
+    img = _grainy(400, 2400, seed=5)
+    img[199:202, 1199:1202] *= 0.12
+    dens = _density(img)
+    base = 4 * film_scale(img.shape[:2])
+    crop = np.ascontiguousarray(dens[100:300, 1100:1300])
+    z = _dust_stats_px(crop, base)[2]
+    assert z.shape == (200, 200)
+    assert z[100, 100] >= 9.0
 
 
 def test_detect_luma_score_finds_dark_speck():

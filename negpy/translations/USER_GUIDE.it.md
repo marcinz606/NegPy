@@ -142,17 +142,17 @@ Per un fotogramma di questo tipo, la scheda Esporta nasconde le impostazioni fis
 
 ## 2. Libreria e Striscia pellicola
 
-<!-- panel:library src:9b53b788 -->
+<!-- panel:library src:dbd5438d -->
 ### Libreria
 
 La scheda **Libreria** (`Ctrl+L`) elenca i tuoi **rullini**. Un rullino è un gruppo di fotogrammi con un nome, di solito una pellicola: un **rullino-cartella** o un **rullino virtuale**. L'importazione registra la cartella; NegPy non sposta, rinomina né elimina mai i tuoi file.
 
 *   **+**: **Importa cartella come rullino…** crea un rullino da una cartella e lo apre. **Importa sottocartelle come rullini…** crea un rullino da ogni sottocartella che contiene immagini. Anche trascinare delle cartelle sulla Libreria le importa.
 *   **Fai doppio clic** su un rullino (o premi Invio) per aprirlo.
-*   **⋮** o clic destro su un rullino: **Apri**, **Chiudi tutti…** (il rullino aperto), **Analisi del rullino**, **Rinomina…**, **Individua cartella…**, **Salva nel rullino-cartella**, **Ripristina fotogrammi rimossi…** ed **Elimina…**. Ripristina fotogrammi rimossi riporta i fotogrammi che Rimuovi dal rullino ha tolto. Elimina conserva i file e le loro modifiche condivise. Perde le impostazioni del rullino, il riferimento, la base della pellicola, le scene, i blocchi dei riquadri e le modifiche fatte solo in quel rullino, e Aggiorna non aggiunge di nuovo un rullino-cartella eliminato.
+*   **⋮** o clic destro su un rullino: **Apri**, **Chiudi tutti…** (il rullino aperto), **Analisi del rullino**, **Rinomina…**, **Individua cartella…**, **Rimuovi fotogrammi mancanti…**, **Salva nel rullino-cartella**, **Ripristina fotogrammi rimossi…** ed **Elimina…**. Ripristina fotogrammi rimossi riporta i fotogrammi che Rimuovi dal rullino ha tolto. Elimina conserva i file e le modifiche condivise. Perde le impostazioni del rullino, il riferimento, la base della pellicola, le scene, i blocchi dei riquadri e le modifiche proprie, e Aggiorna non aggiunge di nuovo un rullino-cartella eliminato.
 *   **Filtra i rullini…** e **Ordina** ti aiutano a trovare un rullino. **⋮ → Aggiorna** trova nuove sottocartelle e riconta i fotogrammi. **⋮ → Filtri di ricerca…** elenca i nomi di cartella da saltare (inizialmente `export`).
 
-Un rullino la cui cartella è stata rinominata o spostata fuori da NegPy mostra **cartella mancante**. **Individua cartella…** lo collega alla nuova cartella. Un nome di cartella che corrisponde alla tua attrezzatura ("penf" per "Pen F") apre le Impostazioni del rullino già compilate.
+Un rullino la cui cartella o i cui fotogrammi sono stati spostati fuori da NegPy mostra **cartella mancante** o **file mancanti**. **Individua cartella…** trova la nuova cartella. Un nome di cartella che corrisponde alla tua attrezzatura ("penf" per "Pen F") apre le Impostazioni del rullino già compilate.
 
 Un rullino-cartella contiene solo i file della propria cartella. Un file che aggiungi da un'altra cartella resta solo per questa sessione.
 
@@ -326,12 +326,12 @@ Quanto è chiara o scura la stampa, e quanto contrasto ha.
 
 **Punto del bianco** e **Punto del nero** si trovano nel riquadro **Misurazione** della scheda Rullino ([§10.6](#106-misurazione-negativo--positivo)).
 
-<!-- panel:paper src:8db19596 -->
+<!-- panel:paper src:201bbd01 -->
 ### 5.3 Risposta della carta: la carta
 
 La carta su cui viene stampata l'immagine, e il modo in cui trasforma la luce in toni dal nero al bianco.
 
-*   **Supporto di stampa**: la carta. Una carta reale stabilisce la curva di contrasto e i colori in base ai dati del produttore. **Digitale (Adobe RGB)**, quella predefinita, è una carta ideale. **Digitale (Pakon)** ha i colori di uno scanner da laboratorio Pakon. **Digitale (Frontier)** ha i colori e la curva di contrasto di una scansione da laboratorio Fujifilm Frontier. I supporti sotto **Profili look** sono profili look di Camera Raw che importi.
+*   **Supporto di stampa**: la carta. Una carta reale stabilisce la curva di contrasto e i colori in base ai dati del produttore. **Digitale (Adobe RGB)**, quella predefinita, è una carta ideale. **Digitale (Pakon)** ha i colori di uno scanner da laboratorio Pakon. **Digitale (Frontier)** ha i colori e la curva di contrasto di una scansione da laboratorio Fujifilm Frontier. **Digitale (Nikon Scan)** ha quelli di Nikon Scan, il software degli scanner per pellicola Nikon Coolscan. I supporti sotto **Profili look** sono profili look di Camera Raw che importi.
 *   **Importa profilo look** (il pulsante cartella): aggiunge un profilo look di Camera Raw (file .xmp) come supporto di stampa. Il look si applica sopra la stampa digitale. Il pulsante cestino elimina il look selezionato.
 *   **Intensità del look**: quanto look si vede. 0% è la stampa digitale, 100% il look completo. Un look appena scelto parte da 100%.
 *   **Striscia di prova della carta** (il pulsante a righe): stampa il fotogramma su ogni carta. Fai clic su una carta per vederla in grande, scorri con i tasti freccia e premi **Tieni** per usarla.
@@ -434,7 +434,7 @@ Su una stampa lith funzionano solo Selenio e Oro. Su una cianotipia non funziona
 
 ## 7. Scheda Finitura
 
-<!-- panel:retouch src:8d07a6c2 -->
+<!-- panel:retouch src:85e58a6a -->
 ### 7.1 Ritocco: polvere, peli, graffi
 
 Rimuove polvere, peli e graffi. Ogni riparazione viene ricostruita dalla pellicola pulita circostante.
@@ -442,7 +442,7 @@ Rimuove polvere, peli e graffi. Ogni riparazione viene ricostruita dalla pellico
 *   **Sovrapposizione**: **Contrassegnati** mostra cosa ha trovato la rimozione della polvere, **IR** il canale infrarosso della scansione.
 *   **Rimozione ottica** (anche sulla barra della scheda Finitura): trova da sola polvere e peli. **Soglia delle macchie** e **Soglia dei peli**: più basso ne trova di più ma può rimuovere dettagli reali; 1 è disattivato. **Dimensioni**: la polvere più grande da rimuovere. Per proteggere un'area, trascina con il tasto destro sopra di essa o fai clic destro su un segno; il pulsante del cursore salta il menu del clic destro.
 *   **Rimozione IR** (scansioni con un canale infrarosso, anche sulla barra della scheda Finitura): trova la polvere nell'infrarosso, dove l'immagine non compare. **Soglia IR**: più basso ne trova di più. B/N e Kodachrome vengono saltate: la loro immagine compare anche nell'infrarosso. Il canale proviene da scansioni TIFF e DNG a 4 canali oppure da un file `_IR.tif` accanto alla scansione.
-*   **Correttivo**: fai clic o dipingi sopra la polvere. Vengono riparati solo i segni che risaltano, quindi dipingi con generosità.
+*   **Correttivo**: fai clic su un segno per ripararlo; un clic ripara sempre. Dipingi sopra un'area per riparare solo i segni che risaltano, quindi dipingi con generosità.
 *   **Graffio**: fai clic su alcuni punti lungo un graffio o un pelo, poi premi Invio.
 *   **Linea**: fai clic una volta su un graffio lungo e dritto, e NegPy trova e ripara l'intera linea. **Sensibilità della linea**: più basso trova linee più deboli.
 *   **Dimensione pennello**: anche `Alt`+rotellina sull'immagine.
@@ -562,7 +562,7 @@ Corregge gli errori di colore dovuti alla luce, alla fotocamera e alla pellicola
 
 **Rifinitura della tinta** (fotocamera con luce a banda stretta): ruota tutte le tinte, per una luce che rende arancioni i gialli o oliva i verdi. Lascia 0 per la luce bianca. A differenza del profilo del sensore, funziona anche sulle diapositive.
 
-<!-- panel:fade src:fbd4f136 -->
+<!-- panel:fade src:f1251435 -->
 ### 10.5 Ripristino dello sbiadimento: diapositive sbiadite
 
 Restituisce a una diapositiva sbiadita i suoi strati di colorante. Il riquadro compare solo per le diapositive.
@@ -573,7 +573,12 @@ Restituisce a una diapositiva sbiadita i suoi strati di colorante. Il riquadro c
 *   **Persistenza del verde** / **Persistenza del blu**: lo stesso, misurato rispetto al rosso.
 *   **Rimuovi macchia**: sbianca le zone trasparenti ingiallite e stima di nuovo. Attivalo quando Stima lo suggerisce.
 *   **Miscela di grigio**: cambia di quali grigi si fida Stima. Trascinala se i colori sembrano sbagliati.
-*   **Incrocio**: rimuove una variazione di colore tra ombre e alte luci. Impostalo su un fotogramma con grigi netti, poi fai clic su **Rullino** nel riquadro.
+*   **Incrocio**: rimuove una variazione di colore tra ombre e alte luci. Trascinalo su ogni fotogramma, oppure condividi quello di un fotogramma con Condividi incrocio.
+
+Il gruppo Rullino alla fine del riquadro agisce su ogni fotogramma del rullino:
+
+*   **Stima rullino**: legge ogni diapositiva del rullino, o quelle selezionate, e dà a ogni fotogramma le stesse Persistenze e lo stesso Ripristina intervallo. Le diapositive che si leggono in modo diverso, come con luce interna, restano fuori dalla lettura ma ricevono comunque il risultato. Ogni fotogramma mantiene il proprio Incrocio.
+*   **Condividi incrocio**: misura l'incrocio su questo fotogramma e lo dà a ogni fotogramma, con l'intensità di questo fotogramma. Usa un fotogramma con grigi netti nelle zone chiare e scure, come una strada e vestiti bianchi. Il suggerimento del rullino può proporne uno.
 
 <!-- panel:process src:2c179de9 -->
 ### 10.6 Misurazione: negativo → positivo

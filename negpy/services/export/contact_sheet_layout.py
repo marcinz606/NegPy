@@ -1,5 +1,6 @@
 """Darkroom contact sheet geometry. Lengths in millimeters; "along" means along the horizontal strip."""
 
+from negpy.kernel.system.i18n import tr
 import math
 from dataclasses import dataclass
 from typing import Any, Mapping, Optional, Sequence
@@ -190,10 +191,10 @@ def plan_sheets(
 ) -> SheetPlan:
     per_strip, strips = plan_capacity(width, height, geometry, label)
     if per_strip == 0 or strips == 0:
-        reason = "The paper is too narrow for one frame." if per_strip == 0 else "The paper is too short for one strip."
+        reason = tr("The paper is too narrow for one frame.") if per_strip == 0 else tr("The paper is too short for one strip.")
         return SheetPlan(width, height, geometry, frame_count, per_strip, strips, (), label, reason)
     if frame_count <= 0:
-        return SheetPlan(width, height, geometry, frame_count, per_strip, strips, (), label, "No frames to print.")
+        return SheetPlan(width, height, geometry, frame_count, per_strip, strips, (), label, tr("No frames to print."))
 
     band = LABEL_BAND if label else 0.0
     cut = cut_strips(frame_count, per_strip, breaks)
@@ -255,10 +256,10 @@ def plan_rows(
     room = height - 2 * SHEET_MARGIN - band - 2 * ROW_BORDER
     row_height = geometry.frame_across
     if inner <= 0 or room < row_height:
-        reason = "The paper is too narrow for one frame." if inner <= 0 else "The paper is too short for one row."
+        reason = tr("The paper is too narrow for one frame.") if inner <= 0 else tr("The paper is too short for one row.")
         return SheetPlan(width, height, geometry, len(aspects), 0, 0, (), label, reason)
     if not aspects:
-        return SheetPlan(width, height, geometry, 0, 0, 0, (), label, "No frames to print.")
+        return SheetPlan(width, height, geometry, 0, 0, 0, (), label, tr("No frames to print."))
 
     paged: list[list[tuple[list[int], float]]] = [[]]
     used = 0.0

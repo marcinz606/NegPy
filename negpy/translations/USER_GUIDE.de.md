@@ -2,17 +2,17 @@
 
 NegPy ist eine virtuelle Dunkelkammer, die Filmscans zu fertigen Bildern macht. Deine Originaldateien bleiben unverändert. NegPy speichert deine Bearbeitungen in einer lokalen Datenbank. Wähle die Sprache unter Einstellungen → Oberfläche → Sprache und starte NegPy neu. Die Option „Systemstandard“ folgt der Systemsprache und nutzt Englisch, wenn NegPy diese Sprache nicht kennt. Fehlt eine Übersetzung für einen Bereich, zeigt NegPy den englischen Text.
 
-<!-- panel:library src:9b53b788 -->
+<!-- panel:library src:dbd5438d -->
 ### Bibliothek
 
 Der Tab **Bibliothek** (`Ctrl+L`) listet deine **Rollen**. Eine Rolle ist eine benannte Gruppe von Bildern, meist ein Film: eine **Ordnerrolle** oder eine **virtuelle Rolle**. Beim Import merkt sich NegPy den Ordner. NegPy verschiebt, benennt oder löscht deine Dateien nie.
 
 *   **+**: **Ordner als Rolle importieren…** macht aus einem Ordner eine Rolle und öffnet sie. **Unterordner als Rollen importieren…** macht aus jedem Unterordner mit Bildern eine Rolle. Auf die Bibliothek gezogene Ordner werden ebenfalls importiert.
 *   **Doppelklicke** auf eine Rolle (oder drücke Enter), um sie zu öffnen.
-*   **⋮** oder Rechtsklick auf eine Rolle: **Öffnen**, **Alle entladen…** (die geöffnete Rolle), **Rollenanalyse**, **Umbenennen…**, **Ordner suchen…**, **In Ordnerrolle speichern**, **Entfernte Bilder wiederherstellen…** und **Löschen…**. Entfernte Bilder wiederherstellen holt Bilder zurück, die Aus Rolle entfernen herausgenommen hat. Löschen behält die Dateien und ihre gemeinsamen Bearbeitungen. Es verliert die Einstellungen, die Basislinie, die Filmbasis, die Szenen, die Kartensperren und die nur in dieser Rolle gemachten Bearbeitungen der Rolle. Aktualisieren fügt eine gelöschte Ordnerrolle nicht wieder hinzu.
+*   **⋮** oder Rechtsklick auf eine Rolle: **Öffnen**, **Alle entladen…** (die geöffnete Rolle), **Rollenanalyse**, **Umbenennen…**, **Ordner suchen…**, **Fehlende Bilder entfernen…**, **In Ordnerrolle speichern**, **Entfernte Bilder wiederherstellen…** und **Löschen…**. Entfernte Bilder wiederherstellen holt Bilder zurück, die Aus Rolle entfernen herausgenommen hat. Löschen behält die Dateien und ihre gemeinsamen Bearbeitungen. Es verliert die Einstellungen, die Basislinie, die Filmbasis, die Szenen, die Kartensperren und die nur in dieser Rolle gemachten Bearbeitungen der Rolle. Aktualisieren fügt eine gelöschte Ordnerrolle nicht wieder hinzu.
 *   **Rollen filtern…** und **Sortieren** helfen dir beim Finden einer Rolle. **⋮ → Aktualisieren** findet neue Unterordner und zählt die Bilder neu. **⋮ → Suchfilter…** listet Ordnernamen, die übersprungen werden (zuerst `export`).
 
-Eine Rolle, deren Ordner fehlt, zeigt **Ordner fehlt**. **Ordner suchen…** verknüpft sie mit dem neuen Ordner. Passt ein Ordnername zu deiner Ausrüstung ("penf" für "Pen F"), öffnen sich die Rolleneinstellungen schon ausgefüllt.
+Eine Rolle, deren Ordner oder Bilder außerhalb von NegPy verschoben wurden, zeigt **Ordner fehlt** oder **Dateien fehlen**. **Ordner suchen…** findet den neuen Ordner. Passt ein Ordnername zu deiner Ausrüstung ("penf" für "Pen F"), öffnen sich die Rolleneinstellungen schon ausgefüllt.
 
 Eine Ordnerrolle enthält nur die Dateien ihres Ordners. Eine Datei, die du aus einem anderen Ordner hinzufügst, bleibt nur für diese Sitzung.
 
@@ -154,12 +154,12 @@ Wie hell oder dunkel der Abzug ist und wie viel Kontrast er hat.
 
 **Weißpunkt** und **Schwarzpunkt** findest du auf der Karte **Messung** im Tab Rolle ([§10.6](#106-metering-negative--positive)).
 
-<!-- panel:paper src:8db19596 -->
+<!-- panel:paper src:201bbd01 -->
 ### 5.3 Papierverhalten: das Papier
 
 Das Papier, auf das das Bild abgezogen wird, und wie es Licht in Tonwerte von Schwarz bis Weiß umsetzt.
 
-*   **Papier**: das Abzugspapier. Ein echtes Papier legt Kontrastkurve und Farben nach den Daten seines Herstellers fest. **Digital (Adobe RGB)**, der Standard, ist ein ideales Papier. **Digital (Pakon)** hat die Farben eines Pakon-Laborscanners. **Digital (Frontier)** hat die Farben und die Kontrastkurve eines Fujifilm-Frontier-Laborscans. Papiere unter **Look-Profile** sind Camera-Raw-Look-Profile, die du importierst.
+*   **Papier**: das Abzugspapier. Ein echtes Papier legt Kontrastkurve und Farben nach den Daten seines Herstellers fest. **Digital (Adobe RGB)**, der Standard, ist ein ideales Papier. **Digital (Pakon)** hat die Farben eines Pakon-Laborscanners. **Digital (Frontier)** hat die Farben und die Kontrastkurve eines Fujifilm-Frontier-Laborscans. **Digital (Nikon Scan)** hat die von Nikon Scan, der Software der Nikon-Coolscan-Filmscanner. Papiere unter **Look-Profile** sind Camera-Raw-Look-Profile, die du importierst.
 *   **Look-Profil importieren** (die Ordner-Schaltfläche): fügt ein Camera-Raw-Look-Profil (.xmp-Datei) als Papier hinzu. Der Look liegt über dem digitalen Abzug. Die Papierkorb-Schaltfläche löscht den ausgewählten Look.
 *   **Look-Stärke**: wie viel vom Look sichtbar ist. 0 % ist der digitale Abzug, 100 % der volle Look. Ein neu gewählter Look beginnt bei 100 %.
 *   **Papier-Probestreifen** (die gestreifte Schaltfläche): zieht das Bild auf jedem Papier ab. Klicke auf ein Papier für die große Ansicht, wechsle mit den Pfeiltasten und drücke **Behalten**, um es zu nutzen.
@@ -252,7 +252,7 @@ Auf einem Lith-Abzug wirken nur Selen und Gold. Auf einer Cyanotypie wirkt kein 
 
 **Splittonung** (alle Abzüge): **Schattenstärke** und **Lichterstärke** geben den Schatten und den Lichtern Farbe. **Schattenfarbton** und **Lichterfarbton** wählen die Farbe und erscheinen, sobald die Stärke über 0 liegt.
 
-<!-- panel:retouch src:8d07a6c2 -->
+<!-- panel:retouch src:85e58a6a -->
 ### 7.1 Retusche: Staub, Haare, Kratzer
 
 Entfernt Staub, Haare und Kratzer. Jede Reparatur wird aus dem sauberen Film darum herum aufgebaut.
@@ -260,7 +260,7 @@ Entfernt Staub, Haare und Kratzer. Jede Reparatur wird aus dem sauberen Film dar
 *   **Überlagerung**: **Markiert** zeigt, was die Staubentfernung gefunden hat, **IR** den Infrarotkanal des Scans.
 *   **Optische Entfernung** (auch in der Leiste des Tabs Finish): findet Staub und Haare selbst. **Flecken-Schwelle** und **Haar-Schwelle**: niedriger findet mehr, kann aber echte Details entfernen; 1 ist aus. **Größe**: der größte Staub, der entfernt wird. Um einen Bereich zu schützen, ziehe mit der rechten Maustaste darüber oder klicke mit der rechten Maustaste auf eine Markierung. Die Cursor-Schaltfläche überspringt das Rechtsklick-Menü.
 *   **IR-Entfernung** (Scans mit Infrarotkanal, auch in der Leiste des Tabs Finish): findet Staub im Infrarot, wo ihn das Bild nicht zeigt. **IR-Schwelle**: niedriger findet mehr. S/W und Kodachrome werden übersprungen, weil ihr Bild auch im Infrarot sichtbar ist. Der Kanal stammt aus 4-Kanal-TIFF- und DNG-Scans oder aus einer `_IR.tif`-Datei neben dem Scan.
-*   **Heilen**: klicke oder male über Staub. Es werden nur auffällige Markierungen repariert, also male großzügig.
+*   **Heilen**: klicke auf eine Markierung, um sie zu reparieren. Ein Klick repariert immer. Male über einen Bereich, um nur auffällige Markierungen zu reparieren, also male großzügig.
 *   **Kratzer**: klicke Punkte entlang eines Kratzers oder Haars und drücke dann `Enter`.
 *   **Linie**: klicke einmal auf einen langen, geraden Kratzer. NegPy findet und repariert dann die ganze Linie. **Linienempfindlichkeit**: niedriger findet schwächere Linien.
 *   **Pinselgröße**: auch mit `Alt`+Scrollen auf dem Bild.
@@ -364,7 +364,7 @@ Korrigiert Farbfehler, die von Lichtquelle, Kamera und Film kommen.
 
 **Farbton-Trimmung** (Kamera mit schmalbandigem Licht): dreht alle Farben auf dem Farbkreis, für ein Licht, das Gelb orange oder Grün oliv färbt. Lass den Wert bei weißem Licht auf 0. Sie wirkt auch bei Dias, wo das Sensor-Farbvermischungsprofil nicht wirkt.
 
-<!-- panel:fade src:fbd4f136 -->
+<!-- panel:fade src:f1251435 -->
 ### 10.5 Ausbleichrestaurierung: ausgeblichene Dias
 
 Gibt einem ausgeblichenen Dia seine Farbstoffschichten zurück. Die Karte erscheint nur bei Dias.
@@ -375,7 +375,12 @@ Gibt einem ausgeblichenen Dia seine Farbstoffschichten zurück. Die Karte ersche
 *   **Grün-Erhalt** / **Blau-Erhalt**: dasselbe, gemessen an Rot.
 *   **Schleier entfernen**: macht gelb gewordene klare Bereiche weiß und führt Schätzen erneut aus. Schalte es ein, wenn Schätzen es vorschlägt.
 *   **Graumischung**: ändert, welchen Grautönen Schätzen vertraut. Ziehe den Regler, wenn die Farben nicht stimmen.
-*   **Crossover**: entfernt eine Farbverschiebung zwischen Schatten und Lichtern. Stelle ihn an einem Bild mit klaren Grautönen ein und klicke dann auf der Karte auf **Rolle**.
+*   **Crossover**: entfernt eine Farbverschiebung zwischen Schatten und Lichtern. Ziehe ihn auf jedem Bild, oder teile den eines Bildes mit Crossover teilen.
+
+Die Gruppe Rolle am Ende der Karte wirkt auf jedes Bild der Rolle:
+
+*   **Rolle schätzen**: liest jedes Dia der Rolle oder die ausgewählten und gibt jedem Bild denselben Erhalt und dasselbe Umfang wiederherstellen. Dias, die sich anders lesen, etwa bei Innenlicht, zählen nicht zur Messung, übernehmen aber das Ergebnis. Jedes Bild behält seinen eigenen Crossover.
+*   **Crossover teilen**: misst den Crossover auf diesem Bild und gibt ihn jedem Bild, mit der Stärke dieses Bildes. Nimm ein Bild mit klaren Grautönen in hellen und dunklen Bereichen, zum Beispiel eine Straße und weiße Kleidung. Der Rollenhinweis kann eines vorschlagen.
 
 <!-- panel:process src:2c179de9 -->
 ### 10.6 Messung: Negativ → Positiv

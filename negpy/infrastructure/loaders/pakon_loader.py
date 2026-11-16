@@ -1,3 +1,4 @@
+from negpy.kernel.system.i18n import tr
 import os
 import struct
 import numpy as np
@@ -82,7 +83,7 @@ class PakonLoader(IImageLoader):
         try:
             layout = self.resolve_layout(file_path)
             if layout is None:
-                raise ValueError("Unknown Pakon dimensions")
+                raise ValueError(tr("Unknown Pakon dimensions"))
             h, w, planar = layout
             expected_pixels = h * w * 3
 
@@ -93,7 +94,7 @@ class PakonLoader(IImageLoader):
                 data = np.fromfile(f, dtype="<u2", count=expected_pixels)
 
             if len(data) < expected_pixels:
-                raise ValueError(f"File too small: expected {expected_pixels} pixels, got {len(data)}")
+                raise ValueError(tr("File too small: expected {value} pixels, got {value1}", value=expected_pixels, value1=len(data)))
 
             if planar is None:
                 planar = not self._looks_interleaved(data)
@@ -106,7 +107,7 @@ class PakonLoader(IImageLoader):
             return NonStandardFileWrapper(source_u16=np.ascontiguousarray(data)), metadata
         except Exception as e:
             # Fallback to Rawpy or re-raise to be caught by worker
-            raise RuntimeError(f"Pakon Load Failure: {e}") from e
+            raise RuntimeError(tr("Pakon Load Failure: {value}", value=e)) from e
 
     def load_bounded_preview(
         self,
@@ -117,7 +118,7 @@ class PakonLoader(IImageLoader):
         should_cancel: Optional[Callable[[], bool]] = None,
     ) -> Optional[Image.Image]:
         if should_cancel is not None and should_cancel():
-            raise InterruptedError("preview cancelled")
+            raise InterruptedError(tr("preview cancelled"))
         layout = self.resolve_layout(file_path)
         if layout is None:
             return None

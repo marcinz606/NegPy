@@ -21,6 +21,7 @@ from negpy.features.exposure.papers import (
     resolve_flat_matrix,
     resolve_paper,
     resolve_print_color,
+    stock_label,
 )
 from negpy.features.exposure.print_lut import DyeLut, tetra_lookup
 from negpy.features.exposure.rgb_table import (
@@ -39,6 +40,7 @@ from negpy.features.exposure.rgb_table import (
 from negpy.features.process.models import ProcessMode
 from negpy.infrastructure.gpu.device import GPUDevice
 from negpy.kernel.image.logic import rgb_to_lab_working
+from negpy.kernel.system import i18n
 from negpy.kernel.system.config import APP_CONFIG
 
 PROPHOTO_18 = (2, 2, 0)
@@ -199,6 +201,12 @@ def test_an_imported_look_is_a_color_negative_print_stock(looks):
     assert key in [k for k, _ in profiles_for_mode(ProcessMode.C41)]
     assert key not in [k for k, _ in profiles_for_mode(ProcessMode.BW)]
     assert resolve_flat_matrix(paper) is None
+
+
+def test_a_look_keeps_its_own_name_in_every_language(looks, monkeypatch):
+    monkeypatch.setattr(i18n, "_messages", {"Portrait": "Hochformat", "Digital (Pakon)": "Digital (Pakon) de"})
+    assert stock_label(resolve_paper(looks(name="Portrait"))) == "Portrait"
+    assert stock_label(PAPER_PROFILES["pakon"]) == "Digital (Pakon) de"
 
 
 def test_a_deleted_look_leaves_the_stocks_and_prints_on_digital(looks):

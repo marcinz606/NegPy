@@ -282,6 +282,15 @@ class StorageRepository(IRepository):
                 out[str(file_path)] = WorkspaceConfig.from_flat_dict(json.loads(settings_json))
         return out
 
+    def file_hashes_for_path(self, file_path: str) -> list[str]:
+        """Every hash an edit or a mark is saved under for *file_path*, suffixed ones included."""
+        with self._connect(self.edits_db_path) as conn:
+            rows = conn.execute(
+                "SELECT file_hash FROM file_settings WHERE file_path = ? UNION SELECT file_hash FROM file_marks WHERE file_path = ?",
+                (file_path, file_path),
+            ).fetchall()
+        return sorted(str(row[0]) for row in rows)
+
     def load_file_settings_by_path(self, file_path: str) -> Optional[tuple[str, WorkspaceConfig]]:
         """Look up settings by file path (fallback for when hash changed due to EXIF edits).
         Returns (old_hash, config) if found, or None."""

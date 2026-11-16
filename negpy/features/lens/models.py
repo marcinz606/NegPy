@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from negpy.kernel.system.i18n import mark, tr
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -39,7 +40,7 @@ class LensWarp(Protocol):
 class LensMetadata:
     source: str = ""
     warps: tuple[LensWarp, ...] = ()
-    reason: str = "No embedded lens correction data."
+    reason: str = mark("No embedded lens correction data.")
     # DNG opcodes use the active image, before DefaultCrop and EXIF orientation.
     active_area: tuple[int, int, int, int] | None = None
     buffer_area: tuple[int, int, int, int] | None = None
@@ -62,5 +63,7 @@ class LensMetadata:
     def description(self) -> str:
         if not self.available:
             return self.reason
-        corrections = " + ".join(label for enabled, label in ((self.distortion, "distortion"), (self.ca, "lateral CA")) if enabled)
+        corrections = " + ".join(
+            tr(label) for enabled, label in ((self.distortion, mark("distortion")), (self.ca, mark("lateral CA"))) if enabled
+        )
         return f"{self.source}: {corrections}"
