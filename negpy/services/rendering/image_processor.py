@@ -67,7 +67,7 @@ from negpy.features.retouch.logic import (
     repair_components,
     repair_coverage,
     route_wide_defects,
-    strokes_to_score,
+    paint_to_score,
 )
 from negpy.features.retouch.clone import apply_clone_strokes, clone_token
 from negpy.features.rgbscan.logic import merge_rgb_triplet, rgbscan_token
@@ -483,6 +483,9 @@ class ImageProcessor:
         self._manual_inc_dust_spots: tuple = ()
         self._manual_inc_lines: tuple = ()
         self._manual_inc_threshold: Optional[float] = None
+        self._manual_inc_hair: Optional[np.ndarray] = None
+        self._paint_planes_src: Optional[tuple] = None
+        self._paint_planes: Optional[Tuple[np.ndarray, np.ndarray]] = None
         self._manual_inc_score: Optional[np.ndarray] = None
         self._manual_inc_out: Optional[np.ndarray] = None
         # Clone cache, keyed on input identity like the manual baseline; a strict append extends it.
@@ -646,29 +649,54 @@ class ImageProcessor:
         self._luma_value = out
         return out
 
-    def _manual_bake(self, img: np.ndarray, settings: WorkspaceConfig, source_key: str) -> Tuple[np.ndarray, Optional[np.ndarray]]:
+    def _paint_plane(
+        self, img: np.ndarray, settings: WorkspaceConfig, detect_buffer: Optional[np.ndarray]
+    ) -> Optional[Tuple[np.ndarray, np.ndarray]]:
+        """The planes the painted heals gate on, ``(min-pooled, averaged)`` at one shape, or None
+        with nothing painted. Call it on the buffer no bake has touched: the preview's
+        ``detect_buffer`` is pooled from that state, so the export gates on the same image."""
+        ret = settings.retouch
+        if self._is_flat(settings) or not (ret.manual_heal_strokes or ret.manual_dust_spots):
+            return None
+        src = self._paint_planes_src
+        if src is not None and src[0] is img and src[1] is detect_buffer and self._paint_planes is not None:
+            return self._paint_planes
+        pooled = detect_buffer if detect_buffer is not None else _detection_downsample(img)
+        h, w = pooled.shape[:2]
+        averaged = img if img.shape[:2] == (h, w) else negpy_core.resize_area(np.ascontiguousarray(img, dtype=np.float32), (w, h))
+        self._paint_planes_src = (img, detect_buffer)
+        self._paint_planes = (pooled, averaged)
+        return self._paint_planes
+
+    def _manual_bake(
+        self,
+        img: np.ndarray,
+        settings: WorkspaceConfig,
+        source_key: str,
+        paint_planes: Optional[Tuple[np.ndarray, np.ndarray]] = None,
+    ) -> Tuple[np.ndarray, List[np.ndarray]]:
         """Painted strokes and traced scratch lines repaired into the linear source, by the
         same fill the IR and luma paths use (mirrors _ir_bake; the GPU re-uploads source each
         frame, so the bake reaches both engines parity-free). Both hold raw-frame coordinates,
-        so this runs before geometry and needs no mapping. Returns the buffer and the mask of
-        defects too wide for the fill, for the caller to inpaint."""
+        so this runs before geometry and needs no mapping. Returns the buffer and the masks the
+        caller inpaints: defects too wide for the fill, and painted hairs."""
         ret = settings.retouch
         lines = tuple(getattr(ret, "scratch_lines", []))
         heal_strokes = tuple(ret.manual_heal_strokes)
         dust_spots = tuple(ret.manual_dust_spots)
         threshold = getattr(ret, "scratch_threshold", 0.5)
         if self._is_flat(settings) or not (heal_strokes or dust_spots or lines):
-            return img, None
+            return img, []
         key = (source_key, img.shape)
         if key == self._manual_key and self._manual_value is not None:
             return self._manual_value
 
         self._slow_step("repairing dust")
-        score, out = self._manual_bake_incremental(img, heal_strokes, dust_spots, lines, threshold)
-        if score is None:
-            value: Tuple[np.ndarray, Optional[np.ndarray]] = (img, None)
-        else:
-            value = (out, route_wide_defects(score, budget=None))
+        if paint_planes is None:
+            paint_planes = self._paint_plane(img, settings, None)
+        score, out, hair = self._manual_bake_incremental(img, paint_planes, heal_strokes, dust_spots, lines, threshold)
+        routed = route_wide_defects(score, budget=None) if score is not None else None
+        value = (out, [m for m in (routed, hair) if m is not None])
         self._manual_key = key
         self._manual_value = value
         return value
@@ -692,12 +720,13 @@ class ImageProcessor:
     def _manual_bake_incremental(
         self,
         img: np.ndarray,
+        paint_planes: Optional[Tuple[np.ndarray, np.ndarray]],
         heal_strokes: tuple,
         dust_spots: tuple,
         lines: tuple,
         threshold: float,
-    ) -> Tuple[Optional[np.ndarray], np.ndarray]:
-        """(combined_score, filled_buffer) for the current strokes/spots/lines.
+    ) -> Tuple[Optional[np.ndarray], np.ndarray, Optional[np.ndarray]]:
+        """(combined_score, filled_buffer, painted_hair_mask) for the current strokes/spots/lines.
 
         A painted session is almost always additive — one more stroke on top of the ones
         already there — so when every list is a strict extension of what was baked last
@@ -721,20 +750,23 @@ class ImageProcessor:
             new_lines = lines[len(self._manual_inc_lines) :]
             base_score = self._manual_inc_score
             base_out = self._manual_inc_out
+            hair = self._manual_inc_hair
         else:
             new_strokes, new_spots, new_lines = heal_strokes, dust_spots, lines
-            base_score, base_out = None, None
+            base_score, base_out, hair = None, None, None
+
+        painted, new_hair = (
+            (None, None) if paint_planes is None else paint_to_score(paint_planes[0], new_strokes, new_spots, paint_planes[1])
+        )
+        if painted is not None and painted.shape[:2] != img.shape[:2]:
+            # The line score is at the buffer's resolution, so the painted one joins it there.
+            painted = negpy_core.resize_linear(painted, (img.shape[1], img.shape[0]))
+        if new_hair is not None:
+            hair = new_hair if hair is None else np.maximum(hair, new_hair)
 
         # One pass for both hand-placed sources: whichever calls a pixel more damaged wins,
         # and the fill sees every hole at once.
-        parts = [
-            s
-            for s in (
-                strokes_to_score(img, new_strokes, new_spots),
-                lines_to_score(img, new_lines, threshold),
-            )
-            if s is not None
-        ]
+        parts = [s for s in (painted, lines_to_score(img, new_lines, threshold)) if s is not None]
         delta = parts[0] if len(parts) == 1 else (np.minimum(*parts) if parts else None)
 
         if base_score is None:
@@ -771,7 +803,8 @@ class ImageProcessor:
         self._manual_inc_threshold = threshold
         self._manual_inc_score = score
         self._manual_inc_out = out
-        return score, out
+        self._manual_inc_hair = hair
+        return score, out, hair
 
     def run_pipeline(
         self,
@@ -787,6 +820,7 @@ class ImageProcessor:
         crop_preview_full: bool = False,
         wants_uv_grid: bool = True,
         skip_flatfield: bool = False,
+        source_baked: bool = False,
         cam_xyz: Optional[list] = None,
         camera_wb: Optional[list] = None,
         cache_stages: bool = True,
@@ -795,7 +829,8 @@ class ImageProcessor:
         film_base: Optional[tuple] = None,
         wants_fade_grid: bool = False,
     ) -> Tuple[Any, Dict[str, Any]]:
-        """Executes rendering pipeline. Returns result (ndarray/GPUTexture) and metrics. ``skip_flatfield``: the export CPU
+        """Executes rendering pipeline. Returns result (ndarray/GPUTexture) and metrics. ``source_baked``: *img* already holds the painted heals, so
+        they are not gated a second time on repaired film. ``skip_flatfield``: the export CPU
         fallbacks pass an already flat-fielded buffer. ``gain_slices``: the ``slice_half`` cuts that took *img* out of the
         decoded frame. ``source_orientation``: the EXIF orientation baked into *img*. The flat-field gain takes both."""
         # Flat-field is a source pre-correction, before geometry and crop. Folding its token
@@ -852,6 +887,7 @@ class ImageProcessor:
         want_ir = settings.retouch.ir_dust_remove and ir_buffer is not None and not self._is_flat(settings)
         with self._prepare_gate:
             timing.lap("wait for prefetch")
+            paint_planes = None if source_baked else self._paint_plane(img, settings, detect_buffer)
             img, ir_corrected_mask, ir_degenerate, ir_routed = self._ir_bake(img, ir_buffer, settings, auto_hash)
             timing.lap("IR repair")
 
@@ -864,9 +900,11 @@ class ImageProcessor:
             timing.lap("dust detect")
             img = self._luma_bake(img, detected_dust, auto_hash + hair_bake_token(orig_ret), dust_label)
             timing.lap("dust repair")
-            img, manual_routed = self._manual_bake(img, settings, repair_hash)
+            manual_routed: List[np.ndarray] = []
+            if not source_baked:
+                img, manual_routed = self._manual_bake(img, settings, repair_hash, paint_planes)
             timing.lap("heal")
-            extra = [m for m in (ir_routed, manual_routed) if m is not None]
+            extra = [m for m in (ir_routed,) if m is not None] + manual_routed
             if extra:
                 hair_masks = hair_masks + extra  # never mutate the cached list
             # Inpaint long/twisted hairs into the source, where both engines see it. The token
@@ -1410,6 +1448,7 @@ class ImageProcessor:
             + luma_bake_token(params.retouch)
             + clone_token(params.retouch)
         )
+        paint_planes = self._paint_plane(f32_buffer, params, None)
         f32_buffer, _, _, ir_routed = self._ir_bake(f32_buffer, ir_full, params, detect_key)
         timing.lap("IR repair")
         orig_ret = params.retouch
@@ -1418,9 +1457,9 @@ class ImageProcessor:
         dust_label = _dust_step_label(orig_ret)
         f32_buffer = self._luma_bake(f32_buffer, detected, detect_key + hair_bake_token(orig_ret), dust_label)
         timing.lap("dust repair")
-        f32_buffer, manual_routed = self._manual_bake(f32_buffer, params, detect_key)
+        f32_buffer, manual_routed = self._manual_bake(f32_buffer, params, detect_key, paint_planes)
         timing.lap("heal")
-        extra = [m for m in (ir_routed, manual_routed) if m is not None]
+        extra = [m for m in (ir_routed,) if m is not None] + manual_routed
         if extra:
             hair_masks = hair_masks + extra
         if hair_masks:
@@ -1547,6 +1586,7 @@ class ImageProcessor:
                 wants_uv_grid=False,
                 cache_stages=False,
                 skip_flatfield=True,  # f32_buffer already flat-fielded by _load_source_f32
+                source_baked=True,
                 cam_xyz=cam_xyz,
                 camera_wb=camera_wb,
             )
@@ -2036,12 +2076,13 @@ class ImageProcessor:
                 + luma_bake_token(params.retouch)
                 + clone_token(params.retouch)
             )
+            paint_planes = self._paint_plane(f32_buffer, params, None)
             f32_buffer, _, _, ir_routed = self._ir_bake(f32_buffer, ir_full, params, detect_key)
             orig_ret = params.retouch
             detected, hair_masks = self._detect_luma(params, f32_buffer, detect_key)
             f32_buffer = self._luma_bake(f32_buffer, detected, detect_key + hair_bake_token(orig_ret))
-            f32_buffer, manual_routed = self._manual_bake(f32_buffer, params, detect_key)
-            extra = [m for m in (ir_routed, manual_routed) if m is not None]
+            f32_buffer, manual_routed = self._manual_bake(f32_buffer, params, detect_key, paint_planes)
+            extra = [m for m in (ir_routed,) if m is not None] + manual_routed
             if extra:
                 hair_masks = hair_masks + extra
             if hair_masks:
@@ -2073,6 +2114,7 @@ class ImageProcessor:
                     wants_uv_grid=False,
                     readback_metrics=False,
                     skip_flatfield=True,  # f32_buffer already flat-fielded by _load_source_f32
+                    source_baked=True,
                     cam_xyz=self._cam_xyz_by_path.get(file_path, (None, None))[0],
                     camera_wb=self._cam_xyz_by_path.get(file_path, (None, None))[1],
                 )

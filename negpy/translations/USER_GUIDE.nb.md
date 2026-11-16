@@ -250,7 +250,7 @@ På en lith-kopi virker bare Selen og Gull. På en cyanotypi virker ingen toner.
 
 **Delt toning** (alle kopier): **Skyggestyrke** og **Høylysstyrke** legger farge til skyggene og høylysene. **Skyggetone** og **Høylystone** velger fargen, og vises når styrken er over 0.
 
-<!-- panel:retouch src:8d07a6c2 -->
+<!-- panel:retouch src:85e58a6a -->
 ### 7.1 Retusj: støv, hår, riper
 
 Fjerner støv, hår og riper. Hver reparasjon bygges opp fra den rene filmen rundt den.
@@ -258,7 +258,7 @@ Fjerner støv, hår og riper. Hver reparasjon bygges opp fra den rene filmen run
 *   **Overlegg**: **Merket** viser hva støvfjerningen fant, **IR** skanningens infrarøde kanal.
 *   **Optisk fjerning** (også på linjen i fanen Etterarbeid): finner støv og hår selv. **Flekkterskel** og **Hårterskel**: lavere finner flere, men kan fjerne ekte detaljer; 1 er av. **Størrelse**: det største støvet som fjernes. For å beskytte et område høyredrar du over det eller høyreklikker et merke; pekerknappen hopper over høyreklikkmenyen.
 *   **IR-fjerning** (skanninger med en infrarød kanal, også på linjen i fanen Etterarbeid): finner støv i infrarødt, der bildet ikke vises. **IR-terskel**: lavere finner flere. S/H og Kodachrome hoppes over: bildet vises også i infrarødt. Kanalen kommer fra TIFF- og DNG-skanninger med fire kanaler eller en `_IR.tif`-fil ved siden av skanningen.
-*   **Lege**: klikk eller mal over støv. Bare merker som skiller seg ut, repareres, så mal romslig.
+*   **Lege**: klikk på et merke for å reparere det. Et klikk reparerer alltid. Mal over et område for å reparere bare merker som skiller seg ut, så mal romslig.
 *   **Ripe**: klikk punkter langs en ripe eller et hår, og trykk så Enter.
 *   **Linje**: klikk én gang på en lang, rett ripe, så finner og reparerer NegPy hele linjen. **Linjefølsomhet**: lavere finner svakere linjer.
 *   **Penselstørrelse**: også `Alt`+rulling på bildet.

@@ -9,6 +9,7 @@ the optical detector misses, and every mark it makes that IR does not, is listed
   uv run python scripts/optical_vs_ir_evidence.py --compare baseline.json
   uv run python scripts/optical_vs_ir_evidence.py --min-pool             # erode before the resize
   uv run python scripts/optical_vs_ir_evidence.py --bake --top 4         # run both fills at preview scale
+  uv run python scripts/optical_vs_ir_evidence.py --clicks               # Heal clicks on IR components
 
 IR is a baseline, not truth: it misses bright light-piping scratches and carries a
 misregistration skirt. "optical-only" is a review list, never a false-positive count.
@@ -35,13 +36,14 @@ APP_CONFIG.use_gpu = False
 from negpy.domain.models import WorkspaceConfig  # noqa: E402
 from negpy.features.retouch.logic import (  # noqa: E402
     _IR_WRITE_HI,
-    _is_hair,
     compute_dust_stats,
     detect_luma_score,
     downsample_ir,
     ir_defect_score,
     ir_detect_cutoff,
     ir_ratio_and_gain,
+    paint_to_score,
+    split_hairs,
 )
 from negpy.features.retouch.models import RetouchConfig  # noqa: E402
 from negpy.infrastructure.loaders.constants import is_ir_sidecar_path  # noqa: E402
@@ -57,6 +59,16 @@ BUCKETS = ("small", "medium", "large", "hair")
 BANDS = ("thin", "mid", "dense")
 GREEN = np.array([0.22, 1.0, 0.08], np.float32)
 MAGENTA = np.array([1.0, 0.0, 1.0], np.float32)
+
+
+CLICK_BRUSH = 6.0
+CLICK_VISIBLE = 0.16
+CLICK_CLEAN_PER_FRAME = 300
+CLICK_CLEAN_REACH = 12
+
+
+def _is_hair(sub: np.ndarray, area: int) -> bool:
+    return split_hairs(np.ascontiguousarray(sub, dtype=np.uint8))[1] is not None
 
 
 def planes(path: str, target: int, min_pool: bool) -> dict:
@@ -309,6 +321,67 @@ def bake_ab(
     return m
 
 
+def click_gate(p: dict, cx: int, cy: int) -> str:
+    """One Heal click with the default brush: "gate", "fallback" or "" (no answer)."""
+    h, w = p["small"].shape[:2]
+    at = [cx / w, cy / h]
+    # A stroke just longer than its radius has no fallback: the gate alone, on about the click's footprint.
+    reach = 0.35 * CLICK_BRUSH * max(h, w) / 1600 / w
+    gate = paint_to_score(p["small"], [([[at[0] - reach, at[1]], [at[0] + reach, at[1]]], CLICK_BRUSH, 0.0, 0.0)], [], p["vis"])
+    if any(m is not None for m in gate):
+        return "gate"
+    click = paint_to_score(p["small"], [([at], CLICK_BRUSH, 0.0, 0.0)], [], p["vis"])
+    return "fallback" if any(m is not None for m in click) else ""
+
+
+def click_frame(p: dict, rng: np.random.Generator) -> tuple:
+    """``(defect_rows, clean_rows)``: a click on the most visible pixel of each IR component, and
+    clicks on film with no IR defect near."""
+    raw = ir_defect_score(p["ratio"], ir_detect_cutoff(0.5, True)) <= 0.05
+    stats = compute_dust_stats(p["small"], 4)
+    labels, comps, _ = ir_components(raw.copy(), stats[1], stats[0] - stats[1])
+    vis_stats = compute_dust_stats(p["vis"], 4)
+    excess = vis_stats[0] - vis_stats[1]
+    rows = []
+    for c in comps:
+        ys, xs = np.nonzero(labels == c["label"])
+        k = int(np.argmax(excess[ys, xs]))
+        cx, cy = int(xs[k]), int(ys[k])
+        rows.append({"bucket": c["bucket"], "visible": float(excess[cy, cx]) > CLICK_VISIBLE, "answer": click_gate(p, cx, cy)})
+    h, w = raw.shape
+    near = _dilate(raw, CLICK_CLEAN_REACH)
+    clean = []
+    while len(clean) < CLICK_CLEAN_PER_FRAME:
+        cx, cy = int(rng.integers(40, w - 40)), int(rng.integers(40, h - 40))
+        if near[cy, cx] or stats[0][cy, cx] <= 0.15:
+            continue
+        clean.append({"answer": click_gate(p, cx, cy)})
+    return rows, clean
+
+
+def click_report(paths: list, target: int) -> None:
+    rng = np.random.default_rng(0)
+    rows, clean = [], []
+    for path in paths:
+        p = planes(path, target, True)
+        if bool(p["degenerate"]):
+            continue
+        r, c = click_frame(p, rng)
+        rows += r
+        clean += c
+
+    def line(name: str, items: list) -> None:
+        n = max(1, len(items))
+        gate = 100.0 * sum(1 for r in items if r["answer"] == "gate") / n
+        fallback = 100.0 * sum(1 for r in items if r["answer"] == "fallback") / n
+        print(f"{name:<14} n={len(items):>6}  gate {gate:5.1f}%  fallback {fallback:5.1f}%  any {gate + fallback:5.1f}%")
+
+    line("all defects", rows)
+    line("most visible", [r for r in rows if r["visible"]])
+    line("hairs", [r for r in rows if r["bucket"] == "hair"])
+    line("clean film", clean)
+
+
 def aggregate(frames: dict) -> dict:
     agg = {}
     for thr in THRESHOLDS:
@@ -428,6 +501,7 @@ def main() -> None:
     ap.add_argument("--top", type=int, default=8, help="crops per frame per list")
     ap.add_argument("--crop", type=int, default=160)
     ap.add_argument("--bake", action="store_true", help="also run both fills at detection scale")
+    ap.add_argument("--clicks", action="store_true", help="answer rate of the Heal gate for one click on each IR component")
     ap.add_argument("--json", help="write the per-frame and aggregate numbers here")
     ap.add_argument("--compare", help="a --json file from an earlier run to diff the aggregate against")
     args = ap.parse_args()
@@ -436,6 +510,9 @@ def main() -> None:
     if not paths:
         sys.exit("no files")
     os.makedirs(OUT_DIR, exist_ok=True)
+    if args.clicks:
+        click_report(paths, args.target)
+        return
     thresholds = tuple(sorted(set(THRESHOLDS) | {args.threshold}))
     globals()["THRESHOLDS"] = thresholds
 
