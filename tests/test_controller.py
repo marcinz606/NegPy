@@ -1505,6 +1505,123 @@ class TestAppController(unittest.TestCase):
 
         self.assertEqual(rolls.frame_override_cards(repo, roll_id, "h1"), set())
 
+    def _slide_roll(self, count: int = 4) -> str:
+        """An open roll of *count* slides, h1 open, and one negative."""
+        from negpy.services.assets import rolls
+
+        self._wire_repo_store()
+        session = self.mock_session_manager
+        state = session.state
+        files = [{"name": f"s{i}.tif", "path": f"/r/s{i}.tif", "hash": f"h{i}"} for i in range(1, count + 1)]
+        files.append({"name": "neg.tif", "path": "/r/neg.tif", "hash": "neg"})
+        roll_id = rolls.create_virtual_roll(session.repo, "Slides", [f["path"] for f in files])
+        state.active_roll_id = roll_id
+        state.uploaded_files = files
+        state.current_file_hash = "h1"
+        state.selected_file_idx = 0
+        state.selected_indices = [0]
+        state.config = _slide_config(WorkspaceConfig())
+        session.asset_model.visible_actual_indices_ordered.return_value = list(range(len(files)))
+        session.config_for_asset.side_effect = lambda f: WorkspaceConfig() if f["hash"] == "neg" else state.config
+        session.write_frame_fields.return_value = []
+        return roll_id
+
+    def test_estimate_roll_reads_the_slides_of_the_roll_and_no_negative(self):
+        self._slide_roll()
+        self.controller.fade_roll_requested.disconnect(self.controller.fade_roll_worker.process)
+        tasks = []
+        self.controller.fade_roll_requested.connect(tasks.append)
+
+        self.controller.estimate_fade_roll()
+
+        self.assertEqual([info["hash"] for info, _ in tasks[0].frames], ["h1", "h2", "h3", "h4"])
+        self.assertEqual(self.controller._active_batch, "fade_roll")
+        self.controller._on_batch_cancelled("fade_roll")
+
+    def test_estimate_roll_with_under_three_slides_says_so_and_starts_nothing(self):
+        self._slide_roll(count=2)
+        hints = []
+        self.controller.fade_roll_hint.connect(lambda *args: hints.append(args))
+
+        self.controller.estimate_fade_roll()
+
+        self.assertTrue(hints and hints[0][0])
+        self.assertIsNone(self.controller._active_batch)
+
+    def test_estimate_roll_gives_the_roll_its_values_and_no_crossover(self):
+        from negpy.desktop.workers.fade_roll import FadeRollResult
+        from negpy.features.process.fade_roll import CrossoverPick
+        from negpy.services.assets import rolls
+
+        roll_id = self._slide_roll()
+        repo = self.controller.session.repo
+        changes = dict(
+            fade_ratio_r=0.8, fade_ratio_g=0.9, fade_ratio_b=0.7, fade_density_shift=0.0, fade_auto_red=False, fade_white_anchor=False
+        )
+        hints = []
+        self.controller.fade_roll_hint.connect(lambda *args: hints.append(args))
+        self.controller._active_batch = "fade_roll"
+        self.controller._fade_roll_target = roll_id
+
+        self.controller._on_fade_roll_finished(
+            FadeRollResult(
+                changes=changes,
+                read=4,
+                counted=3,
+                outliers=["s4.tif"],
+                unread=["s5.tif"],
+                crossover=CrossoverPick("s2.tif", (0.0,) * 16, 3, 3, True),
+            )
+        )
+
+        defaults = rolls.roll_defaults(repo, roll_id)
+        self.assertEqual({k: defaults[k] for k in changes}, changes)
+        self.assertNotIn("fade_crossover_table", defaults)
+        others, section, written = self.mock_session_manager.write_frame_fields.call_args.args
+        self.assertEqual(([f["hash"] for f in others], section, written), (["h2", "h3", "h4"], "process", changes))
+        text, suggestion, details = hints[0]
+        self.assertIn("3 of 5", text)
+        self.assertIn("s2.tif", suggestion)
+        self.assertIn("s4.tif", details)
+        self.assertIn("s5.tif", details)
+        self.assertEqual(
+            self.controller.roll_survivals(), {k: v for k, v in changes.items() if k.startswith(("fade_ratio", "fade_density"))}
+        )
+
+    def test_estimate_roll_that_ends_on_another_roll_writes_nothing(self):
+        from negpy.desktop.workers.fade_roll import FadeRollResult
+        from negpy.services.assets import rolls
+
+        roll_id = self._slide_roll()
+        repo = self.controller.session.repo
+        other = rolls.create_virtual_roll(repo, "Other", [])
+        self.controller._active_batch = "fade_roll"
+        self.controller._fade_roll_target = roll_id
+        self.mock_session_manager.state.active_roll_id = other
+
+        self.controller._on_fade_roll_finished(FadeRollResult(changes={"fade_ratio_g": 0.9}, read=4, counted=4))
+
+        self.assertNotIn("fade_ratio_g", rolls.roll_defaults(repo, roll_id))
+        self.assertNotIn("fade_ratio_g", rolls.roll_defaults(repo, other))
+        self.assertIsNone(self.controller._active_batch)
+        self.mock_session_manager.write_frame_fields.assert_not_called()
+
+    def test_share_crossover_gives_the_roll_the_table_and_names_its_frame(self):
+        from negpy.services.assets import rolls
+
+        roll_id = self._slide_roll()
+        repo = self.controller.session.repo
+        state = self.mock_session_manager.state
+        state.config = replace(state.config, process=replace(state.config.process, fade_crossover=0.6))
+        table = tuple(0.01 * i for i in range(16))
+
+        self.controller.share_crossover(table, "space")
+
+        defaults = rolls.roll_defaults(repo, roll_id)
+        self.assertEqual(tuple(defaults["fade_crossover_table"]), table)
+        self.assertEqual((defaults["fade_crossover"], defaults["fade_crossover_space"]), (0.6, "space"))
+        self.assertEqual(self.controller.roll_crossover_source(), "s1.tif")
+
     def test_set_roll_default_matches_a_tuple_the_store_read_back_as_a_list(self):
         """The roll store is JSON, so crosstalk_matrix comes back as a list. Picking the roll's
         own crosstalk matrix again must still read as matching the roll."""

@@ -362,7 +362,7 @@ Korrigiert Farbfehler, die von Lichtquelle, Kamera und Film kommen.
 
 **Farbton-Trimmung** (Kamera mit schmalbandigem Licht): dreht alle Farben auf dem Farbkreis, für ein Licht, das Gelb orange oder Grün oliv färbt. Lass den Wert bei weißem Licht auf 0. Sie wirkt auch bei Dias, wo das Sensor-Farbvermischungsprofil nicht wirkt.
 
-<!-- panel:fade src:fbd4f136 -->
+<!-- panel:fade src:f1251435 -->
 ### 10.5 Ausbleichrestaurierung: ausgeblichene Dias
 
 Gibt einem ausgeblichenen Dia seine Farbstoffschichten zurück. Die Karte erscheint nur bei Dias.
@@ -373,7 +373,12 @@ Gibt einem ausgeblichenen Dia seine Farbstoffschichten zurück. Die Karte ersche
 *   **Grün-Erhalt** / **Blau-Erhalt**: dasselbe, gemessen an Rot.
 *   **Schleier entfernen**: macht gelb gewordene klare Bereiche weiß und führt Schätzen erneut aus. Schalte es ein, wenn Schätzen es vorschlägt.
 *   **Graumischung**: ändert, welchen Grautönen Schätzen vertraut. Ziehe den Regler, wenn die Farben nicht stimmen.
-*   **Crossover**: entfernt eine Farbverschiebung zwischen Schatten und Lichtern. Stelle ihn an einem Bild mit klaren Grautönen ein und klicke dann auf der Karte auf **Rolle**.
+*   **Crossover**: entfernt eine Farbverschiebung zwischen Schatten und Lichtern. Ziehe ihn auf jedem Bild, oder teile den eines Bildes mit Crossover teilen.
+
+Die Gruppe Rolle am Ende der Karte wirkt auf jedes Bild der Rolle:
+
+*   **Rolle schätzen**: liest jedes Dia der Rolle oder die ausgewählten und gibt jedem Bild denselben Erhalt und dasselbe Umfang wiederherstellen. Dias, die sich anders lesen, etwa bei Innenlicht, zählen nicht zur Messung, übernehmen aber das Ergebnis. Jedes Bild behält seinen eigenen Crossover.
+*   **Crossover teilen**: misst den Crossover auf diesem Bild und gibt ihn jedem Bild, mit der Stärke dieses Bildes. Nimm ein Bild mit klaren Grautönen in hellen und dunklen Bereichen, zum Beispiel eine Straße und weiße Kleidung. Der Rollenhinweis kann eines vorschlagen.
 
 <!-- panel:process src:2c179de9 -->
 ### 10.6 Messung: Negativ → Positiv
