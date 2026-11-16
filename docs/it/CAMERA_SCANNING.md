@@ -34,6 +34,7 @@ profilo di [calibrazione del sensore](#calibrazione-del-sensore). Vedi [Miscela]
 | **python-gphoto2** | Dipendenza facoltativa, LGPL. `pip install gphoto2`. Nessun SDK del produttore è incluso, collegato o richiesto. |
 | **Scanlight** *(facoltativo)* | Serve solo per la luce a banda stretta. |
 | **Lento Dock** *(facoltativo)* | Si usa al posto di uno Scanlight. Vedi [Lento Dock](#lento-dock). |
+| **CuteNew RGB AIR** *(facoltativo)* | Si usa al posto di uno Scanlight. Vedi [CuteNew RGB AIR](#cutenew-rgb-air). |
 
 Senza python-gphoto2, lo scanner Fotocamera della scheda Scansione mostra un suggerimento di configurazione di una riga e il resto
 di NegPy funziona come al solito.
@@ -216,6 +217,21 @@ ed Esposizione singola decodificano in RAW lineare; un fotogramma già modificat
 **Luce a banda stretta.** I LED a banda stretta separano gli strati di colorante in modo più pulito della luce bianca, quindi
 i colori risultano più saturi. Il supporto di stampa *Digitale (Adobe RGB)* li stampa attraverso coloranti
 ideali; una carta o una pellicola da stampa in **Supporto di stampa** li stampa attraverso i coloranti propri di quel supporto.
+
+### CuteNew RGB AIR
+
+Un CuteNew RGB AIR può fare da luce al posto di uno Scanlight. NegPy tiene la luce ai livelli
+del preset, quindi l'otturatore della fotocamera imposta ogni esposizione, come con uno Scanlight.
+Live View, Esposimetro, Calibra, preimpostazioni, Tricromia ed Esposizione singola funzionano come descritto sopra.
+
+- NegPy usa un RGB AIR prima di uno Scanlight. Per scansionare con lo Scanlight, scollega l'RGB AIR.
+- La luce regola ogni canale in 100 passi. NegPy converte il livello LED 0-255 in questi passi.
+- La luce non ha LED bianco né luce infrarossa. NegPy offre comunque i preset a luce bianca
+  e accende rosso, verde e blu insieme allo stesso livello.
+- NegPy non usa la sequenza di scatto della luce né la sua uscita otturatore. Miscela con
+  **Cavo** non è disponibile.
+- NegPy spegne la luce quando si chiude. La luce resta accesa se si scollega il cavo USB.
+- La luce riporta la sua temperatura accanto allo stato Luce. NegPy registra i guasti segnalati dalla luce.
 
 ### Lento Dock
 
@@ -418,6 +434,7 @@ LED alla volta). Il suo errore di colore residuo è la diafonia dei coloranti de
 | Il selettore del diaframma è disattivato | L'obiettivo non ha un diaframma elettronico. | Imposta il diaframma sull'obiettivo. |
 | Un'impostazione torna al vecchio valore | Le scritture delle proprietà sono asincrone. | NegPy controlla finché il valore non viene applicato e registra un avviso se non succede mai. In quel caso l'impostazione non è scrivibile nella modalità attuale del corpo. Prova **M**. |
 | Lo Scanlight non viene rilevato | Porta USB-C sbagliata. | Solo una delle due porte trasporta dati; l'altra è solo alimentazione. Usa la porta dati. |
+| Il CuteNew RGB AIR non viene rilevato su Linux | L'utente non può aprire la porta seriale. | Aggiungi l'utente al gruppo `dialout` (vedi sotto). |
 | Il Lento Dock non viene rilevato | Dock Connect tiene occupata la porta del caricatore, oppure è collegato uno Scanlight. | Chiudi Dock Connect. Scollega lo Scanlight. |
 | Lo Scanlight non viene rilevato su Linux, e la porta dati è quella giusta | Il tuo utente non può aprire la porta seriale (la maggior parte delle distribuzioni la assegna al gruppo `dialout`). | `sudo usermod -aG dialout $USER`, poi esci dalla sessione e rientra. |
 
@@ -443,6 +460,8 @@ LED alla volta). Il suo errore di colore residuo è la diafonia dei coloranti de
 - **Velocità.** La maggior parte del tempo di una terna è la latenza di trasferimento per immagine del corpo. Gli scatti
   avvengono all'interno della sessione di Live View in corso, senza riconnessione per fotogramma.
 - **Lento Dock.** Provato con un Dock 35 con firmware 1.0.224.
+- **CuteNew RGB AIR.** Costruito dal riferimento del protocollo cliente 1.3 e da una luce simulata.
+  Non è provato su una luce reale.
 - **Riconoscimenti.** La sequenza R/G/B e l'approccio alla calibrazione dell'esposizione provengono da
   [rohanpandula/TriRGB](https://github.com/rohanpandula/TriRGB). La luce è
   [jackw01/scanlight](https://github.com/jackw01/scanlight). La fotocamera è pilotata tramite
