@@ -5,6 +5,7 @@ EXIF-oriented and flat-fielded — transforms estimated here are only valid on
 buffers decoded the same way.
 """
 
+from negpy.kernel.system.i18n import mark, tr
 import math
 from typing import Callable, List, Optional, Sequence, Tuple
 
@@ -16,7 +17,7 @@ from negpy.features.stitch.models import StitchConfig
 PROXY_MAX_EDGE = 1600
 MIN_INLIERS = 100
 
-_NO_OVERLAP_MSG = "Could not find overlap between the selected frames"
+_NO_OVERLAP_MSG = mark("Could not find overlap between the selected frames")
 
 
 class StitchError(RuntimeError):
@@ -50,7 +51,7 @@ def register_pair(ref_proxy: np.ndarray, mov_proxy: np.ndarray, min_inliers: int
         np.ascontiguousarray(ref_proxy, dtype=np.uint8), np.ascontiguousarray(mov_proxy, dtype=np.uint8), min_inliers
     )
     if found is None:
-        raise StitchError(_NO_OVERLAP_MSG)
+        raise StitchError(tr(_NO_OVERLAP_MSG))
     matrix, inliers = found
     return np.array(matrix, np.float64).reshape(2, 3), inliers
 
@@ -100,7 +101,7 @@ def register_parts(
     for i in range(1, len(parts)):
         if is_cancelled():
             raise StitchCancelled("Cancelled")
-        on_progress(i, len(parts) - 1, f"Registering frame {i + 1}")
+        on_progress(i, len(parts) - 1, tr("Registering frame {value}", value=i + 1))
         matrix, _ = register_pair(proxies[i - 1][0], proxies[i][0])
         full = scale_affine(matrix, proxies[i - 1][1], proxies[i][1])
         transforms.append(chain_affine(transforms[i - 1], full))

@@ -767,7 +767,7 @@ class ExportSidebar(BaseSidebar):
         combo.blockSignals(True)
         combo.clear()
         for key, label in TIFF_GAMMA_OPTIONS:
-            combo.addItem(label, key)
+            combo.addItem(tr(label), key)
         current = self.state.linear_gamma_key
         for i, (key, _label) in enumerate(TIFF_GAMMA_OPTIONS):
             if key == current:
@@ -863,7 +863,7 @@ class ExportSidebar(BaseSidebar):
         )
         self.proof_save_btn = icon_button("fa5s.save", tr("Save the current proof set-up as a named preset"))
         self.proof_delete_btn = icon_button("fa5s.trash", tr("Delete the selected preset"))
-        cond_row = self._proof_row("Preset", self.proof_condition_combo, railed=True)
+        cond_row = self._proof_row(tr("Preset"), self.proof_condition_combo, railed=True)
         cond_row.addWidget(self.proof_save_btn)
         cond_row.addWidget(self.proof_delete_btn)
 
@@ -878,7 +878,7 @@ class ExportSidebar(BaseSidebar):
         self.proof_intent_combo = StepCombo()
         constrain_combo(self.proof_intent_combo)
         for value, label in PROOF_INTENT_LABELS.items():
-            self.proof_intent_combo.addItem(label, value)
+            self.proof_intent_combo.addItem(tr(label), value)
         self.proof_intent_combo.setToolTip(
             tr(
                 "How to handle colors the paper cannot print: Relative Colorimetric clips them, and Perceptual compresses all colors to keep their relations."
@@ -912,8 +912,8 @@ class ExportSidebar(BaseSidebar):
         col.addWidget(
             SliderGroup(
                 cond_row,
-                self._proof_row("Profile", self.proof_profile_combo, railed=True),
-                self._proof_row("Intent", self.proof_intent_combo, railed=True),
+                self._proof_row(tr("Profile"), self.proof_profile_combo, railed=True),
+                self._proof_row(tr("Intent"), self.proof_intent_combo, railed=True),
                 self.proof_bpc_btn,
                 self.proof_paper_white_btn,
                 self.proof_ink_black_btn,

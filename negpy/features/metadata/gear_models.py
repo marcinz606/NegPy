@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from negpy.kernel.system.i18n import tr
 import uuid
 from dataclasses import dataclass, field
 from enum import Enum
@@ -131,7 +132,7 @@ class Lens:
             return self.display_name.strip()
         if self.lens_model.strip():
             return self.lens_model.strip()
-        return "Unnamed lens"
+        return tr("Unnamed lens")
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {
@@ -327,7 +328,7 @@ class DevelopmentProcess:
             return self.display_name.strip()
         if self.developer.strip():
             return " ".join(p for p in (self.developer.strip(), self.dilution.strip()) if p)
-        return "Unnamed process"
+        return tr("Unnamed process")
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -371,7 +372,7 @@ class ScanSetup:
             return self.display_name.strip()
         if self.scanning.strip():
             return self.scanning.strip()
-        return "Unnamed scan setup"
+        return tr("Unnamed scan setup")
 
     def to_dict(self) -> dict[str, Any]:
         return {

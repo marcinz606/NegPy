@@ -234,7 +234,7 @@ class RollSettingsDialog(QDialog):
 
     def _build_capture_date_group(self) -> QWidget:
         self.capture_date_edit = QLineEdit()
-        self.capture_date_edit.setPlaceholderText(CAPTURE_DATE_HINT)
+        self.capture_date_edit.setPlaceholderText(tr(CAPTURE_DATE_HINT))
         self.capture_date_edit.setText(self._meta.capture_date)
         self.capture_date_edit.setToolTip(wrap_tooltip(tr("When the frames were taken: a year, a month, a date, or a date and time.")))
         self.capture_date_edit.textEdited.connect(lambda _t: self._checks["Capture Date"].setChecked(True))
@@ -344,7 +344,7 @@ class RollSettingsDialog(QDialog):
         time_col.setSpacing(THEME.space_md)
         time_col.addWidget(field_label(tr("Time")))
         self.dev_time_edit = QLineEdit()
-        self.dev_time_edit.setPlaceholderText(DEV_TIME_HINT)
+        self.dev_time_edit.setPlaceholderText(tr(DEV_TIME_HINT))
         self.dev_time_edit.setToolTip(wrap_tooltip(tr("Development time, as mm:ss or plain minutes.")))
         self.dev_time_edit.setText(format_dev_time(self._meta.process_time_seconds))
         self.dev_time_edit.textEdited.connect(lambda _t: self._checks["Process"].setChecked(True))

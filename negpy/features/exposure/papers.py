@@ -24,6 +24,7 @@ import numpy as np
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS
 from negpy.features.exposure.print_lut import DyeLut, DyeMatrix, DyeMatrixRows, PrintColor, PrintLut, flat_matrix, load_print_lut
 from negpy.features.process.models import ProcessMode
+from negpy.kernel.system.i18n import mark
 
 DEFAULT_PROFILE_KEY = "neutral"
 
@@ -92,14 +93,14 @@ class PaperProfile:
 
 
 PAPER_PROFILES: Dict[str, PaperProfile] = {
-    DEFAULT_PROFILE_KEY: PaperProfile(label="Digital (Adobe RGB)", short="Digital", kind="default", medium="digital"),
+    DEFAULT_PROFILE_KEY: PaperProfile(label=mark("Digital (Adobe RGB)"), short=mark("Digital"), kind="default", medium="digital"),
     # Digital's curve with a Pakon minilab's colors: the LUT is RGBScan.icc applied to Digital's print.
-    "pakon": PaperProfile(label="Digital (Pakon)", short="Pakon", kind="ra4", medium="digital", print_color=DyeLut("pakon")),
+    "pakon": PaperProfile(label=mark("Digital (Pakon)"), short="Pakon", kind="ra4", medium="digital", print_color=DyeLut("pakon")),
     # A Frontier 350/370's file output, from its own tables, with a neutral gray axis. The curve shape is fitted to its
     # gray curve on the print density axis (543 codes per log E). slope_gain prints L* 90 to 10 over Digital's log E span
     # at the same Grade. The fit's equal-ISO-R gain (1.5) separates the layers so far that warm shadows block in two.
     "frontier": PaperProfile(
-        label="Digital (Frontier)",
+        label=mark("Digital (Frontier)"),
         short="Frontier",
         kind="ra4",
         medium="digital",

@@ -42,6 +42,7 @@ _CHOICE_LABELS = {
     "Original": mark("Original"),
     "Same as Source": mark("Same as Source"),
     "Free": mark("Free"),
+    "Greyscale": mark("Grayscale"),
 }
 
 

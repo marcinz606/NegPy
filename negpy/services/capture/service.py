@@ -9,6 +9,7 @@ so the whole flow is unit-testable with fakes.
 
 from __future__ import annotations
 
+from negpy.kernel.system.i18n import tr
 import math
 import os
 import shutil
@@ -75,7 +76,7 @@ def blend_plan(levels: tuple[int, int, int], seconds: float, *, max_light_s: Opt
     together would last longer than `max_light_s`."""
     lit = [(ch, level) for ch, level in zip(CAPTURE_ORDER, levels) if level > 0]
     if not lit or seconds <= 0:
-        raise CaptureError("a Blend exposure needs a shutter time and at least one lit channel")
+        raise CaptureError(tr("a Blend exposure needs a shutter time and at least one lit channel"))
     low = min(level for _, level in lit)
     high = max(level for _, level in lit)
     floor = min(PWM_MIN, low) / low  # dims no channel under the calibration's LED floor
@@ -84,8 +85,11 @@ def blend_plan(levels: tuple[int, int, int], seconds: float, *, max_light_s: Opt
     ceiling = PWM_MAX / high
     if floor > ceiling:
         raise CaptureError(
-            f"the Blend exposure needs {len(lit) * seconds * high / PWM_MAX:.1f} s of light, more than the "
-            f"release cable holds ({max_light_s:.1f} s); open the aperture or raise the ISO, then calibrate again"
+            tr(
+                "the Blend exposure needs {value:.1f} s of light, more than the release cable holds ({value1:.1f} s); open the aperture or raise the ISO, then calibrate again",
+                value=len(lit) * seconds * high / PWM_MAX,
+                value1=max_light_s,
+            )
         )
     factor = min(max(min(1.0, seconds / BLEND_MIN_CHANNEL_S), floor), ceiling)
     steps = []
@@ -94,7 +98,7 @@ def blend_plan(levels: tuple[int, int, int], seconds: float, *, max_light_s: Opt
         scaled = max(1, min(PWM_MAX, math.ceil(level * factor - 1e-9) if max_light_s is not None else round(level * factor)))
         steps.append(BlendStep(ch, scaled, seconds * level / scaled))  # exact against the rounding
     if max_light_s is not None and sum(s.seconds for s in steps) > max_light_s + 1e-9:
-        raise CaptureError(f"the Blend exposure is longer than the release cable holds ({max_light_s:.1f} s)")
+        raise CaptureError(tr("the Blend exposure is longer than the release cable holds ({value:.1f} s)", value=max_light_s))
     if min(s.seconds for s in steps) < BLEND_MIN_CHANNEL_S:
         logger.warning(
             "blend: %.3f s per channel is short to time; close the aperture or lower the ISO for longer channels", steps[0].seconds
@@ -107,12 +111,17 @@ def verify_raw_size(path: str, min_bytes: int, max_bytes: int) -> None:
     try:
         size = os.path.getsize(path)
     except OSError as exc:
-        raise CaptureError(f"captured file is missing: {path}") from exc
+        raise CaptureError(tr("captured file is missing: {value}", value=path)) from exc
     if not min_bytes <= size <= max_bytes:
         lo, hi = min_bytes // 1024 // 1024, max_bytes // 1024 // 1024
         raise CaptureError(
-            f"{os.path.basename(path)} is {size / 1024 / 1024:.1f} MB, outside the plausible "
-            f"RAW range ({lo}-{hi} MB) — did the film move or the camera misfire?"
+            tr(
+                "{value} is {value1:.1f} MB, outside the plausible RAW range ({value2}-{value3} MB). Did the film move or the camera misfire?",
+                value=os.path.basename(path),
+                value1=size / 1024 / 1024,
+                value2=lo,
+                value3=hi,
+            )
         )
 
 
@@ -141,7 +150,7 @@ def _capture_validated_single(
         verify_raw_size(staged_path, min_raw_bytes, max_raw_bytes)
         final_path = os.path.join(output_folder, os.path.basename(staged_path))
         if cancel is not None and cancel.is_set():
-            raise CaptureError("capture cancelled")
+            raise CaptureError(tr("capture cancelled"))
         os.replace(staged_path, final_path)
         return final_path
     finally:
@@ -212,7 +221,7 @@ def _promote_triplet(staged_paths: dict[Channel, str], output_folder: str) -> di
                     os.remove(final_path)
             except OSError:
                 logger.exception("could not roll back channel %s after promotion failure", channel.letter)
-        raise CaptureError(f"could not promote completed triplet: {exc}") from exc
+        raise CaptureError(tr("could not promote completed triplet: {value}", value=exc)) from exc
 
     return final_paths
 
@@ -260,7 +269,7 @@ class CaptureService:
         try:
             for i, ch in enumerate(CAPTURE_ORDER):
                 if cancel is not None and cancel.is_set():
-                    raise CaptureError("capture cancelled")
+                    raise CaptureError(tr("capture cancelled"))
                 if on_channel is not None:
                     on_channel(ch.letter)
 
@@ -305,7 +314,7 @@ class CaptureService:
                     self._sleep(settings.inter_exposure_delay_s)
 
             if cancel is not None and cancel.is_set():
-                raise CaptureError("capture cancelled")
+                raise CaptureError(tr("capture cancelled"))
             paths = _promote_triplet(staged_paths, settings.output_folder)
             ok = True
         finally:
@@ -366,11 +375,11 @@ class CaptureService:
         `seconds` is the Trichrome shutter's true time; see `blend_plan`. The shutter opens and
         closes in the dark. A Stop between channels ends the light and discards the file."""
         if not isinstance(self._camera, BulbCamera):
-            raise CaptureError("this camera cannot take a Bulb exposure")
+            raise CaptureError(tr("this camera cannot take a Bulb exposure"))
         camera = cast(BulbCamera, self._camera)
         cable = release is BulbRelease.CABLE
         if cable and not isinstance(self._light, ShutterRelease):
-            raise CaptureError("this light has no shutter release output for a cable")
+            raise CaptureError(tr("this light has no shutter release output for a cable"))
         pulse = cast(ShutterRelease, self._light) if cable else None
         budget = MAX_SHUTTER_PULSE_S - BULB_LEAD_S - BULB_TAIL_S if cable else None
         plan = blend_plan(settings.levels, seconds, max_light_s=budget)

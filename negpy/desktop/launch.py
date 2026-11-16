@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from negpy.kernel.system.i18n import tr
 import argparse
 import hashlib
 import json
@@ -100,21 +101,21 @@ def parse_launch_args(argv: Sequence[str]) -> LaunchRequest:
     known, unknown = _build_parser().parse_known_args(list(argv))
     flags = [arg for arg in unknown if arg.startswith("--")]
     if flags:
-        raise LaunchArgsError(f"unrecognized arguments: {' '.join(flags)}")
+        raise LaunchArgsError(tr("unrecognized arguments: {value}", value=" ".join(flags)))
     if known.dpi and known.long_edge:
-        raise LaunchArgsError("--dpi applies to --print-size, not to --long-edge")
+        raise LaunchArgsError(tr("--dpi applies to --print-size, not to --long-edge"))
     if known.profile and not os.path.isfile(known.profile):
-        raise LaunchArgsError(f"ICC profile not found: {known.profile}")
+        raise LaunchArgsError(tr("ICC profile not found: {value}", value=known.profile))
     values = vars(known)
     render = values.pop("render")
     paths = tuple(os.path.abspath(p) for p in values.pop("paths") if p and not p.startswith("-"))
     if render:
         if not paths:
-            raise LaunchArgsError("--render needs at least one file or folder")
+            raise LaunchArgsError(tr("--render needs at least one file or folder"))
         if known.intent == "linear":
-            raise LaunchArgsError("--render makes print or flat files; --intent linear is not available")
+            raise LaunchArgsError(tr("--render makes print or flat files; --intent linear is not available"))
         if known.quit_after_export:
-            raise LaunchArgsError("--quit-after-export does not apply to --render, which always exits")
+            raise LaunchArgsError(tr("--quit-after-export does not apply to --render, which always exits"))
     for key in ("output_dir", "profile"):
         if values[key]:
             values[key] = os.path.abspath(os.path.expanduser(values[key]))

@@ -113,7 +113,7 @@ class ProcessSidebar(BaseSidebar):
     def set_clipping(self, clip_low: float | None, clip_high: float | None) -> None:
         """Show the print's shadow and highlight clipping shares: the Analysis stats' Clipping row."""
         row = clipping_row(clip_low, clip_high)
-        self.clipping_hint.setText(tr("{value}: {value1}", value=row.name, value1=row.value))
+        self.clipping_hint.setText(tr("{value}: {value1}", value=tr(row.name), value1=row.value))
         set_hint_kind(self.clipping_hint, "warning" if row.warn else "muted")
 
     def _init_ui(self) -> None:

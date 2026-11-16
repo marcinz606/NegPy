@@ -1,3 +1,4 @@
+from negpy.kernel.system.i18n import tr
 import math
 import re
 import subprocess
@@ -132,10 +133,10 @@ def _infer_film_scanner(opt, device_id: str, device_type: str = "") -> bool:
 
 def _resolve_install_hint() -> str:
     if sys.platform == "darwin":
-        return "Install: brew install sane-backends && uv sync --group sane"
+        return tr("Install: brew install sane-backends && uv sync --group sane")
     if sys.platform.startswith("linux"):
-        return "Install: sudo apt install libsane-dev && uv sync --group sane"
-    return "Scanner support is not available on this platform."
+        return tr("Install: sudo apt install libsane-dev && uv sync --group sane")
+    return tr("Scanner support is not available on this platform.")
 
 
 def _preload_libsane() -> None:
@@ -367,7 +368,7 @@ def _apply_frame_offset(dev, offset_mm: float) -> None:
     try:
         dev.subframe = float(offset_mm)
     except Exception as e:
-        raise RuntimeError(f"Could not set frame offset (subframe)={offset_mm}: {e}") from e
+        raise RuntimeError(tr("Could not set frame offset (subframe)={value}: {value1}", value=offset_mm, value1=e)) from e
 
 
 def _apply_scan_window(dev, option_map, window: tuple[float, float, float, float] | None) -> None:
@@ -426,9 +427,9 @@ def _scanimage_eject(device_id: str) -> None:
             timeout=_EJECT_TIMEOUT_S,
         )
     except FileNotFoundError as exc:
-        raise RuntimeError("Cannot eject: `scanimage` (sane-utils) is not installed") from exc
+        raise RuntimeError(tr("Cannot eject: `scanimage` (sane-utils) is not installed")) from exc
     except subprocess.TimeoutExpired as exc:
-        raise RuntimeError(f"Eject timed out after {_EJECT_TIMEOUT_S:g}s for {device_id!r}") from exc
+        raise RuntimeError(tr("Eject timed out after {value:g}s for {value1!r}", value=_EJECT_TIMEOUT_S, value1=device_id)) from exc
 
     if proc.returncode == 0:
         return
@@ -436,7 +437,7 @@ def _scanimage_eject(device_id: str) -> None:
     if any(marker in stderr for marker in _EJECT_BENIGN_STDERR_MARKERS):
         return
     detail = (proc.stderr or "").strip() or f"exit code {proc.returncode}"
-    raise RuntimeError(f"scanimage --eject failed for {device_id!r}: {detail}")
+    raise RuntimeError(tr("scanimage --eject failed for {value!r}: {value1}", value=device_id, value1=detail))
 
 
 def _sane_container_depth(requested_depth: int) -> int:
@@ -669,17 +670,21 @@ def _require_writable_option(opt, option_name: str, absent_message: str) -> None
         try:
             active = bool(is_active())
         except Exception as e:
-            raise RuntimeError(f"Could not determine whether requested SANE option {option_name!r} is active: {e}") from e
+            raise RuntimeError(
+                tr("Could not determine whether requested SANE option {value!r} is active: {value1}", value=option_name, value1=e)
+            ) from e
         if not active:
-            raise RuntimeError(f"Requested SANE option {option_name!r} is inactive")
+            raise RuntimeError(tr("Requested SANE option {value!r} is inactive", value=option_name))
     is_settable = getattr(opt[option_name], "is_settable", None)
     if callable(is_settable):
         try:
             settable = bool(is_settable())
         except Exception as e:
-            raise RuntimeError(f"Could not determine whether requested SANE option {option_name!r} is settable: {e}") from e
+            raise RuntimeError(
+                tr("Could not determine whether requested SANE option {value!r} is settable: {value1}", value=option_name, value1=e)
+            ) from e
         if not settable:
-            raise RuntimeError(f"Requested SANE option {option_name!r} is not settable")
+            raise RuntimeError(tr("Requested SANE option {value!r} is not settable", value=option_name))
 
 
 def _caps_from_options(opt, device_id: str = "", device_type: str = "") -> ScannerCapabilities:
@@ -783,24 +788,41 @@ def _validate_inline_rgbi_parameters(
 ) -> None:
     """Reject SANE metadata that cannot describe an inline RGBI frame."""
     if frame_format != "color":
-        raise RuntimeError(f"{context} reported SANE frame format {frame_format!r}; expected 'color'")
+        raise RuntimeError(tr("{value} reported SANE frame format {value1!r}; expected 'color'", value=context, value1=frame_format))
     if type(last_frame) not in (bool, int) or last_frame != 1:
-        raise RuntimeError(f"{context} reported last_frame={last_frame!r}; expected true for one inline RGBI frame")
+        raise RuntimeError(
+            tr("{value} reported last_frame={value1!r}; expected true for one inline RGBI frame", value=context, value1=last_frame)
+        )
     if type(returned_depth) is not int or returned_depth not in (8, 16):
-        raise RuntimeError(f"{context} reported unusable sample depth {returned_depth!r}; expected 8 or 16 bits")
+        raise RuntimeError(
+            tr("{value} reported unusable sample depth {value1!r}; expected 8 or 16 bits", value=context, value1=returned_depth)
+        )
     expected_container = _sane_container_depth(requested_depth)
     if returned_depth != expected_container:
         raise RuntimeError(
-            f"{context} reported sample depth {returned_depth}, but the scan requested {requested_depth} "
-            f"(expected a {expected_container}-bit container)"
+            tr(
+                "{value} reported sample depth {value1}, but the scan requested {value2} (expected a {value3}-bit container)",
+                value=context,
+                value1=returned_depth,
+                value2=requested_depth,
+                value3=expected_container,
+            )
         )
     if type(pixels_per_line) is not int or pixels_per_line <= 0 or type(lines) is not int or lines <= 0:
-        raise RuntimeError(f"{context} reported invalid frame dimensions {pixels_per_line!r}x{lines!r}")
+        raise RuntimeError(
+            tr("{value} reported invalid frame dimensions {value1!r}x{value2!r}", value=context, value1=pixels_per_line, value2=lines)
+        )
     expected_bytes_per_line = pixels_per_line * 4 * math.ceil(returned_depth / 8)
     if type(bytes_per_line) is not int or bytes_per_line != expected_bytes_per_line:
         raise RuntimeError(
-            f"{context} reported bytes_per_line {bytes_per_line!r}; expected {expected_bytes_per_line} "
-            f"for {pixels_per_line} pixels, four channels, and {returned_depth}-bit samples"
+            tr(
+                "{value} reported bytes_per_line {value1!r}; expected {value2} for {value3} pixels, four channels, and {value4}-bit samples",
+                value=context,
+                value1=bytes_per_line,
+                value2=expected_bytes_per_line,
+                value3=pixels_per_line,
+                value4=returned_depth,
+            )
         )
 
 
@@ -901,7 +923,7 @@ class SaneSession:
         both. See ScannerBackend's progress obligation.
         """
         if self.closed:
-            raise RuntimeError(f"Scanner session for {self.device_id} is closed")
+            raise RuntimeError(tr("Scanner session for {value} is closed", value=self.device_id))
         return self._backend._scan_on_device(self._dev, self.device_id, params, progress, cancel)
 
     def eject(self) -> bool:
@@ -912,7 +934,7 @@ class SaneSession:
         closed either way — scanimage needs the single open slot.
         """
         if self.closed:
-            raise RuntimeError(f"Scanner session for {self.device_id} is closed")
+            raise RuntimeError(tr("Scanner session for {value} is closed", value=self.device_id))
         option_map = self._dev.opt if hasattr(self._dev, "opt") else {}
         eject_option = _find_eject_option(option_map)
         has_eject = eject_option is not None and _option_is_usable(option_map[eject_option])
@@ -942,7 +964,7 @@ class SaneBackend:
         try:
             import sane  # noqa: F811
         except ImportError:
-            raise ScannerUnavailable(f"python-sane not importable. {_resolve_install_hint()}") from None
+            raise ScannerUnavailable(tr("python-sane not importable. {value}", value=_resolve_install_hint())) from None
         self._sane = sane
         self._sane_initialized = False
         self._devices_cache: list[ScannerDevice] | None = None
@@ -1048,11 +1070,11 @@ class SaneBackend:
         try:
             self._ensure_initialized()
         except Exception as exc:
-            raise RuntimeError(f"Failed to initialize SANE before opening a session: {exc}") from exc
+            raise RuntimeError(tr("Failed to initialize SANE before opening a session: {value}", value=exc)) from exc
 
         with self._session_lock:
             if self._session_holding(device_id) is not None:
-                raise RuntimeError(f"Scanner {device_id} is already held by an active session")
+                raise RuntimeError(tr("Scanner {value} is already held by an active session", value=device_id))
             dev, opened_id = self._open_device(device_id)
             device = next((d for d in (self._devices_cache or []) if d.id == device_id), None)
             session = SaneSession(self, device_id, dev, opened_id, device)
@@ -1109,15 +1131,15 @@ class SaneBackend:
         try:
             self._ensure_initialized()
         except Exception as exc:
-            raise RuntimeError(f"Failed to initialize SANE before scanning: {exc}") from exc
+            raise RuntimeError(tr("Failed to initialize SANE before scanning: {value}", value=exc)) from exc
 
         if self._session_holding(device_id) is not None:
-            raise RuntimeError(f"Scanner {device_id} is held by an active session — scan through that session")
+            raise RuntimeError(tr("Scanner {value} is held by an active session: scan through that session", value=device_id))
 
         try:
             dev, _ = self._open_device(device_id)
         except Exception as e:
-            raise _as_scan_error(e, f"Failed to open scanner {device_id}: {e}") from e
+            raise _as_scan_error(e, tr("Failed to open scanner {value}: {value1}", value=device_id, value1=e)) from e
 
         try:
             return self._scan_on_device(dev, device_id, params, progress, cancel)
@@ -1141,7 +1163,7 @@ class SaneBackend:
             # IR capture strategy decides the scan mode (RGBI yields a 4th channel inline).
             ir_strategy = self._ir_strategy(dev, device_id) if params.capture_ir else None
             if params.capture_ir and ir_strategy is None:
-                raise RuntimeError("IR capture requested but the device exposes no usable infrared mechanism")
+                raise RuntimeError(tr("IR capture requested but the device exposes no usable infrared mechanism"))
 
             # caps.sources (Negative/Positive/Transparency) only gates the Scan button in the
             # UI today — nothing actually switches the device's `source` away from its power-on
@@ -1162,7 +1184,7 @@ class SaneBackend:
                 try:
                     dev.source = transparency_source
                 except Exception as e:
-                    raise RuntimeError(f"Could not set source={transparency_source!r}: {e}") from e
+                    raise RuntimeError(tr("Could not set source={value!r}: {value1}", value=transparency_source, value1=e)) from e
                 # Re-read: switching source can change which options (film_type, color
                 # correction, resolution, etc.) become active/inactive or reset their value.
                 option_map = dev.opt if hasattr(dev, "opt") else {}
@@ -1172,7 +1194,7 @@ class SaneBackend:
                 try:
                     dev.film_type = film_type_value
                 except Exception as e:
-                    raise RuntimeError(f"Could not set film_type={film_type_value!r}: {e}") from e
+                    raise RuntimeError(tr("Could not set film_type={value!r}: {value1}", value=film_type_value, value1=e)) from e
 
             # Not every backend has a `mode` option, and coolscan3 exposes none, so touch only the
             # options the device has. Set after source/film_type above, since those can reset
@@ -1202,8 +1224,11 @@ class SaneBackend:
             if resampled_dpis:
                 if params.dpi not in resampled_dpis:
                     raise RuntimeError(
-                        f"{params.dpi}dpi is not reachable on this device's per-axis "
-                        f"resolution options; choose one of {sorted(resampled_dpis)}"
+                        tr(
+                            "{value}dpi is not reachable on this device's per-axis resolution options; choose one of {value1}",
+                            value=params.dpi,
+                            value1=sorted(resampled_dpis),
+                        )
                     )
                 y_native_dpi = resampled_dpis[params.dpi]
                 if y_native_dpi != params.dpi and params.capture_ir:
@@ -1215,10 +1240,12 @@ class SaneBackend:
                     # and not worth guessing on a precision-sensitive measurement: fail loudly
                     # and let the caller pick a DPI native on both axes instead.
                     raise RuntimeError(
-                        f"{params.dpi}dpi needs resampling the y axis from its native "
-                        f"{y_native_dpi}dpi, which is not supported together with IR capture. "
-                        f"Choose a DPI native on both axes for IR scans: "
-                        f"{_resolve_square_resolutions(option_map)}"
+                        tr(
+                            "{value}dpi needs resampling the y axis from its native {value1}dpi, which is not supported together with IR capture. Choose a DPI native on both axes for IR scans: {value2}",
+                            value=params.dpi,
+                            value1=y_native_dpi,
+                            value2=_resolve_square_resolutions(option_map),
+                        )
                     )
                 dev.x_resolution = params.dpi
                 dev.y_resolution = y_native_dpi
@@ -1231,13 +1258,15 @@ class SaneBackend:
             ir_opt = _find_coolscan3_ir_option(option_map, device_id) if ir_strategy == "option" else None
             required_options: list[tuple[str, str]] = []
             if params.frame is not None:
-                required_options.append(("frame", f"Frame {params.frame} requested but the device has no frame-selection option"))
+                required_options.append(
+                    ("frame", tr("Frame {value} requested but the device has no frame-selection option", value=params.frame))
+                )
             if params.auto_exposure:
-                required_options.append(("ae", "Auto-exposure requested but the device has no 'ae' option"))
+                required_options.append(("ae", tr("Auto-exposure requested but the device has no 'ae' option")))
             if ir_strategy == "option":
                 if ir_opt is None:
-                    raise RuntimeError("IR option strategy selected but the device's IR option is unavailable")
-                required_options.append((ir_opt, "IR option strategy selected but the device's IR option is unavailable"))
+                    raise RuntimeError(tr("IR option strategy selected but the device's IR option is unavailable"))
+                required_options.append((ir_opt, tr("IR option strategy selected but the device's IR option is unavailable")))
             for option_name, absent_message in required_options:
                 _require_writable_option(option_map, option_name, absent_message)
 
@@ -1248,12 +1277,18 @@ class SaneBackend:
                 try:
                     dev.frame = params.frame
                 except Exception as e:
-                    raise RuntimeError(f"Could not set frame={params.frame}: {e}") from e
+                    raise RuntimeError(tr("Could not set frame={value}: {value1}", value=params.frame, value1=e)) from e
                 # coolscan3 clamps a frame past the loaded strip to its last one and reports only
                 # an inexact set, so read it back rather than rescan that frame under this number.
                 actual = getattr(dev, "frame", params.frame)
                 if int(actual) != int(params.frame):
-                    raise RuntimeError(f"Frame {params.frame} is past the end of the loaded film (the scanner stopped at frame {actual})")
+                    raise RuntimeError(
+                        tr(
+                            "Frame {value} is past the end of the loaded film (the scanner stopped at frame {value1})",
+                            value=params.frame,
+                            value1=actual,
+                        )
+                    )
 
             _apply_frame_offset(dev, offset_mm)
 
@@ -1263,14 +1298,14 @@ class SaneBackend:
                 try:
                     dev.autofocus = True
                 except Exception as e:
-                    raise RuntimeError(f"Could not enable autofocus: {e}") from e
+                    raise RuntimeError(tr("Could not enable autofocus: {value}", value=e)) from e
 
             # Hardware auto-exposure must meter the already-positioned frame.
             if params.auto_exposure:
                 try:
                     dev.ae = True
                 except Exception as e:
-                    raise RuntimeError(f"Could not enable auto-exposure: {e}") from e
+                    raise RuntimeError(tr("Could not enable auto-exposure: {value}", value=e)) from e
 
             # Manual scan exposure time (SANE `scan-exposure-time`), applied only when the device
             # exposes the option. A device without it ignores the request silently, so a saved
@@ -1281,18 +1316,22 @@ class SaneBackend:
                     try:
                         setattr(dev, _et_name, int(params.exposure_time_us))
                     except Exception as e:
-                        raise RuntimeError(f"Could not set scan-exposure-time={params.exposure_time_us}: {e}") from e
+                        raise RuntimeError(
+                            tr("Could not set scan-exposure-time={value}: {value1}", value=params.exposure_time_us, value1=e)
+                        ) from e
 
             # Inline IR through a boolean option (coolscan3 `infrared`): the 4th sample rides in the
             # same frame, with no mode or source change. IR was explicitly requested, so fail loud
             # rather than drop it.
             if ir_strategy == "option":
                 if ir_opt is None:
-                    raise RuntimeError("IR option strategy selected but the device's IR option is unavailable")
+                    raise RuntimeError(tr("IR option strategy selected but the device's IR option is unavailable"))
                 try:
                     setattr(dev, ir_opt, True)
                 except Exception as e:
-                    raise RuntimeError(f"IR capture requested but enabling option {ir_opt!r} failed: {e}") from e
+                    raise RuntimeError(
+                        tr("IR capture requested but enabling option {value!r} failed: {value1}", value=ir_opt, value1=e)
+                    ) from e
 
             if device_id.startswith(_PIEUSB_PREFIX):
                 self._set_pieusb_flags(dev, params.capture_ir)
@@ -1314,7 +1353,7 @@ class SaneBackend:
 
             if cancel.is_set():
                 dev.cancel()
-                raise RuntimeError("Scan cancelled before start")
+                raise RuntimeError(tr("Scan cancelled before start"))
 
             dev.start()
             rgb_array = None
@@ -1359,7 +1398,9 @@ class SaneBackend:
                     rgb_array, ir_array = _split_rgbi(rgb_array)
                 else:
                     dev.cancel()
-                    raise RuntimeError(f"IR strategy '{ir_strategy}' yielded no 4th channel (shape={rgb_array.shape})")
+                    raise RuntimeError(
+                        tr("IR strategy '{value}' yielded no 4th channel (shape={value1})", value=ir_strategy, value1=rgb_array.shape)
+                    )
             elif ir_strategy == "rgbi" and rgb_array.ndim == 3 and rgb_array.shape[2] == 4:
                 # Generic RGBI devices: native four-channel ndarrays split directly.
                 rgb_array, ir_array = _split_rgbi(rgb_array)
@@ -1373,7 +1414,7 @@ class SaneBackend:
 
             if cancel.is_set():
                 dev.cancel()
-                raise RuntimeError("Scan cancelled")
+                raise RuntimeError(tr("Scan cancelled"))
 
             # Legacy IR: a separate scan through an IR source string (Plustek). It is its own full
             # pass, so it reports its own 0 to 1 like the RGB pass above and needs no ir_strategy
@@ -1455,15 +1496,15 @@ class SaneBackend:
         try:
             self._ensure_initialized()
         except Exception as exc:
-            raise RuntimeError(f"Failed to initialize SANE before eject: {exc}") from exc
+            raise RuntimeError(tr("Failed to initialize SANE before eject: {value}", value=exc)) from exc
 
         if self._session_holding(device_id) is not None:
-            raise RuntimeError(f"Scanner {device_id} is held by an active session — eject through that session")
+            raise RuntimeError(tr("Scanner {value} is held by an active session: eject through that session", value=device_id))
 
         try:
             dev, opened_id = self._open_device(device_id)
         except Exception as exc:
-            raise RuntimeError(f"Failed to open scanner {device_id} to eject: {exc}") from exc
+            raise RuntimeError(tr("Failed to open scanner {value} to eject: {value1}", value=device_id, value1=exc)) from exc
 
         try:
             option_map = dev.opt if hasattr(dev, "opt") else {}
@@ -1474,13 +1515,13 @@ class SaneBackend:
                 dev.close()
             except Exception:
                 pass
-            raise RuntimeError(f"Could not inspect eject capability on {device_id!r}: {exc}") from exc
+            raise RuntimeError(tr("Could not inspect eject capability on {value!r}: {value1}", value=device_id, value1=exc)) from exc
 
         # Close before pressing: SANE allows a single open handle and scanimage opens its own.
         try:
             dev.close()
         except Exception as exc:
-            raise RuntimeError(f"Could not close scanner device {device_id!r} before eject: {exc}") from exc
+            raise RuntimeError(tr("Could not close scanner device {value!r} before eject: {value1}", value=device_id, value1=exc)) from exc
 
         if not has_eject:
             return False

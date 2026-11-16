@@ -779,7 +779,7 @@ class AssetListModel(QAbstractListModel):
         if role == Qt.ItemDataRole.ToolTipRole:
             failed = file_info.get("decode_failed")
             if failed:
-                return f"{file_info['path']}\nFailed to load: {failed}\nClick to retry."
+                return file_info["path"] + "\n" + tr("Failed to load: {error}", error=failed) + "\n" + tr("Click to retry.")
             lines = [file_info["path"]]
             summary = composite_summary(file_info)
             if summary:
@@ -2228,7 +2228,7 @@ class DesktopSessionManager(QObject):
         """Persist the active frame's Auto-crop all frames result before it goes live in memory,
         so a storage error never leaves an unsaved crop live."""
         if not self.state.current_file_hash:
-            raise RuntimeError("Cannot persist batch settings without an active file")
+            raise RuntimeError(tr("Cannot persist batch settings without an active file"))
         self.repo.save_file_settings(
             self.state.current_file_hash,
             config,
@@ -2427,9 +2427,9 @@ class DesktopSessionManager(QObject):
         """Default name offered for the next save: the first free `Work print N`."""
         taken = set(self.work_prints())
         n = 1
-        while f"Work print {n}" in taken:
+        while tr("Work print {n}", n=n) in taken:
             n += 1
-        return f"Work print {n}"
+        return tr("Work print {n}", n=n)
 
     def save_work_print(self, name: str) -> None:
         """Keep the live edit under `name`. Unlike a history step this is never pruned

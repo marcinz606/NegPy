@@ -8,6 +8,7 @@ The script waits for our PID to disappear, installs, and starts the new build.
 
 from __future__ import annotations
 
+from negpy.kernel.system.i18n import tr
 import os
 import platform
 import shlex
@@ -161,7 +162,7 @@ def download_asset(
 ) -> Path:
     """Stream the asset into `dest_dir` and return the file. Raises UpdateError."""
     if not info.download_url:
-        raise UpdateError("This release has no download for your platform.")
+        raise UpdateError(tr("This release has no download for your platform."))
 
     dest_dir.mkdir(parents=True, exist_ok=True)
     target = dest_dir / f"{info.asset_name}.part"
@@ -174,7 +175,7 @@ def download_asset(
             with open(target, "wb") as out:
                 while True:
                     if is_cancelled is not None and is_cancelled():
-                        raise UpdateError("Download cancelled.")
+                        raise UpdateError(tr("Download cancelled."))
                     chunk = response.read(_CHUNK)
                     if not chunk:
                         break
@@ -187,7 +188,7 @@ def download_asset(
         raise
     except Exception as exc:
         target.unlink(missing_ok=True)
-        raise UpdateError(f"Download failed: {exc}") from exc
+        raise UpdateError(tr("Download failed: {value}", value=exc)) from exc
 
     final = dest_dir / info.asset_name
     target.replace(final)
@@ -301,7 +302,7 @@ def _spawn_elevated_bat(script: str, workdir: Path) -> None:
     # SW_HIDE: the console window is noise, the installer runs silently anyway.
     result = ctypes.windll.shell32.ShellExecuteW(None, "runas", str(path), None, str(workdir), 0)
     if int(result) <= 32:
-        raise UpdateError("Windows refused to start the installer (administrator approval is required).")
+        raise UpdateError(tr("Windows refused to start the installer (administrator approval is required)."))
 
 
 def apply_update(downloaded: Path, info: UpdateInfo) -> None:
@@ -316,15 +317,17 @@ def apply_update(downloaded: Path, info: UpdateInfo) -> None:
     if kind == APPIMAGE:
         target = Path(os.environ["APPIMAGE"]).resolve()
         if not os.access(target.parent, os.W_OK):
-            raise UpdateError(f"{target.parent} is not writable — move NegPy somewhere you own, or install the new AppImage yourself.")
+            raise UpdateError(
+                tr("{value} is not writable: move NegPy somewhere you own, or install the new AppImage yourself.", value=target.parent)
+            )
         _spawn_posix(appimage_script(downloaded, target, pid), downloaded.parent)
 
     elif kind == APP_BUNDLE:
         bundle = app_bundle_path()
         if bundle is None:
-            raise UpdateError("NegPy is not running from an application bundle.")
+            raise UpdateError(tr("NegPy is not running from an application bundle."))
         if not os.access(bundle.parent, os.W_OK):
-            raise UpdateError(f"{bundle.parent} is not writable — install the update from the disk image yourself.")
+            raise UpdateError(tr("{value} is not writable: install the update from the disk image yourself.", value=bundle.parent))
         work = downloaded.parent
         _spawn_posix(macos_script(downloaded, bundle, pid, work / "mnt", work / bundle.name), work)
 
@@ -333,6 +336,6 @@ def apply_update(downloaded: Path, info: UpdateInfo) -> None:
         _spawn_elevated_bat(nsis_script(downloaded, exe.parent, exe, pid), downloaded.parent)
 
     else:
-        raise UpdateError("This copy of NegPy cannot update itself.")
+        raise UpdateError(tr("This copy of NegPy cannot update itself."))
 
     logger.info("Update to %s staged from %s", info.version, downloaded)

@@ -173,7 +173,7 @@ class PaperSidebar(BaseSidebar):
         for key, prof in profiles_for_mode(process_mode):
             if not entries or entries[-1][2] != prof.medium:
                 entries.append((_MEDIA[prof.medium][1], None, prof.medium))
-            entries.append((prof.label, key, prof.medium))
+            entries.append((tr(prof.label), key, prof.medium))
         current = [(self.paper_combo.itemText(i), self.paper_combo.itemData(i)) for i in range(self.paper_combo.count())]
         if [(label, key) for label, key, _ in entries] == current:
             return

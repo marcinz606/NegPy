@@ -15,6 +15,7 @@ pass for the current one under the same generic filenames.
 
 from __future__ import annotations
 
+from negpy.kernel.system.i18n import tr
 import os
 import urllib.request
 from typing import TYPE_CHECKING, Callable, Optional
@@ -110,7 +111,7 @@ def download_clip_model(
             with urllib.request.urlopen(request, timeout=30) as response, open(tmp, "wb") as out:
                 while True:
                     if is_cancelled is not None and is_cancelled():
-                        raise ClipDownloadError("Download cancelled.")
+                        raise ClipDownloadError(tr("Download cancelled."))
                     chunk = response.read(_CHUNK)
                     if not chunk:
                         break
@@ -123,7 +124,7 @@ def download_clip_model(
             raise
         except Exception as exc:
             _discard(tmp)
-            raise ClipDownloadError(f"Download failed: {exc}") from exc
+            raise ClipDownloadError(tr("Download failed: {value}", value=exc)) from exc
         os.replace(tmp, dest)
 
 
@@ -191,7 +192,9 @@ def _run(session, **named_arrays) -> list:
     feed = {}
     for inp in session.get_inputs():
         if inp.name not in named_arrays:
-            raise KeyError(f"CLIP ONNX model expects input '{inp.name}', not provided (have: {sorted(named_arrays)})")
+            raise KeyError(
+                tr("CLIP ONNX model expects input '{value}', not provided (have: {value1})", value=inp.name, value1=sorted(named_arrays))
+            )
         feed[inp.name] = named_arrays[inp.name]
     return session.run(None, feed)
 

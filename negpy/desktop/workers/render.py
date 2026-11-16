@@ -1,3 +1,4 @@
+from negpy.kernel.system.i18n import tr
 import queue
 import threading
 import time
@@ -772,16 +773,19 @@ def rgb_grouping_notice(made: int, loose: int, incomplete: int, mismatched: int,
 
     reasons = []
     if incomplete:
-        reasons.append(f"{count_of(incomplete, 'set')} not one of each color")
+        reasons.append(tr("{value} not one of each color", value=count_of(incomplete, "set")))
     if mismatched:
-        reasons.append(f"{count_of(mismatched, 'set')} showing different frames")
+        reasons.append(tr("{value} showing different frames", value=count_of(mismatched, "set")))
     detail = f" — {', '.join(reasons)}" if reasons else ""
-    order = "" if by_time else "; grouped by filename, as the files state no capture time"
-    made_text = f"{count_of(made, 'frame')} assembled, " if made else ""
-    return (
-        f"Trichrome Mode: {made_text}{count_of(loose, 'file')} left separate{detail}{order}. "
-        "Select a frame's three files, right-click and choose Merge Exposures (Trichrome) to join them."
-    )
+    order = "" if by_time else tr("; grouped by filename, as the files state no capture time")
+    made_text = tr("{value} assembled, ", value=count_of(made, "frame")) if made else ""
+    return tr(
+        "Trichrome Mode: {made}{files} left separate{detail}{order}. ",
+        made=made_text,
+        files=count_of(loose, "file"),
+        detail=detail,
+        order=order,
+    ) + tr("Select a frame's three files, right-click and choose Merge Exposures (Trichrome) to join them.")
 
 
 def rgb_nothing_matched_message(summary: dict) -> tuple[str, str]:
@@ -796,28 +800,35 @@ def rgb_nothing_matched_message(summary: dict) -> tuple[str, str]:
     files = count_of(summary.get("loose", 0), "file")
     if not summary.get("narrowband"):
         return (
-            "Nothing to assemble",
-            f"Trichrome Mode is on, but this folder does not look like trichrome captures: its {files} were all "
-            "lit the same way, so there are no red, green and blue sets to combine.\n\n"
-            "Turn Trichrome Mode off to work with them as ordinary frames.",
+            tr("Nothing to assemble"),
+            tr(
+                "Trichrome Mode is on, but this folder does not look like trichrome captures: its {files} were all "
+                "lit the same way, so there are no red, green and blue sets to combine.\n\n"
+                "Turn Trichrome Mode off to work with them as ordinary frames.",
+                files=files,
+            ),
         )
     # Filenames only stop mattering once the files date themselves; without that they
     # carry the capture order and the claim would contradict the fallback.
     if summary.get("by_time"):
-        naming = "Which of the three colors you shoot first does not matter, and filenames do not matter."
+        naming = tr("Which of the three colors you shoot first does not matter, and filenames do not matter.")
     else:
-        naming = (
+        naming = tr(
             "Which of the three colors you shoot first does not matter. These files record no capture "
-            "time, so they were put in filename order — which means their names have to sort into the "
+            "time, so they were put in filename order, and their names have to sort into the "
             "order the shots were taken."
         )
     return (
-        "No triplets found",
-        f"None of the {files} in this folder could be assembled into RGB triplets.\n\n"
-        "Each frame needs three captures — one under red light, one under green, one under blue — "
-        "taken back to back before you move on to the next frame, and the folder should hold "
-        f"nothing else. {naming}\n\n"
-        "You can also join files by hand: select a frame's three files, right-click and choose Merge Exposures (Trichrome).",
+        tr("No triplets found"),
+        tr(
+            "None of the {files} in this folder could be assembled into RGB triplets.\n\n"
+            "Each frame needs three captures (one under red light, one under green, one under blue), "
+            "taken back to back before you move on to the next frame, and the folder should hold "
+            "nothing else. {naming}\n\n"
+            "You can also join files by hand: select a frame's three files, right-click and choose Merge Exposures (Trichrome).",
+            files=files,
+            naming=naming,
+        ),
     )
 
 
@@ -2246,7 +2257,7 @@ class NormalizationWorker(QObject):
 
             valid_results = [r for r in batch_results if r is not None]
             if not valid_results:
-                raise RuntimeError("All files in batch failed analysis")
+                raise RuntimeError(tr("All files in batch failed analysis"))
             if task.detect:
                 groups = detect_light_groups([r[3] for r in valid_results])
                 self.detected.emit([[valid_results[i][2] for i in g] for g in groups])

@@ -9,6 +9,7 @@ boundary re-previews without touching the scanner.
 
 from __future__ import annotations
 
+from negpy.kernel.system.i18n import tr
 import threading
 from collections.abc import Callable, Iterable, Iterator
 from functools import partial
@@ -223,4 +224,4 @@ class NkscanRollSession:
 
     def _require_open(self) -> None:
         if self._closed:
-            raise RuntimeError(f"Strip session for {self._device.id} is closed")
+            raise RuntimeError(tr("Strip session for {value} is closed", value=self._device.id))

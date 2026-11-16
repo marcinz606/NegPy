@@ -59,7 +59,7 @@ class WindowMenu(QMenu):
     """
 
     def __init__(self, window: QMainWindow, parent: Optional[QWidget] = None) -> None:
-        super().__init__("Window", parent if parent is not None else window)
+        super().__init__(tr("Window"), parent if parent is not None else window)
         self._window = window
         self._dynamic: list[QAction] = []
 

@@ -12,6 +12,7 @@ are ignored.
 
 from __future__ import annotations
 
+from negpy.kernel.system.i18n import tr
 import queue
 import threading
 from typing import Optional
@@ -35,6 +36,10 @@ PICO_CDC_PIDS = {0x000A, 0x0009}
 _READER_DIED = object()
 
 
+class ScanlightNotFoundError(RuntimeError):
+    """No Scanlight on any serial port: a lasting condition, not a failed command."""
+
+
 def discover_port() -> str:
     """Best-effort auto-discovery of the Scanlight CDC serial port on macOS."""
     from serial.tools import list_ports
@@ -46,8 +51,10 @@ def discover_port() -> str:
         return pico[0].device
     if len(pico) > 1:
         raise RuntimeError(
-            "Multiple Raspberry Pi Pico CDC ports found; set the port explicitly: "
-            + ", ".join(f"{p.device} ({p.vid:04x}:{p.pid:04x})" for p in pico)
+            tr(
+                "Multiple Raspberry Pi Pico CDC ports found; set the port explicitly: {value}",
+                value=", ".join(f"{p.device} ({p.vid:04x}:{p.pid:04x})" for p in pico),
+            )
         )
 
     def fields(p) -> str:
@@ -57,16 +64,21 @@ def discover_port() -> str:
     if len(named) == 1:
         return named[0].device
     if len(named) > 1:
-        raise RuntimeError("Multiple Scanlight-like serial ports found; set the port explicitly: " + ", ".join(p.device for p in named))
+        raise RuntimeError(
+            tr("Multiple Scanlight-like serial ports found; set the port explicitly: {value}", value=", ".join(p.device for p in named))
+        )
 
     usbmodem = [p for p in ports if "usbmodem" in p.device.lower()]
     if len(usbmodem) == 1:
         return usbmodem[0].device
 
     if not ports:
-        raise RuntimeError("No serial ports found. Is the Scanlight plugged in?")
-    raise RuntimeError(
-        "Could not auto-discover the Scanlight serial port. Set it explicitly. Available ports: " + ", ".join(p.device for p in ports)
+        raise ScanlightNotFoundError(tr("No serial ports found. Is the Scanlight plugged in?"))
+    raise ScanlightNotFoundError(
+        tr(
+            "Could not auto-discover the Scanlight serial port. Set it explicitly. Available ports: {value}",
+            value=", ".join(p.device for p in ports),
+        )
     )
 
 
@@ -134,7 +146,7 @@ class Scanlight:
         """Set R, G, B, W and IR channels. White and infrared light alone: the firmware refuses
         either beside an RGB channel. `save=True` writes to NVM (use sparingly)."""
         if (w or ir) and (r or g or b):
-            raise ValueError("White and infrared cannot be on simultaneously with any RGB channel")
+            raise ValueError(tr("White and infrared cannot be on simultaneously with any RGB channel"))
         self._serial.write(proto.encode_set_color(r, g, b, w, ir, save=save))
 
     def off(self) -> None:
@@ -182,7 +194,7 @@ class Scanlight:
         if self._reader_error is not None:
             raise self._reader_error
         if not self._reader_thread.is_alive():
-            raise ConnectionError(f"Scanlight reader thread is not running; cannot service header {h2d_header}")
+            raise ConnectionError(tr("Scanlight reader thread is not running; cannot service header {value}", value=h2d_header))
         self._serial.write(proto.encode_packet(h2d_header))
         try:
             data = q.get(timeout=timeout)
@@ -190,12 +202,12 @@ class Scanlight:
             if self._reader_error is not None:
                 raise self._reader_error
             if not self._reader_thread.is_alive():
-                raise ConnectionError(f"Scanlight reader thread stopped; no response to header {h2d_header}")
-            raise TimeoutError(f"No response to header {h2d_header} within {timeout}s")
+                raise ConnectionError(tr("Scanlight reader thread stopped; no response to header {value}", value=h2d_header))
+            raise TimeoutError(tr("No response to header {value} within {value1}s", value=h2d_header, value1=timeout))
         if data is _READER_DIED:
             if self._reader_error is not None:
                 raise self._reader_error
-            raise ConnectionError(f"Scanlight reader stopped before responding to header {h2d_header}")
+            raise ConnectionError(tr("Scanlight reader stopped before responding to header {value}", value=h2d_header))
         if self._reader_error is not None:
             raise self._reader_error
         return decoder(data)

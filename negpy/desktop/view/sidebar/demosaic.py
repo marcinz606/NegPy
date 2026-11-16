@@ -26,6 +26,11 @@ def clip_hint_due(scan_clip) -> bool:
     return max(float(v) for v in scan_clip) > float(EXPOSURE_CONSTANTS["scan_clip_warn"])
 
 
+def _mode_label(mode: str) -> str:
+    """The demosaic choice as shown: NegPy's own words translated, LibRaw's method names as they are."""
+    return {"Auto": tr("Auto"), "Linear": tr("Linear")}.get(mode, mode)
+
+
 class DemosaicSidebar(BaseSidebar):
     """How a camera RAW decodes: its white balance, CFA interpolation chosen separately for
     what you see and what you get, and a slide's highlight reconstruction."""
@@ -35,10 +40,12 @@ class DemosaicSidebar(BaseSidebar):
         modes = [str(m) for m in supported_demosaic_modes()]
 
         self.preview_combo = StepCombo()
-        self.preview_combo.addItems(modes)
+        for mode in modes:
+            self.preview_combo.addItem(_mode_label(mode), mode)
         self.preview_combo.setToolTip(_TIP)
         self.export_combo = StepCombo()
-        self.export_combo.addItems(modes)
+        for mode in modes:
+            self.export_combo.addItem(_mode_label(mode), mode)
         self.export_combo.setToolTip(_TIP)
 
         self.capture_header = section_subheader(tr("White Balance"))
@@ -67,13 +74,13 @@ class DemosaicSidebar(BaseSidebar):
         self.hint.setVisible(False)
         self.layout.addWidget(self.hint)
 
-        self.preview_combo.setCurrentText(str(DemosaicMode(conf.demosaic_preview)))
-        self.export_combo.setCurrentText(str(DemosaicMode(conf.demosaic_export)))
+        self.preview_combo.setCurrentIndex(max(0, self.preview_combo.findData(str(DemosaicMode(conf.demosaic_preview)))))
+        self.export_combo.setCurrentIndex(max(0, self.export_combo.findData(str(DemosaicMode(conf.demosaic_export)))))
 
         self.highlight_header = section_subheader(tr("HIGHLIGHTS"))
         self.layout.addWidget(self.highlight_header)
         self.highlight_combo = StepCombo()
-        self.highlight_combo.addItems([label for _level, label in HIGHLIGHT_LEVELS])
+        self.highlight_combo.addItems([tr(label) for _level, label in HIGHLIGHT_LEVELS])
         self.highlight_combo.setToolTip(wrap_tooltip(_HIGHLIGHT_TIP))
         self.highlight_combo.setCurrentIndex(highlight_bucket(conf.highlight_reconstruction))
         highlight_row = field_row(tr("Recovery"), self.highlight_combo)
@@ -101,8 +108,8 @@ class DemosaicSidebar(BaseSidebar):
         self.layout.addWidget(self.highlight_clip_hint)
 
     def _connect_signals(self) -> None:
-        self.preview_combo.currentTextChanged.connect(lambda name: self._on_changed("demosaic_preview", name))
-        self.export_combo.currentTextChanged.connect(lambda name: self._on_changed("demosaic_export", name))
+        self.preview_combo.currentIndexChanged.connect(lambda _i: self._on_changed("demosaic_preview", self.preview_combo.currentData()))
+        self.export_combo.currentIndexChanged.connect(lambda _i: self._on_changed("demosaic_export", self.export_combo.currentData()))
         self.highlight_combo.currentIndexChanged.connect(self._on_highlight_reconstruction_changed)
         self.linear_raw_btn.currentChanged.connect(self._on_linear_raw_changed)
         self.controller.metrics_available.connect(self._on_metrics)
@@ -175,8 +182,8 @@ class DemosaicSidebar(BaseSidebar):
                     wrap_tooltip(tr("Each Trichrome exposure holds one color only, so camera white balance has nothing to correct."))
                 )
 
-            self.preview_combo.setCurrentText(str(DemosaicMode(conf.demosaic_preview)))
-            self.export_combo.setCurrentText(str(DemosaicMode(conf.demosaic_export)))
+            self.preview_combo.setCurrentIndex(max(0, self.preview_combo.findData(str(DemosaicMode(conf.demosaic_preview)))))
+            self.export_combo.setCurrentIndex(max(0, self.export_combo.findData(str(DemosaicMode(conf.demosaic_export)))))
 
             # Reconstruction only means anything against a slide's own blown highlights (see
             # effective_highlight_reconstruction), so it hides off Slide. Greyed instead of hidden

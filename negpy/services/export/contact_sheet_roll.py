@@ -1,5 +1,6 @@
 """What a contact sheet reads from each frame. No Qt: the header reads run on a worker thread."""
 
+from negpy.kernel.system.i18n import tr
 import math
 import os
 import re
@@ -548,11 +549,14 @@ def straight_proof(
 ) -> StraightProof:
     """With `scene_baselines`, each scene prints at its own baseline; the roll's covers a scene with none."""
     if not frames:
-        return StraightProof(reason="No frames to proof.")
+        return StraightProof(reason=tr("No frames to proof."))
     positives = sum(1 for f in frames if f.config.process.positive_source)
     if positives:
         return StraightProof(
-            reason=f"{positives} of the frames are positives made by the scanning software. A straight proof needs the negatives."
+            reason=tr(
+                "{count} of the frames are positives made by the scanning software. A straight proof needs the negatives.",
+                count=positives,
+            )
         )
 
     by_scene = scene_baselines is not None
@@ -570,8 +574,8 @@ def straight_proof(
 
     for frame, group in zip(frames, groups):
         if frame.config.process.process_mode != ProcessMode.E6 and baseline_for(group) is None:
-            what = "Roll Analysis, or Scene Analysis on each scene," if by_scene else "Roll Analysis"
-            return StraightProof(reason=f"Run {what} first: the proof prints every negative at one metered exposure.")
+            what = tr("Roll Analysis, or Scene Analysis on each scene,") if by_scene else tr("Roll Analysis")
+            return StraightProof(reason=tr("Run {what} first: the proof prints every negative at one metered exposure.", what=what))
 
     shifts = [0.0] * len(frames)
     for group in set(groups):
@@ -589,20 +593,20 @@ def straight_proof(
     evs = [f.facts.scan_ev for f in frames]
     known = [ev for ev in evs if ev is not None]
     if not known:
-        note = "Assumes every frame was scanned at one exposure (an exposure lock, or auto exposure off)."
+        note = tr("Assumes every frame was scanned at one exposure (an exposure lock, or auto exposure off).")
     else:
         spread = max(known) - min(known)
         missing = len(evs) - len(known)
         if spread < _SAME_EXPOSURE_EV:
-            note = "Every raw was exposed alike."
+            note = tr("Every raw was exposed alike.")
         else:
-            note = f"Scan exposures differ by {spread:.1f} stops; each raw's EXIF evens them out."
+            note = tr("Scan exposures differ by {spread} stops; each raw's EXIF evens them out.", spread=f"{spread:.1f}")
         if missing:
-            note += f" {missing} frames state no exposure and print as scanned."
+            note += " " + tr("{count} frames state no exposure and print as scanned.", count=missing)
     if by_scene:
-        note += " Each scene prints at its own metering."
+        note += " " + tr("Each scene prints at its own metering.")
         if unmetered:
-            note += f" {len(unmetered)} scenes have none of their own and print at the roll's."
+            note += " " + tr("{count} scenes have none of their own and print at the roll's.", count=len(unmetered))
     if any(f.config.process.process_mode == ProcessMode.E6 for f in frames):
-        note += " Slides print through their own window, as scanned."
+        note += " " + tr("Slides print through their own window, as scanned.")
     return StraightProof(tuple(proofed), "", note)

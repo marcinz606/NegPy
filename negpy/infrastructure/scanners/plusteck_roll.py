@@ -12,6 +12,7 @@ would go through its POST .../split endpoint with an explicit left_end/right_sta
 
 from __future__ import annotations
 
+from negpy.kernel.system.i18n import tr
 import threading
 import time
 from collections.abc import Callable, Iterable, Iterator
@@ -102,7 +103,7 @@ class PlusteckRollSession:
 
     def _require_open(self) -> None:
         if self._closed:
-            raise RuntimeError(f"Roll session for {self._device.id} is closed")
+            raise RuntimeError(tr("Roll session for {value} is closed", value=self._device.id))
 
     def _ensure_previewed(self, cancel: threading.Event) -> None:
         if self._frames is not None:

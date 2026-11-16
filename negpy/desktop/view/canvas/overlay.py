@@ -2227,10 +2227,10 @@ class CanvasOverlay(QWidget):
             keys = [key for key, _ in papers]
             shown = keys.index(exposure.paper_profile) if exposure.paper_profile in keys else 0
             if self._paper_grid_up():
-                self._draw_cell_labels(painter, patches, [profile.short for _, profile in papers], shown)
+                self._draw_cell_labels(painter, patches, [tr(profile.short) for _, profile in papers], shown)
                 return
             # Only the band's own axis carries its name.
-            pairs = [(profile.short, "") for _, profile in papers]
+            pairs = [(tr(profile.short), "") for _, profile in papers]
             current = (0, shown)
         elif self.state.test_strip_kind == "color":
             # :+g so a fractional step prints as one rather than rounding away.
