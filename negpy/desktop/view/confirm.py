@@ -312,6 +312,17 @@ def confirm_restore_removed(parent, count: int, roll_name: str) -> bool:
     )
 
 
+def confirm_remove_missing(parent, count: int, roll_name: str) -> bool:
+    """Ask before the frames whose files are gone leave a virtual roll."""
+    return confirm_action(
+        parent,
+        tr("Remove Missing Frames"),
+        tr("Remove the {value} not on disk from “{roll_name}”?", value=count_of(count, "frame"), roll_name=roll_name),
+        tr("Remove"),
+        tr("If the files moved, use Locate Folder… instead. Their edits stay."),
+    )
+
+
 def confirm_unfork_edit(parent) -> bool:
     """Ask before this roll's own edit for a frame goes and the frame returns to the
     edit every other roll it belongs to already shares."""
