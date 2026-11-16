@@ -432,7 +432,7 @@ Su una stampa lith funzionano solo Selenio e Oro. Su una cianotipia non funziona
 
 ## 7. Scheda Finitura
 
-<!-- panel:retouch src:8d07a6c2 -->
+<!-- panel:retouch src:85e58a6a -->
 ### 7.1 Ritocco: polvere, peli, graffi
 
 Rimuove polvere, peli e graffi. Ogni riparazione viene ricostruita dalla pellicola pulita circostante.
@@ -440,7 +440,7 @@ Rimuove polvere, peli e graffi. Ogni riparazione viene ricostruita dalla pellico
 *   **Sovrapposizione**: **Contrassegnati** mostra cosa ha trovato la rimozione della polvere, **IR** il canale infrarosso della scansione.
 *   **Rimozione ottica** (anche sulla barra della scheda Finitura): trova da sola polvere e peli. **Soglia delle macchie** e **Soglia dei peli**: più basso ne trova di più ma può rimuovere dettagli reali; 1 è disattivato. **Dimensioni**: la polvere più grande da rimuovere. Per proteggere un'area, trascina con il tasto destro sopra di essa o fai clic destro su un segno; il pulsante del cursore salta il menu del clic destro.
 *   **Rimozione IR** (scansioni con un canale infrarosso, anche sulla barra della scheda Finitura): trova la polvere nell'infrarosso, dove l'immagine non compare. **Soglia IR**: più basso ne trova di più. B/N e Kodachrome vengono saltate: la loro immagine compare anche nell'infrarosso. Il canale proviene da scansioni TIFF e DNG a 4 canali oppure da un file `_IR.tif` accanto alla scansione.
-*   **Correttivo**: fai clic o dipingi sopra la polvere. Vengono riparati solo i segni che risaltano, quindi dipingi con generosità.
+*   **Correttivo**: fai clic su un segno per ripararlo; un clic ripara sempre. Dipingi sopra un'area per riparare solo i segni che risaltano, quindi dipingi con generosità.
 *   **Graffio**: fai clic su alcuni punti lungo un graffio o un pelo, poi premi Invio.
 *   **Linea**: fai clic una volta su un graffio lungo e dritto, e NegPy trova e ripara l'intera linea. **Sensibilità della linea**: più basso trova linee più deboli.
 *   **Dimensione pennello**: anche `Alt`+rotellina sull'immagine.
