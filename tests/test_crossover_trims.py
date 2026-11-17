@@ -2,6 +2,7 @@
 that layer's slope about the anchor, so casts that differ between shadows and
 highlights can be fixed while midtones stay neutral."""
 
+import dataclasses
 import unittest
 
 import numpy as np
@@ -12,10 +13,13 @@ from negpy.features.exposure.logic import (
     apply_characteristic_curve,
     per_channel_curve_params,
     per_channel_midtone_gamma,
+    grade_coupled_shape,
     per_channel_toe_shoulder,
-    per_channel_widths,
+    print_curve,
+    print_knees,
+    KNEE_SPAN_TOE,
 )
-from negpy.features.exposure.models import EXPOSURE_CONSTANTS
+from negpy.features.exposure.models import EXPOSURE_CONSTANTS, ExposureConfig
 
 _ANCHOR = EXPOSURE_CONSTANTS["assumed_anchor"]
 _TARGET = EXPOSURE_CONSTANTS["reference_print_density"]
@@ -174,59 +178,58 @@ class TestKneeTrims(unittest.TestCase):
             np.testing.assert_allclose(res_kernel[0, :, ch], expected, atol=1e-4)
 
 
-class TestWidthTrims(unittest.TestCase):
-    """Per-layer toe/shoulder width trims: sharpness crossover — one layer's
-    knee softens/sharpens, the other layers stay put."""
+class TestPrintKnees(unittest.TestCase):
+    """Toe and Shoulder set the knee sharpness only: the paper's black and white stay, the
+    reference tone holds, and a layer trim reshapes its own layer."""
 
-    _PARAMS = (0.79, 5.375)
+    _SLOPE = 5.375
 
-    def _render(self, value, **kwargs):
-        img = np.full((2, 2, 3), value, dtype=np.float32)
-        out = apply_characteristic_curve(img, self._PARAMS, self._PARAMS, self._PARAMS, **kwargs)
-        return np.asarray(out)[0, 0, :]
+    def _curve(self, **sliders):
+        exposure = dataclasses.replace(ExposureConfig(), **sliders)
+        return print_curve(exposure, self._SLOPE, 0.79)
 
-    def test_toe_width_trim_acts_on_channel_only(self):
-        base = self._render(0.95)
-        trimmed = self._render(0.95, toe_width_trims=(2.0, 0.0, 0.0))
-        self.assertGreater(abs(trimmed[0] - base[0]), 0.0005, "red toe width trim did not reshape the red knee")
-        np.testing.assert_allclose(trimmed[1:], base[1:], atol=1e-7, err_msg="toe width trim leaked into other channels")
+    def _density(self, x, **sliders):
+        return float(np.asarray(self._curve(**sliders)(np.array([x], dtype=np.float32)))[0])
 
-    def test_shoulder_width_trim_acts_on_channel_only(self):
-        base = self._render(0.05)
-        trimmed = self._render(0.05, shoulder_width_trims=(2.0, 0.0, 0.0))
-        self.assertGreater(abs(trimmed[0] - base[0]), 0.001, "red shoulder width trim did not reshape the red knee")
-        np.testing.assert_allclose(trimmed[1:], base[1:], atol=1e-7, err_msg="shoulder width trim leaked into other channels")
+    def test_neutral_sliders_keep_the_papers_own_knees(self):
+        toe3, sh3, tw3, sw3, hold3 = print_knees(self._SLOPE, 0.0, 0.0)
+        ref = EXPOSURE_CONSTANTS["toeshoulder_width_ref"]
+        self.assertEqual(tw3, (ref, ref, ref))
+        self.assertEqual(sw3, (ref, ref, ref))
+        self.assertEqual(hold3, (0.0, 0.0, 0.0))
+        self.assertEqual((toe3[1], sh3[1]), grade_coupled_shape(self._SLOPE, 0.0, 0.0))
 
-    def test_effective_widths_clamped_to_slider_domain(self):
-        tw3, sw3 = per_channel_widths(0.5, 4.0, (-2.0, 0.0, 2.0), (2.0, 0.0, -2.0))
-        self.assertEqual(tw3, (0.1, 0.5, 2.5))
-        self.assertEqual(sw3, (5.0, 4.0, 2.0))
+    def test_toe_reshapes_the_shadows_and_keeps_paper_black(self):
+        deep, black = 1.05, 3.0
+        self.assertLess(self._density(deep, toe=1.0), self._density(deep) - 0.05)
+        self.assertGreater(self._density(deep, toe=-1.0), self._density(deep))
+        for toe in (-1.0, 1.0):
+            self.assertAlmostEqual(self._density(black, toe=toe), self._density(black), places=2)
 
-    def test_monotonic_at_extreme_width_trims(self):
-        ramp = np.linspace(-0.2, 1.2, 256, dtype=np.float32).reshape(1, 256, 1).repeat(3, axis=2)
-        for tw_trims, sw_trims in (((-2.0, 0.0, 2.0), (0.0, 0.0, 0.0)), ((0.0, 0.0, 0.0), (2.0, -2.0, 0.0))):
-            out = apply_characteristic_curve(
-                ramp, self._PARAMS, self._PARAMS, self._PARAMS, toe_width_trims=tw_trims, shoulder_width_trims=sw_trims
-            )
-            for ch in range(3):
-                self.assertTrue(
-                    np.all(np.diff(out[0, :, ch]) <= 1e-5),
-                    f"tone reversal ch={ch} tw={tw_trims} sw={sw_trims}",
-                )
+    def test_shoulder_reshapes_the_highlights_and_keeps_paper_white(self):
+        light, white = 0.62, -2.0
+        self.assertGreater(self._density(light, shoulder=1.0), self._density(light) + 0.03)
+        self.assertLess(self._density(light, shoulder=-1.0), self._density(light))
+        for shoulder in (-1.0, 1.0):
+            self.assertAlmostEqual(self._density(white, shoulder=shoulder), self._density(white), places=2)
 
-    def test_chart_matches_kernel_per_channel(self):
-        ramp = np.linspace(-0.2, 1.2, 256, dtype=np.float32).reshape(1, 256, 1).repeat(3, axis=2)
-        pivot, slope = self._PARAMS
-        tw_trims, sw_trims = (1.5, 0.0, -1.0), (-1.5, 1.0, 0.0)
-        res_kernel = apply_characteristic_curve(
-            ramp, self._PARAMS, self._PARAMS, self._PARAMS, toe_width_trims=tw_trims, shoulder_width_trims=sw_trims
-        )
-        tw3, sw3 = per_channel_widths(2.5, 2.5, tw_trims, sw_trims)
-        for ch in range(3):
-            curve = CharacteristicCurve(contrast=slope, pivot=pivot, toe_width=tw3[ch], shoulder_width=sw3[ch])
-            density = np.asarray(curve(ramp[0, :, ch].astype(np.float32)))
-            expected = np.clip(10.0 ** (-density), 0.0, 1.0)
-            np.testing.assert_allclose(res_kernel[0, :, ch], expected, atol=1e-4)
+    def test_reference_tone_holds(self):
+        ramp = np.linspace(0.0, 1.5, 4096, dtype=np.float32)
+        x_ref = float(np.interp(_TARGET, np.asarray(self._curve()(ramp)), ramp))
+        for sliders in ({"toe": 1.0}, {"toe": -1.0}, {"shoulder": 1.0}, {"shoulder": -1.0}):
+            self.assertAlmostEqual(self._density(x_ref, **sliders), _TARGET, delta=0.02, msg=str(sliders))
+
+    def test_trim_acts_on_its_layer_only(self):
+        _, _, base_tw, base_sw, _ = print_knees(self._SLOPE, 0.2, -0.2)
+        _, _, tw3, sw3, _ = print_knees(self._SLOPE, 0.2, -0.2, (0.5, 0.0, 0.0), (0.0, 0.0, -0.5))
+        self.assertGreater(tw3[0], base_tw[0])
+        self.assertEqual(tw3[1:], base_tw[1:])
+        self.assertLess(sw3[2], base_sw[2])
+        self.assertEqual(sw3[:2], base_sw[:2])
+
+    def test_slider_and_trim_clamp_to_the_slider_domain(self):
+        _, _, tw3, _, _ = print_knees(self._SLOPE, 0.8, 0.0, (1.0, 0.0, 0.0))
+        self.assertAlmostEqual(tw3[0], EXPOSURE_CONSTANTS["toeshoulder_width_ref"] * KNEE_SPAN_TOE)
 
 
 class TestSnapTrims(unittest.TestCase):

@@ -79,9 +79,7 @@ class ExposureConfig:
     highlight_grade_trim_green: float = 0.0
     highlight_grade_trim_blue: float = 0.0
     toe: float = 0.0
-    toe_width: float = 2.5
     shoulder: float = 0.0
-    shoulder_width: float = 2.5
     # Per-layer knee trims on top of the global toe/shoulder (endpoint crossover).
     toe_trim_red: float = 0.0
     toe_trim_green: float = 0.0
@@ -89,13 +87,6 @@ class ExposureConfig:
     shoulder_trim_red: float = 0.0
     shoulder_trim_green: float = 0.0
     shoulder_trim_blue: float = 0.0
-    # Per-layer knee width trims (roll-off extent, sharpness crossover).
-    toe_width_trim_red: float = 0.0
-    toe_width_trim_green: float = 0.0
-    toe_width_trim_blue: float = 0.0
-    shoulder_width_trim_red: float = 0.0
-    shoulder_width_trim_green: float = 0.0
-    shoulder_width_trim_blue: float = 0.0
     paper_dmin: bool = False
     # On shows the paper's natural Dmax as a lifted black. Consumed inverted as
     # bpc (= not paper_black), so the default keeps black point compensation on.

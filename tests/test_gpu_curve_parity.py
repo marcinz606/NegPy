@@ -35,8 +35,6 @@ def _extreme_trims_settings() -> WorkspaceConfig:
             midtone_gamma=0.3,
             midtone_gamma_trim_red=0.4,
             midtone_gamma_trim_blue=-0.3,
-            toe_width_trim_red=1.5,
-            shoulder_width_trim_blue=-1.0,
             shadow_density=0.4,
             highlight_density=-0.15,
             shadow_grade=-20.0,

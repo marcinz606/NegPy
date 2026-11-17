@@ -104,9 +104,7 @@ Actions with no default key are not listed; every one of them can still be bound
 | `Q` / `A` | Increase / decrease **Print Density** (default step 0.01) |
 | `W` / `S` | Increase / decrease **ISO-R Grade** (default step 10 ISO-R) |
 | `Alt + T` / `Alt + Shift + T` | Increase / decrease **Toe** (default step 0.01) |
-| `Alt + Y` / `Alt + Shift + Y` | Increase / decrease **Toe Width** (default step 0.01) |
 | `Alt + U` / `Alt + Shift + U` | Increase / decrease **Shoulder** (default step 0.01) |
-| `Alt + I` / `Alt + Shift + I` | Increase / decrease **Shoulder Width** (default step 0.01) |
 | `Alt + P` / `Alt + Shift + P` | Increase / decrease **White Point** (default step 0.01) |
 | `Alt + O` / `Alt + Shift + O` | Increase / decrease **Black Point** (default step 0.01) |
 

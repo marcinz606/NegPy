@@ -49,7 +49,6 @@ from negpy.features.exposure.logic import (
     normalize_refs,
     per_channel_dye_separation,
     per_channel_toe_shoulder,
-    per_channel_widths,
     slope_to_grade,
 )
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS, ExposureConfig
@@ -100,11 +99,8 @@ TRANSFER_CONSTANTS = {
     # files, a published camera-agnostic figure rather than one fitted to any rig. Fixed,
     # never metered: metering would make a bracketed set converge again.
     "transfer_baseline_ev": 0.7,
-    # Softness of both knees, in density, at the reference width. Larger blends over a wider
-    # tonal span. The Toe and Shoulder Width sliders scale this about their own default, so
-    # the reference must equal ExposureConfig.toe_width / shoulder_width.
+    # Softness of both knees, in density. Larger blends over a wider tonal span.
     "transfer_knee_width": 0.45,
-    "transfer_width_ref": 2.5,
 }
 
 
@@ -172,27 +168,6 @@ def display_rendering(scene_linear: np.ndarray) -> np.ndarray:
 
 
 ZONE_BLACK_TAPER = 1.0
-
-
-def transfer_widths(config: ExposureConfig) -> Tuple[Tuple[float, float, float], Tuple[float, float, float]]:
-    """
-    Per-channel knee softness, in density, from the Toe/Shoulder Width sliders. Scaled
-    about transfer_width_ref so each slider's default lands exactly on transfer_knee_width.
-    """
-    c = TRANSFER_CONSTANTS
-    base = float(c["transfer_knee_width"])
-    ref = float(c["transfer_width_ref"])
-    tw3, sw3 = per_channel_widths(
-        float(config.toe_width),
-        float(config.shoulder_width),
-        (config.toe_width_trim_red, config.toe_width_trim_green, config.toe_width_trim_blue),
-        (config.shoulder_width_trim_red, config.shoulder_width_trim_green, config.shoulder_width_trim_blue),
-    )
-    scale = base / ref
-    return (
-        (tw3[0] * scale, tw3[1] * scale, tw3[2] * scale),
-        (sw3[0] * scale, sw3[1] * scale, sw3[2] * scale),
-    )
 
 
 def transfer_assumed_anchor() -> float:
@@ -398,8 +373,6 @@ def apply_transfer_curve(
     toe: Tuple[float, float, float],
     shoulder: Tuple[float, float, float],
     cmy_offsets: Tuple[float, float, float] = (0.0, 0.0, 0.0),
-    toe_widths: Optional[Tuple[float, float, float]] = None,
-    shoulder_widths: Optional[Tuple[float, float, float]] = None,
     density_range: float = TRANSFER_DENSITY_RANGE,
     shadow_density: float = 0.0,
     highlight_density: float = 0.0,
@@ -468,8 +441,8 @@ def apply_transfer_curve(
         "black_taper": ZONE_BLACK_TAPER,
         "toe": tuple(toe),
         "shoulder": tuple(shoulder),
-        "toe_width": tuple(toe_widths or (base_width,) * 3),
-        "shoulder_width": tuple(shoulder_widths or (base_width,) * 3),
+        "toe_width": (base_width,) * 3,
+        "shoulder_width": (base_width,) * 3,
         "toe_knee": float(c["transfer_toe_knee"]),
         "shoulder_knee": float(c["transfer_shoulder_knee"]),
         "sep_k": sep_k3,

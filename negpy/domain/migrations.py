@@ -48,6 +48,14 @@ KEY_RENAMES: Dict[str, str] = {
 DROPPED_KEYS: frozenset[str] = frozenset(
     {
         "flare",  # veiling-glare floor
+        "toe_width",  # Toe and Shoulder set the knee shape
+        "shoulder_width",
+        "toe_width_trim_red",
+        "toe_width_trim_green",
+        "toe_width_trim_blue",
+        "shoulder_width_trim_red",
+        "shoulder_width_trim_green",
+        "shoulder_width_trim_blue",
         "ir_inpaint_radius",  # IR stroke synthesis, replaced by score-weighted fill
         "ir_method",  # one IR reconstruction method left
         "auto_cast_removal",  # cast removal became always-on

@@ -43,8 +43,6 @@ class PaperSidebar(BaseSidebar):
                 f"toe_trim_{ch}",
                 f"shoulder_trim_{ch}",
                 f"midtone_gamma_trim_{ch}",
-                f"toe_width_trim_{ch}",
-                f"shoulder_width_trim_{ch}",
                 f"dye_separation_trim_{ch}",
             )
             for ch in _CH_SUFFIX
@@ -101,25 +99,14 @@ class PaperSidebar(BaseSidebar):
 
         self.midtone_gamma_slider = CompactSlider(tr("Snap"), -0.5, 0.5, conf.midtone_gamma)
 
-        self.toe_w_slider = CompactSlider(tr("Toe Width"), 0.1, 5.0, conf.toe_width)
-        self.toe_w_trim_slider = CompactSlider(tr("Toe Width"), -2.0, 2.0, 0.0)
-        self.toe_w_trim_slider.setToolTip(tr("Toe Width of this color layer only."))
-        self.toe_w_trim_slider.setVisible(False)
         self.toe_slider = CompactSlider(tr("Toe"), -1.0, 1.0, conf.toe)
-
         self.sh_slider = CompactSlider(tr("Shoulder"), -1.0, 1.0, conf.shoulder)
-        self.sh_w_slider = CompactSlider(tr("Shoulder Width"), 0.1, 5.0, conf.shoulder_width)
-        self.sh_w_trim_slider = CompactSlider(tr("Shoulder Width"), -2.0, 2.0, 0.0)
-        self.sh_w_trim_slider.setToolTip(tr("Shoulder Width of this color layer only."))
-        self.sh_w_trim_slider.setVisible(False)
         curve_header, curve_fold = group_fold(
             "paper_curve_shape",
             tr("Curve Shape"),
             self.midtone_gamma_slider,
             self.toe_slider,
-            rail_fold("paper_toe", self.toe_slider, self.toe_w_slider, self.toe_w_trim_slider),
             self.sh_slider,
-            rail_fold("paper_shoulder", self.sh_slider, self.sh_w_slider, self.sh_w_trim_slider),
             default_open=True,
         )
         self.layout.addLayout(curve_header)
@@ -137,9 +124,7 @@ class PaperSidebar(BaseSidebar):
     def slider_pages(self) -> tuple[SliderPage, ...]:
         rows = (
             (tr("Toe"), self.toe_slider, self.toe_slider, "toe"),
-            (tr("Toe Width"), self.toe_w_slider, self.toe_w_trim_slider, "toe_width"),
             (tr("Shoulder"), self.sh_slider, self.sh_slider, "shoulder"),
-            (tr("Shoulder Width"), self.sh_w_slider, self.sh_w_trim_slider, "shoulder_width"),
             (tr("Snap"), self.midtone_gamma_slider, self.midtone_gamma_slider, "midtone_gamma"),
             (tr("Dye Separation"), self.dye_separation_slider, self.dye_separation_trim_slider, "dye_separation"),
         )
@@ -199,8 +184,6 @@ class PaperSidebar(BaseSidebar):
         self.dye_separation_slider.valueChanged.connect(lambda _v: self._sync_damping_rail())
 
         for slider, field in (
-            (self.toe_w_slider, "toe_width"),
-            (self.sh_w_slider, "shoulder_width"),
             (self.dye_separation_slider, "dye_separation"),
             (self.separation_damping_slider, "separation_damping"),
         ):
@@ -232,12 +215,8 @@ class PaperSidebar(BaseSidebar):
             slider.dragStarted.connect(lambda b=base: self.controller.tone_drag_changed.emit(b))
             slider.dragEnded.connect(lambda: self.controller.tone_drag_changed.emit(""))
 
-        # Width/dye-separation trims live on separate sliders (differing trim vs global domain).
-        for slider, base in (
-            (self.toe_w_trim_slider, "toe_width"),
-            (self.sh_w_trim_slider, "shoulder_width"),
-            (self.dye_separation_trim_slider, "dye_separation"),
-        ):
+        # The dye-separation trim lives on its own slider (differing trim vs global domain).
+        for slider, base in ((self.dye_separation_trim_slider, "dye_separation"),):
             slider.valueChanged.connect(
                 lambda v, b=base: self.update_config_section(
                     "exposure", render=True, persist=False, readback_metrics=False, **{self._curve_field(b): v}
@@ -286,10 +265,6 @@ class PaperSidebar(BaseSidebar):
             idx = self._channel_index()
             global_mode = idx == 0
             suffix = _CH_LABEL[idx]
-            self.toe_w_slider.setVisible(global_mode)
-            self.toe_w_trim_slider.setVisible(not global_mode)
-            self.sh_w_slider.setVisible(global_mode)
-            self.sh_w_trim_slider.setVisible(not global_mode)
             # Dye Separation swaps the same way on both paths (features/transparency/logic.py).
             # Separation Damping has no per-channel trim, so it stays global-view-only.
             self.dye_separation_slider.setVisible(global_mode and not is_bw)
@@ -306,10 +281,6 @@ class PaperSidebar(BaseSidebar):
                 self.toe_slider.setValue(getattr(conf, f"toe_trim_{ch}"))
                 self.sh_slider.setValue(getattr(conf, f"shoulder_trim_{ch}"))
                 self.midtone_gamma_slider.setValue(getattr(conf, f"midtone_gamma_trim_{ch}"))
-                self.toe_w_trim_slider.label.setText(tr("Toe Width") + suffix)
-                self.toe_w_trim_slider.setValue(getattr(conf, f"toe_width_trim_{ch}"))
-                self.sh_w_trim_slider.label.setText(tr("Shoulder Width") + suffix)
-                self.sh_w_trim_slider.setValue(getattr(conf, f"shoulder_width_trim_{ch}"))
                 self.dye_separation_trim_slider.label.setText(tr("Dye Separation") + suffix)
                 self.dye_separation_trim_slider.setValue(getattr(conf, f"dye_separation_trim_{ch}"))
             for w in self._global_only:
@@ -318,8 +289,6 @@ class PaperSidebar(BaseSidebar):
 
             for i, fields in enumerate(self._channel_fields, start=1):
                 self.ch_btn.set_edited(i, any(getattr(conf, f) != 0.0 for f in fields))
-            self.toe_w_slider.setValue(conf.toe_width)
-            self.sh_w_slider.setValue(conf.shoulder_width)
             self.dye_separation_slider.setValue(conf.dye_separation)
             self.separation_damping_slider.setValue(conf.separation_damping)
             self._sync_damping_rail()
@@ -348,11 +317,7 @@ class PaperSidebar(BaseSidebar):
             self.paper_combo,
             self.ch_btn,
             self.toe_slider,
-            self.toe_w_slider,
-            self.toe_w_trim_slider,
             self.sh_slider,
-            self.sh_w_slider,
-            self.sh_w_trim_slider,
             self.midtone_gamma_slider,
             self.dye_separation_slider,
             self.dye_separation_trim_slider,

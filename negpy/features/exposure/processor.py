@@ -16,7 +16,7 @@ from negpy.features.exposure.logic import (
     effective_midtone_gamma,
     filtration_offsets,
     flat_curve_params,
-    grade_coupled_shape,
+    print_knees,
     split_grade_deltas,
     local_ev_scale,
     channel_density_ranges,
@@ -289,7 +289,16 @@ class PhotometricProcessor:
             self.config.highlight_yellow * cmy_max,
         )
 
-        toe_eff, shoulder_eff = grade_coupled_shape(slopes[1], self.config.toe, self.config.shoulder)
+        toe3, sh3, tw3, sw3, hold3 = print_knees(
+            slopes[1],
+            self.config.toe,
+            self.config.shoulder,
+            (self.config.toe_trim_red, self.config.toe_trim_green, self.config.toe_trim_blue),
+            (self.config.shoulder_trim_red, self.config.shoulder_trim_green, self.config.shoulder_trim_blue),
+            d_min=d_min,
+            paper=paper,
+        )
+        knee_pivots = [pivots[ch] - hold3[ch] / slopes[ch] for ch in range(3)]
         sg_deltas, hg_deltas = split_grade_deltas(
             self.config.grade,
             self.config.shadow_grade,
@@ -359,13 +368,12 @@ class PhotometricProcessor:
 
         img_pos = apply_characteristic_curve(
             image,
-            params_r=(pivots[0], slopes[0]),
-            params_g=(pivots[1], slopes[1]),
-            params_b=(pivots[2], slopes[2]),
-            toe=toe_eff,
-            toe_width=self.config.toe_width,
-            shoulder=shoulder_eff,
-            shoulder_width=self.config.shoulder_width,
+            params_r=(knee_pivots[0], slopes[0]),
+            params_g=(knee_pivots[1], slopes[1]),
+            params_b=(knee_pivots[2], slopes[2]),
+            toe=toe3[1],
+            shoulder=sh3[1],
+            knee_widths=(tw3, sw3),
             shadow_cmy=shadow_cmy,
             highlight_cmy=highlight_cmy,
             cmy_offsets=cmy_offsets,
@@ -378,22 +386,10 @@ class PhotometricProcessor:
             grade_map=grade_map,
             bpc=not self.config.paper_black,
             black_hold=black_hold_taper(self.config, paper),
-            toe_trims=(self.config.toe_trim_red, self.config.toe_trim_green, self.config.toe_trim_blue),
-            shoulder_trims=(self.config.shoulder_trim_red, self.config.shoulder_trim_green, self.config.shoulder_trim_blue),
             snap_trims=(
                 self.config.midtone_gamma_trim_red,
                 self.config.midtone_gamma_trim_green,
                 self.config.midtone_gamma_trim_blue,
-            ),
-            toe_width_trims=(
-                self.config.toe_width_trim_red,
-                self.config.toe_width_trim_green,
-                self.config.toe_width_trim_blue,
-            ),
-            shoulder_width_trims=(
-                self.config.shoulder_width_trim_red,
-                self.config.shoulder_width_trim_green,
-                self.config.shoulder_width_trim_blue,
             ),
             shadow_density=self.config.shadow_density + sh_auto,
             highlight_density=self.config.highlight_density + hl_auto,

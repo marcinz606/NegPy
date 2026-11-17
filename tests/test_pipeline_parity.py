@@ -269,7 +269,7 @@ class TestExposureParity:
     def test_toe_shoulder_heavy(self):
         s = replace(
             _make_base_settings(),
-            exposure=ExposureConfig(toe=1.0, toe_width=5.0, shoulder=1.0, shoulder_width=5.0),
+            exposure=ExposureConfig(toe=1.0, shoulder=1.0),
         )
         self._run_and_compare(s)
 

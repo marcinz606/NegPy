@@ -206,16 +206,18 @@ def print_curve(
 
     profile = effective_paper_profile(exposure.paper_profile, process_mode)
     d_min = profile.d_min if exposure.paper_dmin else 0.0
-    toe_eff, shoulder_eff = grade_coupled_shape(slope, exposure.toe, exposure.shoulder)
+    toe3, sh3, tw3, sw3, hold3 = print_knees(slope, exposure.toe, exposure.shoulder, d_min=d_min, paper=profile)
+    if toe is None and shoulder is None and toe_width is None and shoulder_width is None:
+        pivot = pivot - hold3[1] / slope
     sg, hg = split_grade_deltas(exposure.grade, exposure.shadow_grade, exposure.highlight_grade)
     return CharacteristicCurve(
         contrast=slope,
         pivot=pivot,
         d_min=d_min,
-        toe=toe_eff if toe is None else toe,
-        toe_width=exposure.toe_width if toe_width is None else toe_width,
-        shoulder=shoulder_eff if shoulder is None else shoulder,
-        shoulder_width=exposure.shoulder_width if shoulder_width is None else shoulder_width,
+        toe=toe3[1] if toe is None else toe,
+        toe_width=tw3[1] if toe_width is None else toe_width,
+        shoulder=sh3[1] if shoulder is None else shoulder,
+        shoulder_width=sw3[1] if shoulder_width is None else shoulder_width,
         paper=profile,
         midtone_gamma=effective_midtone_gamma(profile, exposure.midtone_gamma) if midtone_gamma is None else midtone_gamma,
         bpc=not exposure.paper_black,
@@ -299,29 +301,6 @@ def per_channel_toe_shoulder(
     return toe3, sh3
 
 
-def per_channel_widths(
-    toe_width: float,
-    shoulder_width: float,
-    toe_width_trims: Tuple[float, float, float] = (0.0, 0.0, 0.0),
-    shoulder_width_trims: Tuple[float, float, float] = (0.0, 0.0, 0.0),
-) -> Tuple[Tuple[float, float, float], Tuple[float, float, float]]:
-    """
-    Per-layer effective toe/shoulder widths: global width + per-layer trim,
-    clamped to the width slider domain. Single source of truth for CPU / GPU / chart.
-    """
-
-    def _clamp(v: float) -> float:
-        return min(max(v, 0.1), 5.0)
-
-    tw3 = (_clamp(toe_width + toe_width_trims[0]), _clamp(toe_width + toe_width_trims[1]), _clamp(toe_width + toe_width_trims[2]))
-    sw3 = (
-        _clamp(shoulder_width + shoulder_width_trims[0]),
-        _clamp(shoulder_width + shoulder_width_trims[1]),
-        _clamp(shoulder_width + shoulder_width_trims[2]),
-    )
-    return tw3, sw3
-
-
 _NO_LUT = np.ones((2, 2, 2, 3), dtype=np.float32)
 _NO_LUT_E_MAX = np.ones(3, dtype=np.float32)
 
@@ -351,9 +330,7 @@ def apply_characteristic_curve(
     params_g: Tuple[float, float],
     params_b: Tuple[float, float],
     toe: float = 0.0,
-    toe_width: float = 2.5,
     shoulder: float = 0.0,
-    shoulder_width: float = 2.5,
     shadow_cmy: Tuple[float, float, float] = (0.0, 0.0, 0.0),
     highlight_cmy: Tuple[float, float, float] = (0.0, 0.0, 0.0),
     cmy_offsets: Tuple[float, float, float] = (0.0, 0.0, 0.0),
@@ -368,8 +345,6 @@ def apply_characteristic_curve(
     toe_trims: Tuple[float, float, float] = (0.0, 0.0, 0.0),
     shoulder_trims: Tuple[float, float, float] = (0.0, 0.0, 0.0),
     snap_trims: Tuple[float, float, float] = (0.0, 0.0, 0.0),
-    toe_width_trims: Tuple[float, float, float] = (0.0, 0.0, 0.0),
-    shoulder_width_trims: Tuple[float, float, float] = (0.0, 0.0, 0.0),
     shadow_density: float = 0.0,
     highlight_density: float = 0.0,
     shadow_grade_deltas: Tuple[float, float, float] = (0.0, 0.0, 0.0),
@@ -388,8 +363,11 @@ def apply_characteristic_curve(
     diffusion_rect: Optional[Tuple[float, float, float, float]] = None,
     diffusion_range: Tuple[float, float, float] = (1.0, 1.0, 1.0),
     black_hold: float = 0.0,
+    knee_widths: Optional[Tuple[Tuple[float, float, float], Tuple[float, float, float]]] = None,
 ) -> ImageBuffer:
     """Applies the asymmetric H&D print curve per channel in log-density space.
+
+    knee_widths: (tw3, sw3) from print_knees; None keeps the paper's own knees.
 
     ev_map (H×W, stops; positive = burn) with ev_scale (see local_ev_scale) applies
     per-pixel dodge/burn as print-exposure offsets ahead of the curve.
@@ -447,7 +425,7 @@ def apply_characteristic_curve(
         deltas_arr = np.zeros((1, 1), dtype=np.float32)
 
     toe3, sh3 = per_channel_toe_shoulder(toe, shoulder, toe_trims, shoulder_trims)
-    tw3, sw3 = per_channel_widths(toe_width, shoulder_width, toe_width_trims, shoulder_width_trims)
+    tw3, sw3 = knee_widths or (((float(c["toeshoulder_width_ref"]),) * 3,) * 2)
     flash_v, flash_gamma = preflash_params(frame_grade, d_min, paper, midtone_gamma)
     toe_k = [t * ts for t in toe3]
     d_min_rgb = paper_dmin_rgb(d_min, paper)
@@ -708,6 +686,52 @@ def grade_coupled_shape(slope_g: float, toe: float, shoulder: float) -> Tuple[fl
     return toe_eff, shoulder_eff
 
 
+# Softest and hardest knee as a factor of the paper's own sharpness, at slider +1 and -1.
+KNEE_SPAN_TOE = 4.0
+KNEE_SPAN_SHOULDER = 3.0
+
+
+def print_knees(
+    slope_g: float,
+    toe: float,
+    shoulder: float,
+    toe_trims: Tuple[float, float, float] = (0.0, 0.0, 0.0),
+    shoulder_trims: Tuple[float, float, float] = (0.0, 0.0, 0.0),
+    d_min: float = 0.0,
+    paper: Optional[PaperProfile] = None,
+) -> Tuple[Tuple[float, float, float], ...]:
+    """
+    The print path's knees per channel: (toe3, sh3, tw3, sw3, hold3). Toe and Shoulder set
+    only the knee sharpness, geometric about the paper's own, so paper black and paper white
+    stay. toe3 and sh3 carry the grade-coupled baseline heights. hold3 is the straight-line
+    offset that keeps the reference tone at its print density under the changed knees.
+    Single source of truth for the CPU engine, the GPU uniforms and the chart.
+    """
+    c = effective_constants(paper)
+    wr = float(c["toeshoulder_width_ref"])
+    a_sh0, a_hl0 = float(c["toe_sharpness_base"]), float(c["shoulder_sharpness_base"])
+    toe_base, sh_base = grade_coupled_shape(slope_g, 0.0, 0.0)
+    ref0 = _reference_linear_value(d_min, paper)
+
+    def _clamp(v: float) -> float:
+        return min(max(v, -1.0), 1.0)
+
+    tw, sw, hold = [], [], []
+    for ch in range(3):
+        ft = KNEE_SPAN_TOE ** _clamp(toe + toe_trims[ch])
+        fs = KNEE_SPAN_SHOULDER ** _clamp(shoulder + shoulder_trims[ch])
+        tw.append(wr * ft)
+        sw.append(wr * fs)
+        hold.append(_reference_linear_value(d_min, paper, a_hl=a_hl0 / fs, a_sh=a_sh0 / ft) - ref0)
+    return (
+        (toe_base, toe_base, toe_base),
+        (sh_base, sh_base, sh_base),
+        (tw[0], tw[1], tw[2]),
+        (sw[0], sw[1], sw[2]),
+        (hold[0], hold[1], hold[2]),
+    )
+
+
 def effective_grade_range(
     auto_normalize_contrast: bool,
     floor_ceil_range: Optional[float],
@@ -742,7 +766,13 @@ def effective_grade_range(
     return k * abs(float(floor_ceil_range)) * factor
 
 
-def _reference_linear_value(d_min: float = 0.0, paper: Optional[PaperProfile] = None, target: Optional[float] = None) -> float:
+def _reference_linear_value(
+    d_min: float = 0.0,
+    paper: Optional[PaperProfile] = None,
+    target: Optional[float] = None,
+    a_hl: Optional[float] = None,
+    a_sh: Optional[float] = None,
+) -> float:
     """
     Straight-line density value v* that the base shoulder+toe bounds map onto `target`
     (default reference_print_density). The reference tone is placed here so it
@@ -752,8 +782,8 @@ def _reference_linear_value(d_min: float = 0.0, paper: Optional[PaperProfile] = 
     c = effective_constants(paper)
     t = float(c["reference_print_density"]) if target is None else float(target)
     d_max = float(c["d_max"])
-    a_hl = float(c["shoulder_sharpness_base"])  # highlight (lower) bound
-    a_sh = float(c["toe_sharpness_base"])  # shadow (upper) bound
+    a_hl = float(c["shoulder_sharpness_base"]) if a_hl is None else a_hl  # highlight (lower) bound
+    a_sh = float(c["toe_sharpness_base"]) if a_sh is None else a_sh  # shadow (upper) bound
     v1 = d_max - _inv_softplus_np(a_sh * (d_max - t)) / a_sh
     return float(d_min + _inv_softplus_np(a_hl * (v1 - d_min)) / a_hl)
 

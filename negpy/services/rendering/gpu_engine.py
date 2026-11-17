@@ -96,7 +96,6 @@ from negpy.features.transparency.logic import (
     transfer_cast_affine,
     transfer_point_offsets,
     transfer_curve_params,
-    transfer_widths,
     wb_split_geometry,
     zone_geometry,
 )
@@ -2013,8 +2012,7 @@ class GPUEngine:
             contrast_mask_coeffs,
             filtration_offsets,
             per_channel_dye_separation,
-            per_channel_toe_shoulder,
-            grade_coupled_shape,
+            print_knees,
             black_hold_taper,
             channel_density_ranges,
             local_ev_scale,
@@ -2024,7 +2022,6 @@ class GPUEngine:
             per_channel_curve_params,
             effective_midtone_gamma,
             per_channel_midtone_gamma,
-            per_channel_widths,
             preflash_params,
             split_grade_deltas,
         )
@@ -2040,7 +2037,7 @@ class GPUEngine:
         t_exp, t_contrast, t_hl_auto, t_sh_auto = transfer_auto_terms(
             t_e, t_exp0, t_contrast0, textural_range, metered_anchor, shadow_point, highlight_point
         )
-        t_tw3, t_sw3 = transfer_widths(t_e)
+        t_tw3 = t_sw3 = (float(TRANSFER_CONSTANTS["transfer_knee_width"]),) * 3
         t_cmy = contrast_free_cmy(
             filtration_offsets(
                 (t_e.wb_cyan, t_e.wb_magenta, t_e.wb_yellow),
@@ -2183,7 +2180,16 @@ class GPUEngine:
             else 0.0
         )
         cmy_m = EXPOSURE_CONSTANTS["cmy_max_density"]
-        _toe_eff, _shoulder_eff = grade_coupled_shape(slopes[1], exp.toe, exp.shoulder)
+        _toe3, _sh3, _tw3, _sw3, _hold3 = print_knees(
+            slopes[1],
+            exp.toe,
+            exp.shoulder,
+            (exp.toe_trim_red, exp.toe_trim_green, exp.toe_trim_blue),
+            (exp.shoulder_trim_red, exp.shoulder_trim_green, exp.shoulder_trim_blue),
+            d_min=d_min,
+            paper=paper,
+        )
+        _knee_pivots = [pivots[ch] - _hold3[ch] / slopes[ch] for ch in range(3)]
         _sg3, _hg3 = split_grade_deltas(
             exp.grade,
             exp.shadow_grade,
@@ -2194,24 +2200,12 @@ class GPUEngine:
         # Per-channel effective toe/shoulder, pre-scaled. The uniform block is full at
         # 256B, so these ride the vec4 w-lanes.
         _ts_k = float(EXPOSURE_CONSTANTS["toe_shoulder_strength"])
-        _toe3, _sh3 = per_channel_toe_shoulder(
-            _toe_eff,
-            _shoulder_eff,
-            (exp.toe_trim_red, exp.toe_trim_green, exp.toe_trim_blue),
-            (exp.shoulder_trim_red, exp.shoulder_trim_green, exp.shoulder_trim_blue),
-        )
         _toe3 = tuple(t * _ts_k for t in _toe3)
         _sh3 = tuple(s * _ts_k for s in _sh3)
         _mg3 = per_channel_midtone_gamma(
             paper,
             exp.midtone_gamma,
             (exp.midtone_gamma_trim_red, exp.midtone_gamma_trim_green, exp.midtone_gamma_trim_blue),
-        )
-        _tw3, _sw3 = per_channel_widths(
-            exp.toe_width,
-            exp.shoulder_width,
-            (exp.toe_width_trim_red, exp.toe_width_trim_green, exp.toe_width_trim_blue),
-            (exp.shoulder_width_trim_red, exp.shoulder_width_trim_green, exp.shoulder_width_trim_blue),
         )
         # Mirrors apply_characteristic_curve (absolute CC, paper base, dye mix).
         wb_offsets = filtration_offsets(
@@ -2279,7 +2273,7 @@ class GPUEngine:
         # The w-lanes carry per-channel toe (first three vec4s) and shoulder (next three).
         # See the toe3/sh3 reads in exposure.wgsl.
         e_data = (
-            struct.pack("ffff", pivots[0], pivots[1], pivots[2], _toe3[0])
+            struct.pack("ffff", _knee_pivots[0], _knee_pivots[1], _knee_pivots[2], _toe3[0])
             + struct.pack("ffff", slopes[0], slopes[1], slopes[2], _toe3[1])
             + struct.pack("ffff", curvatures[0], curvatures[1], curvatures[2], _toe3[2])
             + struct.pack("ffff", wb_offsets[0], wb_offsets[1], wb_offsets[2], _sh3[0])

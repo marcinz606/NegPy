@@ -338,8 +338,8 @@ The paper the picture prints on, and how it turns light into tones from black to
 *   **Paper Black**: shows the black of real paper, a little lighter than pure black.
 *   **Curve Shape** (fold):
     *   **Snap**: midtone contrast. Black and white do not move.
-    *   **Toe**: shapes the shadows. Positive lifts them, negative makes them deeper. **Toe Width** sets how far into the midtones it reaches.
-    *   **Shoulder**: shapes the highlights. Positive softens them, negative brightens them and can lose detail. **Shoulder Width** sets how far it reaches.
+    *   **Toe**: shapes how the shadows reach black. Positive makes the change softer and opens the shadows, negative makes it harder. Black does not move.
+    *   **Shoulder**: shapes how the highlights reach white. Positive makes the change softer, negative makes it harder and can lose detail. White does not move.
 *   **Global / R / G / B**: R, G or B applies the curve controls to one color layer.
 
 <!-- panel:local -->

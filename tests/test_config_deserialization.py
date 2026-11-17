@@ -93,12 +93,6 @@ class TestConfigDeserialization(unittest.TestCase):
                 midtone_gamma_trim_red=0.15,
                 midtone_gamma_trim_green=-0.25,
                 midtone_gamma_trim_blue=0.4,
-                toe_width_trim_red=1.2,
-                toe_width_trim_green=-0.8,
-                toe_width_trim_blue=0.4,
-                shoulder_width_trim_red=-1.5,
-                shoulder_width_trim_green=0.6,
-                shoulder_width_trim_blue=2.0,
                 shadow_density=-0.45,
                 highlight_density=0.25,
                 shadow_grade=-18.0,
@@ -126,12 +120,6 @@ class TestConfigDeserialization(unittest.TestCase):
         self.assertEqual(reloaded.exposure.midtone_gamma_trim_red, 0.15)
         self.assertEqual(reloaded.exposure.midtone_gamma_trim_green, -0.25)
         self.assertEqual(reloaded.exposure.midtone_gamma_trim_blue, 0.4)
-        self.assertEqual(reloaded.exposure.toe_width_trim_red, 1.2)
-        self.assertEqual(reloaded.exposure.toe_width_trim_green, -0.8)
-        self.assertEqual(reloaded.exposure.toe_width_trim_blue, 0.4)
-        self.assertEqual(reloaded.exposure.shoulder_width_trim_red, -1.5)
-        self.assertEqual(reloaded.exposure.shoulder_width_trim_green, 0.6)
-        self.assertEqual(reloaded.exposure.shoulder_width_trim_blue, 2.0)
         self.assertEqual(reloaded.exposure.shadow_density, -0.45)
         self.assertEqual(reloaded.exposure.highlight_density, 0.25)
         self.assertEqual(reloaded.exposure.shadow_grade, -18.0)
@@ -212,6 +200,13 @@ class TestConfigDeserialization(unittest.TestCase):
     def test_legacy_flatfield_k1_does_not_warn(self):
         with self.assertNoLogs("negpy.domain.models", level=logging.WARNING):
             WorkspaceConfig.from_flat_dict({"k1": 0.015})
+
+    def test_retired_knee_widths_load_without_a_warning(self):
+        data = {"toe": 0.3, "toe_width": 4.0, "shoulder_width": 1.0, "toe_width_trim_red": 0.5, "shoulder_width_trim_blue": -0.5}
+        with self.assertNoLogs("negpy.domain.models", level=logging.WARNING):
+            config = WorkspaceConfig.from_flat_dict(data)
+        self.assertEqual(config.exposure.toe, 0.3)
+        self.assertNotIn("toe_width", config.to_dict())
 
     def test_legacy_use_original_res_does_not_warn(self):
         data = {"use_original_res": False}
