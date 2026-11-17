@@ -18,10 +18,9 @@ from negpy.features.exposure.logic import (
     print_curve,
     print_knees,
     KNEE_SPAN_TOE,
-    TOE_SHARPNESS_FLOOR,
 )
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS, ExposureConfig
-from negpy.features.exposure.papers import PAPER_PROFILES, PaperProfile
+from negpy.features.exposure.papers import PaperProfile
 
 _ANCHOR = EXPOSURE_CONSTANTS["assumed_anchor"]
 _TARGET = EXPOSURE_CONSTANTS["reference_print_density"]
@@ -185,11 +184,9 @@ class TestPrintKnees(unittest.TestCase):
         return float(np.asarray(self._curve(**sliders)(np.array([x], dtype=np.float32)))[0])
 
     def test_neutral_sliders_keep_the_papers_own_knees(self):
-        toe3, sh3, tw3, sw3, hold3 = print_knees(self._SLOPE, 0.0, 0.0)
-        ref = EXPOSURE_CONSTANTS["toeshoulder_width_ref"]
-        self.assertEqual(tw3, (ref, ref, ref))
-        self.assertEqual(sw3, (ref, ref, ref))
-        self.assertEqual(hold3, (0.0, 0.0, 0.0))
+        toe3, sh3, ts3, ss3 = print_knees(self._SLOPE, 0.0, 0.0)
+        self.assertEqual(ts3, (1.0, 1.0, 1.0))
+        self.assertEqual(ss3, (1.0, 1.0, 1.0))
         self.assertEqual((toe3[1], sh3[1]), grade_coupled_shape(self._SLOPE, 0.0, 0.0))
 
     def test_toe_reshapes_the_shadows_and_keeps_paper_black(self):
@@ -214,19 +211,20 @@ class TestPrintKnees(unittest.TestCase):
             for sliders in ({"toe": 1.0}, {"toe": -1.0}, {"shoulder": 1.0}, {"shoulder": -1.0}):
                 self.assertAlmostEqual(self._density(x_ref, **base, **sliders), _TARGET, delta=0.005, msg=str((base, sliders)))
 
-    def test_a_soft_paper_toe_stops_at_the_floor(self):
-        """Toe +1 is four times softer, or the sharpness floor on a paper that is soft already."""
-        ref = EXPOSURE_CONSTANTS["toeshoulder_width_ref"]
-        self.assertAlmostEqual(print_knees(self._SLOPE, 1.0, 0.0)[2][1], ref * KNEE_SPAN_TOE)
-        for key in ("kodak_portra_endura", "kodak_endura"):
-            paper = PAPER_PROFILES[key]
-            width = print_knees(self._SLOPE, 1.0, 0.0, paper=paper)[2][1]
-            self.assertAlmostEqual(paper.toe_sharpness_base * ref / width, TOE_SHARPNESS_FLOOR)
-            self.assertAlmostEqual(print_knees(self._SLOPE, -1.0, 0.0, paper=paper)[2][1], ref / KNEE_SPAN_TOE)
+    def test_each_knee_leaves_the_other_side_of_the_reference_tone(self):
+        ramp = np.linspace(0.0, 1.5, 4096, dtype=np.float32)
+        for base in ({}, {"midtone_gamma": 0.5}, {"paper_profile": "kodak_portra_endura"}, {"paper_profile": "frontier"}):
+            paper_curve = np.asarray(self._curve(**base)(ramp))
+            x_ref = float(np.interp(_TARGET, paper_curve, ramp))
+            for slider, side in (("shoulder", ramp >= x_ref), ("toe", ramp <= x_ref)):
+                for value in (-1.0, 1.0):
+                    moved = np.asarray(self._curve(**base, **{slider: value})(ramp))
+                    np.testing.assert_allclose(moved[side], paper_curve[side], atol=1e-5, err_msg=str((base, slider, value)))
+                    self.assertGreater(float(np.max(np.abs(moved - paper_curve))), 0.05)
 
     def test_trim_acts_on_its_layer_only(self):
-        _, _, base_tw, base_sw, _ = print_knees(self._SLOPE, 0.2, -0.2)
-        _, _, tw3, sw3, _ = print_knees(self._SLOPE, 0.2, -0.2, (0.5, 0.0, 0.0), (0.0, 0.0, -0.5))
+        _, _, base_tw, base_sw = print_knees(self._SLOPE, 0.2, -0.2)
+        _, _, tw3, sw3 = print_knees(self._SLOPE, 0.2, -0.2, (0.5, 0.0, 0.0), (0.0, 0.0, -0.5))
         self.assertGreater(tw3[0], base_tw[0])
         self.assertEqual(tw3[1:], base_tw[1:])
         self.assertLess(sw3[2], base_sw[2])
@@ -234,7 +232,7 @@ class TestPrintKnees(unittest.TestCase):
 
     def test_a_layer_reaches_its_own_maximum_density(self):
         paper = PaperProfile(label="t", d_max_drop=(0.0, 0.2, 0.4))
-        toe3, _, tw3, sw3, _ = print_knees(self._SLOPE, 0.0, 0.0, paper=paper)
+        toe3, _, tw3, sw3 = print_knees(self._SLOPE, 0.0, 0.0, paper=paper)
         black = np.full((2, 2, 3), 3.0, dtype=np.float32)
         params = (0.79, self._SLOPE)
         out = apply_characteristic_curve(
@@ -245,14 +243,14 @@ class TestPrintKnees(unittest.TestCase):
             toe=toe3[1],
             toe_trims=(toe3[0] - toe3[1], 0.0, toe3[2] - toe3[1]),
             paper=paper,
-            knee_widths=(tw3, sw3),
+            knee_stretch=(tw3, sw3),
         )
         density = -np.log10(np.asarray(out)[0, 0, :])
         np.testing.assert_allclose(density[0] - density, [0.0, 0.2, 0.4], atol=1e-3)
 
     def test_slider_and_trim_clamp_to_the_slider_domain(self):
-        _, _, tw3, _, _ = print_knees(self._SLOPE, 0.8, 0.0, (1.0, 0.0, 0.0))
-        self.assertAlmostEqual(tw3[0], EXPOSURE_CONSTANTS["toeshoulder_width_ref"] * KNEE_SPAN_TOE)
+        _, _, tw3, _ = print_knees(self._SLOPE, 0.8, 0.0, (1.0, 0.0, 0.0))
+        self.assertAlmostEqual(tw3[0], KNEE_SPAN_TOE)
 
 
 class TestSnapTrims(unittest.TestCase):

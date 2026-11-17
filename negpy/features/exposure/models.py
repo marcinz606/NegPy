@@ -162,13 +162,9 @@ EXPOSURE_CONSTANTS: Dict[str, Any] = {
     "toe_shoulder_strength": 0.85,
     # Asymmetric H&D print curve: a straight midtone of slope k between a toe
     # (shadow roll-off to d_max) and a shoulder (highlight roll-off to d_min),
-    # each a smooth softplus bound. The sliders set roll-off *height*; the
-    # *_sharpness_base / width set sharpness.
-    # a_sh = toe_sharpness_base * width_ref / toe_width (shoulder is the same).
+    # each a smooth softplus bound of sharpness *_sharpness_base.
     "toe_sharpness_base": 6.0,
     "shoulder_sharpness_base": 3.0,
-    # Reference width that normalises both sharpness coefficients.
-    "toeshoulder_width_ref": 2.5,
     # Density moved per slider unit: d_max_eff = d_max - toe*this,
     # d_min_eff = d_min + shoulder*this. toe_height is larger because density is
     # log10, so a ΔD near d_max reads smaller in L* than the same ΔD near d_min.

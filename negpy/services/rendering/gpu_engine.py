@@ -2180,19 +2180,14 @@ class GPUEngine:
             else 0.0
         )
         cmy_m = EXPOSURE_CONSTANTS["cmy_max_density"]
-        _toe3, _sh3, _tw3, _sw3, _hold3 = print_knees(
+        _toe3, _sh3, _tw3, _sw3 = print_knees(
             slopes[1],
             exp.toe,
             exp.shoulder,
             (exp.toe_trim_red, exp.toe_trim_green, exp.toe_trim_blue),
             (exp.shoulder_trim_red, exp.shoulder_trim_green, exp.shoulder_trim_blue),
-            d_min=d_min,
             paper=paper,
-            midtone_gamma=per_channel_midtone_gamma(
-                paper, exp.midtone_gamma, (exp.midtone_gamma_trim_red, exp.midtone_gamma_trim_green, exp.midtone_gamma_trim_blue)
-            ),
         )
-        _knee_pivots = [pivots[ch] - _hold3[ch] / slopes[ch] for ch in range(3)]
         _sg3, _hg3 = split_grade_deltas(
             exp.grade,
             exp.shadow_grade,
@@ -2276,7 +2271,7 @@ class GPUEngine:
         # The w-lanes carry per-channel toe (first three vec4s) and shoulder (next three).
         # See the toe3/sh3 reads in exposure.wgsl.
         e_data = (
-            struct.pack("ffff", _knee_pivots[0], _knee_pivots[1], _knee_pivots[2], _toe3[0])
+            struct.pack("ffff", pivots[0], pivots[1], pivots[2], _toe3[0])
             + struct.pack("ffff", slopes[0], slopes[1], slopes[2], _toe3[1])
             + struct.pack("ffff", curvatures[0], curvatures[1], curvatures[2], _toe3[2])
             + struct.pack("ffff", wb_offsets[0], wb_offsets[1], wb_offsets[2], _sh3[0])
@@ -2295,7 +2290,7 @@ class GPUEngine:
                 _sh3[2],
             )
             # Asymmetric H&D print-curve scalars; mirrors negpy_core print_curve.rs.
-            # Per-channel knee widths occupy the dead scalar toe/shoulder/
+            # Per-channel knee stretches occupy the dead scalar toe/shoulder/
             # midtone_gamma slots and the former flare pad (see exposure.wgsl).
             + struct.pack(
                 "14fI3fIf",
@@ -2309,7 +2304,7 @@ class GPUEngine:
                 pc["d_max"],
                 pc["toe_sharpness_base"],
                 pc["shoulder_sharpness_base"],
-                # Separation Damping (toeshoulder_width_ref is a WGSL literal).
+                # Separation Damping.
                 sep_damping,
                 pc["toe_height"],
                 pc["shoulder_height"],
