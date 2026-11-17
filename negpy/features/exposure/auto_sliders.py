@@ -73,8 +73,7 @@ def print_shown_values(exposure: ExposureConfig, process_mode: Optional[str], me
 def print_stored_value(
     exposure: ExposureConfig, process_mode: Optional[str], metrics: Mapping[str, Any], field: str, shown: float
 ) -> float:
-    """Inverse of print_shown_values for one field. Where Shadow Reach floors the slope,
-    a softer grade is stored but does not print."""
+    """Inverse of print_shown_values for one field."""
     if field == "density":
         shift = _density_shift(exposure, process_mode, metrics)
         return shown if shift is None else shown + shift
@@ -84,7 +83,12 @@ def print_stored_value(
         lum_range = metrics["norm_density_range"]
         r_eff = effective_grade_range(True, lum_range, metrics["textural_range"])
         gain = slope_gain(_paper(exposure, process_mode)[0])
-        return slope_to_grade(grade_to_slope(shown, lum_range, gain), r_eff, gain)
+        slope = grade_to_slope(shown, lum_range, gain)
+        # Under the Shadow Reach floor a softer grade is the ISO R ratio on the floored meter slope.
+        floored = _auto_slope(replace(exposure, grade=NEUTRAL["grade"]), process_mode, metrics)
+        if slope < floored and floored > grade_to_slope(NEUTRAL["grade"], r_eff, gain):
+            return min(NEUTRAL["grade"] * floored / slope, float(EXPOSURE_CONSTANTS["iso_r_max"]))
+        return slope_to_grade(slope, r_eff, gain)
     if field == "highlight_density" and exposure.auto_normalize_contrast and metrics.get("highlight_point") is not None:
         return shown - auto_highlight_from_metrics(exposure, process_mode, metrics)
     if field == "shadow_density" and exposure.auto_normalize_contrast and metrics.get("shadow_point") is not None:
