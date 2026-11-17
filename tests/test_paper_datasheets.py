@@ -47,8 +47,16 @@ def test_neutral_curve_follows_the_datasheet(key):
 
 @pytest.mark.parametrize("key", STOCKS)
 def test_maximum_density_follows_the_datasheet(key):
-    """d_max is the deepest layer's top, and a drop puts the other layers below it."""
+    """d_max is the deepest layer's top, and a drop puts the other layers below it, yellow lowest."""
     _, rgb = _sheet(key)
     profile = PAPER_PROFILES[key]
     assert abs(profile.d_max - rgb.max()) < 0.1
-    assert profile.d_max_drop[0] == 0.0 and profile.d_max_drop[1] < profile.d_max_drop[2]
+    assert min(profile.d_max_drop) == 0.0 and profile.d_max_drop[2] == max(profile.d_max_drop) > 0.0
+
+
+@pytest.mark.parametrize("key", STOCKS)
+def test_paper_white_follows_the_datasheet(key):
+    feet = _sheet(key)[1].min(0)
+    profile = PAPER_PROFILES[key]
+    assert abs(profile.d_min - feet.mean()) < 0.02
+    np.testing.assert_allclose(profile.base_tint_cmy, feet - feet.mean(), atol=0.02)

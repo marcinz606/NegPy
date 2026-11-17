@@ -214,10 +214,12 @@ PAPER_PROFILES: Dict[str, PaperProfile] = {
         # Neutral, with deep blacks and a punchy midtone S. The datasheet R/G/B diverge only at
         # Dmax, red densest, which cools the deep shadows: d_max is the cyan layer's top and
         # d_max_drop the other two below it, from E-4070's Status A curves read through its dyes.
-        d_max=2.69,
-        d_min=0.06,
+        # Paper white and its tint are the curves' feet.
+        d_max=2.73,
+        d_min=0.096,
         toe_sharpness_base=3.5,
         paper_midtone_gamma=0.22,
+        base_tint_cmy=(0.009, 0.010, -0.018),
         d_max_drop=(0.0, 0.31, 0.41),
         # Dyes from E-4070's spectral dye density curves, under D50.
         print_color=DyeLut("kodak_e4070"),
@@ -284,12 +286,12 @@ PAPER_PROFILES: Dict[str, PaperProfile] = {
     ),
     # Fitted to Kodak E-4020 (Status A R/G/B). Dyes are E-4070's: the E-4020 sheet draws each dye
     # over a density floor in every band, which desaturates past any RA4 print, and spektrafilm's
-    # Ultra Endura is the later High Definition paper (E-4044).
+    # Ultra Endura is the later High Definition paper (E-4044). d_max is the magenta layer's top.
     "kodak_ultra_endura": PaperProfile(
         label="Kodak Ultra Endura",
         short="Ultra Endura",
         kind="ra4",
-        d_max=2.61,
+        d_max=2.69,
         d_min=0.096,
         toe_sharpness_base=6.04,
         shoulder_sharpness_base=5.74,
@@ -297,14 +299,16 @@ PAPER_PROFILES: Dict[str, PaperProfile] = {
         paper_gamma_width=0.60,
         channel_gamma=(1.109, 1.0, 1.051),
         base_tint_cmy=(-0.003, -0.003, 0.005),
+        d_max_drop=(0.04, 0.0, 0.42),
         print_color=DyeLut("kodak_e4070"),
     ),
     # Fitted to Kodak E-7020 (Status A R/G/B). Its spectral dye density curves are E-4070's.
+    # d_max is the magenta layer's top.
     "kodak_ektacolor_edge": PaperProfile(
         label="Kodak Ektacolor Edge",
         short="Ektacolor Edge",
         kind="ra4",
-        d_max=2.25,
+        d_max=2.33,
         d_min=0.083,
         toe_sharpness_base=2.30,
         shoulder_sharpness_base=2.34,
@@ -312,6 +316,7 @@ PAPER_PROFILES: Dict[str, PaperProfile] = {
         paper_gamma_width=0.82,
         channel_gamma=(1.013, 1.0, 1.004),
         base_tint_cmy=(0.011, 0.011, -0.022),
+        d_max_drop=(0.11, 0.0, 0.29),
         print_color=DyeLut("kodak_e4070"),
     ),
     # ── Color print film (kind "ra4": the kind gates the C-41 mode) ─────────

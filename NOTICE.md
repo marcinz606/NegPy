@@ -37,7 +37,9 @@ The Status A characteristic curves in scripts/print_curves/ (Kodak E-4021 for
 Portra Endura and Supra Endura, E-4070 for Endura Premier) and the Status A
 responsivities in scripts/print_dyes/status_a.csv are derived from spektrafilm's
 traces under the same license, resampled to a shared grid; d_max_drop in papers.py
-is solved from them (scripts/fit_d_max_drop.py).
+is solved from them (scripts/fit_d_max_drop.py). The curves for Ultra Endura and
+Ektacolor Edge are read by NegPy from Kodak's own sheets (E-4020, 2008, and
+E-7020, 2019; scripts/digitize_datasheet_curves.py).
 
 Modified by NegPy: the CSVs keep each profile's channel_density on its 5 nm grid
 where all three dyes are defined; print_luts/kodak_e4021.npz and kodak_2393.npz

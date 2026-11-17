@@ -8,7 +8,8 @@ deepest one.
 
     uv run python scripts/fit_d_max_drop.py [--cie-dir DIR]
 
-Inputs: print_curves/<profile>.csv (log_e,r,g,b: the datasheet's Status A curves),
+Inputs: print_curves/<profile>.csv (log_e,r,g,b: the datasheet's Status A curves, from a
+trace or digitize_datasheet_curves.py),
 print_dyes/status_a.csv (the Status A responsivities) and the stock's spectral dye CSV.
 A stock needs the curves and the dyes of the same datasheet family.
 """
@@ -25,6 +26,8 @@ STOCKS = {
     "kodak_portra_endura": "kodak_ra4_e4021.csv",
     "kodak_supra_endura": "kodak_ra4_e4021.csv",
     "kodak_endura": "kodak_ra4_e4070.csv",
+    "kodak_ultra_endura": "kodak_ra4_e4070.csv",
+    "kodak_ektacolor_edge": "kodak_ra4_e4070.csv",
 }
 
 
