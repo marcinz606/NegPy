@@ -560,14 +560,14 @@ Corregge gli errori di colore dovuti alla luce, alla fotocamera e alla pellicola
 
 **Rifinitura della tinta** (fotocamera con luce a banda stretta): ruota tutte le tinte, per una luce che rende arancioni i gialli o oliva i verdi. Lascia 0 per la luce bianca. A differenza del profilo del sensore, funziona anche sulle diapositive.
 
-<!-- panel:fade src:f1251435 -->
+<!-- panel:fade src:df17e8d2 -->
 ### 10.5 Ripristino dello sbiadimento: diapositive sbiadite
 
 Restituisce a una diapositiva sbiadita i suoi strati di colorante. Il riquadro compare solo per le diapositive.
 
 *   **Stima**: imposta Miscela di grigio e le Persistenze.
 *   **Ripristina intervallo** (icona accanto a Stima): se attivo, imposta Persistenza del rosso dall'intervallo del fotogramma; Stima la mantiene.
-*   **Persistenza del rosso**: quanto colorante rosso è rimasto. Abbassala finché il contrasto non ritorna.
+*   **Persistenza del rosso**: quanto colorante rosso è rimasto. Abbassala finché il contrasto non ritorna. Con Ripristina intervallo attivo, la tua modifica resta ogni volta che reimposta il rosso.
 *   **Persistenza del verde** / **Persistenza del blu**: lo stesso, misurato rispetto al rosso.
 *   **Rimuovi macchia**: sbianca le zone trasparenti ingiallite e stima di nuovo. Attivalo quando Stima lo suggerisce.
 *   **Miscela di grigio**: cambia di quali grigi si fida Stima. Trascinala se i colori sembrano sbagliati.

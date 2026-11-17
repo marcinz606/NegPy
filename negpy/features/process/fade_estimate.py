@@ -85,15 +85,30 @@ def estimate_hint(chosen: FadeEstimate) -> str:
     return text
 
 
-def auto_red_changes(conf: ProcessConfig, cam_xyz: Any, camera_wb: Any, grid: ImageBuffer) -> tuple[Optional[dict], str]:
-    """`fade_auto_red.auto_red` for the survivals and shift in *conf*."""
+#: (grid, conf, points) of the last reading at *conf*'s own Red, which a Red Survival drag reads at each step.
+_base_points_memo: Optional[tuple[ImageBuffer, ProcessConfig, Any]] = None
+
+
+def auto_red_changes(
+    conf: ProcessConfig, cam_xyz: Any, camera_wb: Any, grid: ImageBuffer, target: Optional[float] = None
+) -> tuple[Optional[dict], str]:
+    """`fade_auto_red.auto_red` for the survivals, shift and Red trim in *conf*."""
     space = render_white_space(conf, conf.process_mode, cam_xyz, camera_wb)
     g, b, shift = conf.fade_ratio_g, conf.fade_ratio_b, conf.fade_density_shift
 
-    def points_at(red: float):
-        return survival_points(grid, conf, (red, g, b), conf.fade_white_anchor, bool(space), space, shift)
+    key = replace(conf, fade_red_trim=1.0)
 
-    return auto_red(points_at, conf.fade_ratio_r, shift)
+    def points_at(red: float):
+        global _base_points_memo
+        memo = _base_points_memo
+        if red == conf.fade_ratio_r and memo is not None and memo[0] is grid and memo[1] == key:
+            return memo[2]
+        points = survival_points(grid, conf, (red, g, b), conf.fade_white_anchor, bool(space), space, shift)
+        if red == conf.fade_ratio_r:
+            _base_points_memo = (grid, key, points)
+        return points
+
+    return auto_red(points_at, conf.fade_ratio_r, shift, conf.fade_red_trim, target)
 
 
 def short_range(conf: ProcessConfig, cam_xyz: Any, camera_wb: Any, grid: ImageBuffer) -> bool:

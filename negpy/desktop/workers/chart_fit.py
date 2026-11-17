@@ -134,13 +134,15 @@ def fade_estimate_grid(source: ChartSource) -> Optional[np.ndarray]:
         fade_crossover=0.0,
     )
     config = replace(source.config, process=process)
-    # The key leaves out what Estimate writes but this grid never reads: Gray Mix, the white, the table
-    # and the frame's own bounds.
+    # The key leaves out what Estimate writes but this grid never reads: Gray Mix, Restore Range, the white,
+    # the table and the frame's own bounds.
     keyed = replace(
         config,
         process=replace(
             process,
             fade_neutrals_mix=0.0,
+            fade_auto_red=False,
+            fade_red_trim=1.0,
             fade_white_r=0.0,
             fade_white_g=0.0,
             fade_white_b=0.0,

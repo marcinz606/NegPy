@@ -82,7 +82,7 @@ _SENSOR_FIELDS = (
     "crosstalk_process",
     "hue_trim",
 )
-_FADE_FIELDS = (*FADE_METER_FIELDS, "fade_auto_red", "fade_neutrals_mix")
+_FADE_FIELDS = (*FADE_METER_FIELDS, "fade_auto_red", "fade_red_trim", "fade_neutrals_mix")
 # ProcessConfig is split across five cards. Each tuple is both the card's reset scope and
 # its modified count, so a field is resettable from the one card that counts it.
 # Linear RAW and the two demosaic choices are in none: they come from the scanning

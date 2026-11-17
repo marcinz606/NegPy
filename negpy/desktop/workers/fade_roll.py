@@ -187,7 +187,14 @@ class FadeRollWorker(QObject):
                 candidates.append((f.reading.key, faded[0], faded[1], measure_crossover(*faded)))
         pick = pick_crossover(candidates)
         result.crossover = None if pick is None else pick._replace(key=names[pick.key])
+        # A roll Estimate fits Red afresh, so a hand trim on an earlier fit goes.
         result.changes = dict(
-            fade_ratio_r=red, fade_ratio_g=green, fade_ratio_b=blue, fade_density_shift=shift, fade_auto_red=ranged, fade_white_anchor=False
+            fade_ratio_r=red,
+            fade_ratio_g=green,
+            fade_ratio_b=blue,
+            fade_density_shift=shift,
+            fade_auto_red=ranged,
+            fade_red_trim=1.0,
+            fade_white_anchor=False,
         )
         return result
