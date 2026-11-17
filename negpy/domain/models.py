@@ -19,6 +19,7 @@ from negpy.features.local.models import LocalAdjustmentsConfig, LocalMask, MaskK
 from negpy.features.retouch.models import RetouchConfig
 from negpy.features.altprocess.models import AltProcessConfig
 from negpy.features.toning.models import ToningConfig
+from negpy.features.vignette.models import VignetteConfig
 from negpy.features.finish.models import FinishConfig
 from negpy.features.flatfield.models import FlatFieldConfig
 from negpy.features.rgbscan.models import RgbScanConfig
@@ -366,6 +367,7 @@ class WorkspaceConfig:
     retouch: RetouchConfig = field(default_factory=RetouchConfig)
     altproc: AltProcessConfig = field(default_factory=AltProcessConfig)
     toning: ToningConfig = field(default_factory=ToningConfig)
+    vignette: VignetteConfig = field(default_factory=VignetteConfig)
     finish: FinishConfig = field(default_factory=FinishConfig)
     metadata: MetadataConfig = field(default_factory=MetadataConfig)
     export: ExportConfig = field(default_factory=ExportConfig)
@@ -409,6 +411,7 @@ class WorkspaceConfig:
         res.update(asdict(self.retouch))
         res.update(asdict(self.altproc))
         res.update(asdict(self.toning))
+        res.update(asdict(self.vignette))
         res.update(asdict(self.finish))
         res.update(asdict(self.metadata))
         res.update(asdict(self.export))
@@ -436,6 +439,7 @@ class WorkspaceConfig:
             RetouchConfig,
             AltProcessConfig,
             ToningConfig,
+            VignetteConfig,
             FinishConfig,
             MetadataConfig,
             ExportConfig,
@@ -536,6 +540,7 @@ class WorkspaceConfig:
             retouch=_plain(RetouchConfig),
             altproc=_plain(AltProcessConfig),
             toning=_plain(ToningConfig),
+            vignette=_plain(VignetteConfig),
             finish=_plain(FinishConfig),
             metadata=_plain(MetadataConfig),
             export=_plain(ExportConfig),

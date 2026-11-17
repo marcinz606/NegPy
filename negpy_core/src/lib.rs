@@ -46,6 +46,7 @@ pub mod stats;
 pub mod stitch;
 pub mod toning;
 pub mod transfer;
+pub mod vignette;
 pub mod warp;
 pub mod zones;
 
@@ -96,6 +97,7 @@ fn negpy_core(m: &pyo3::Bound<'_, pyo3::types::PyModule>) -> pyo3::PyResult<()> 
     py::lens::register(m)?;
     py::altprocess::register(m)?;
     py::finish::register(m)?;
+    py::vignette::register(m)?;
     py::flatfield::register(m)?;
     py::stitch::register(m)?;
     py::skew::register(m)?;

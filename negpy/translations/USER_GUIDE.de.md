@@ -187,7 +187,7 @@ Zeichne eine Form. Nur dieser Bereich wird dann heller (Abwedeln) oder dunkler (
 
 **Abzugsnotizen** (`Shift+N`) markieren die Masken mit ihren Nummern und Werten im Bild, wie Notizen eines Druckers im Labor.
 
-<!-- panel:lab src:e8e4a89c -->
+<!-- panel:lab src:b7af42f2 -->
 ### 6.1 Lab: Farbe und Detail
 
 Die Anpassungen, die ein Lab-Scanner nach dem Abzug vornimmt.
@@ -200,6 +200,7 @@ Die Anpassungen, die ein Lab-Scanner nach dem Abzug vornimmt.
 *   **CLAHE**: lokaler Kontrast, um Details hervorzuheben. Hohe Werte können unnatürlich wirken.
 *   **Glühen** (Falte Effekte): ein weiches Glühen um helle Bereiche, wie der Weichzeichner eines Minilab-Scanners.
 *   **Lichthof** (Falte Effekte): ein rotes Glühen um helle Bereiche, wie es manche Filme zeigen.
+*   **Vignette**: macht die Kanten des Beschnitts dunkler oder heller. **Stärke** setzt die Menge: negativ dunkelt ab, positiv hellt auf. **Weichheit** setzt, wie weich die Kante ist. **Rundheit** geht von einem Kreis (0) zur Form des Beschnitts (1).
 
 <!-- panel:altproc src:1b810792 -->
 ### 6.2 Alternative Verfahren

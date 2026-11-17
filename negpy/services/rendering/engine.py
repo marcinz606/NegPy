@@ -39,6 +39,7 @@ from negpy.features.cyanotype.processor import CyanotypeProcessor
 from negpy.features.lith.processor import LithProcessor
 from negpy.features.sabattier.processor import SabattierProcessor
 from negpy.features.toning.processor import ToningProcessor
+from negpy.features.vignette.processor import VignetteProcessor
 from negpy.features.altprocess.models import AltProcess
 from negpy.features.process.models import FADE_RENDER_FIELDS, ProcessMode
 from negpy.features.lab.logic import apply_clahe
@@ -402,6 +403,7 @@ class DarkroomEngine:
         if not flat_intent:
             from negpy.services.export.print import PrintService
 
+            current_img = VignetteProcessor(settings.vignette).process(current_img, context)
             paper = PrintService.effective_paper_linear(settings.finish, settings.toning)
             carrier_live = settings.finish.carrier_width > 0.0 and not context.crop_preview_full
             tone = rebate_tone(settings, context.metrics) if carrier_live else None

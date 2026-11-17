@@ -366,6 +366,7 @@ class GPUEngine:
             "sabattier_h": get_resource_path(os.path.join("negpy", "features", "sabattier", "shaders", "sabattier_h.wgsl")),
             "sabattier_v": get_resource_path(os.path.join("negpy", "features", "sabattier", "shaders", "sabattier_v.wgsl")),
             "toning": get_resource_path(os.path.join("negpy", "features", "toning", "shaders", "toning.wgsl")),
+            "vignette": get_resource_path(os.path.join("negpy", "features", "vignette", "shaders", "vignette.wgsl")),
             "finish": get_resource_path(os.path.join("negpy", "features", "finish", "shaders", "finish.wgsl")),
             "metrics": get_resource_path(os.path.join("negpy", "features", "lab", "shaders", "metrics.wgsl")),
             "density_hist": get_resource_path(os.path.join("negpy", "features", "exposure", "shaders", "density_hist.wgsl")),
@@ -395,6 +396,7 @@ class GPUEngine:
             "cyanotype",
             "sabattier",
             "toning",
+            "vignette",
             "finish",
             "layout",
             "density_hist",
@@ -412,6 +414,7 @@ class GPUEngine:
             "cyanotype": 64,
             "sabattier": 32,
             "toning": 64,
+            "vignette": 20,
             "finish": 60,
             "layout": 48,
             "density_hist": 48,
@@ -482,8 +485,9 @@ class GPUEngine:
         3: Retouch (Healing)
         4: Lab (Color/Sharpen)
         6: Toning (Paper/Split)
-        7: Finish (Vignette)
-        8: Layout (Final compositing)
+        7: Vignette (Lab luminance)
+        8: Finish (Carrier/Border)
+        9: Layout (Final compositing)
         """
         if (
             self._last_settings is None
@@ -516,15 +520,17 @@ class GPUEngine:
             return 5
         if last.toning != settings.toning:
             return 6
-        if last.finish != settings.finish:
+        if last.vignette != settings.vignette:
             return 7
+        if last.finish != settings.finish:
+            return 8
         if last.export != settings.export:
             # Carrier width is mm-of-print, so a print-size change moves the finish pass too.
             if settings.finish.carrier_width > 0.0 and last.export.export_print_size != settings.export.export_print_size:
-                return 7
-            return 8
+                return 8
+            return 9
 
-        return 9  # Nothing changed
+        return 10  # Nothing changed
 
     def _get_intermediate_texture(self, w: int, h: int, usage: int, label: str) -> GPUTexture:
         """Retrieves or creates a texture from the pool.
@@ -1584,19 +1590,39 @@ class GPUEngine:
                 crop_h,
             )
 
-        # --- Finish (Vignette) ---
+        # --- Vignette (Lab luminance) ---
+        tex_vignette = self._get_intermediate_texture(
+            crop_w,
+            crop_h,
+            wgpu.TextureUsage.STORAGE_BINDING | wgpu.TextureUsage.TEXTURE_BINDING | wgpu.TextureUsage.COPY_SRC,
+            "vignette_tex",
+        )
+        if start_stage <= 7:
+            self._dispatch_pass(
+                enc,
+                "vignette",
+                [
+                    (0, tex_toning.view),
+                    (1, tex_vignette.view),
+                    (2, self._get_uniform_binding("vignette")),
+                ],
+                crop_w,
+                crop_h,
+            )
+
+        # --- Finish (Carrier/Border) ---
         tex_finish = self._get_intermediate_texture(
             crop_w,
             crop_h,
             wgpu.TextureUsage.STORAGE_BINDING | wgpu.TextureUsage.TEXTURE_BINDING | wgpu.TextureUsage.COPY_SRC,
             "finish_tex",
         )
-        if start_stage <= 7:
+        if start_stage <= 8:
             self._dispatch_pass(
                 enc,
                 "finish",
                 [
-                    (0, tex_toning.view),
+                    (0, tex_vignette.view),
                     (1, tex_finish.view),
                     (2, self._get_uniform_binding("finish")),
                     (3, self._buffers["carrier_s"]),
@@ -1606,7 +1632,7 @@ class GPUEngine:
                 crop_h,
             )
         # The pool never zeros or evicts it, so it still holds its last output when the stage
-        # is cached; tex_toning is pre-vignette and never the display source.
+        # is cached; tex_vignette is pre-finish and never the display source.
         tex_for_layout = tex_finish
 
         if not tiling_mode and apply_layout and not full_frame:
@@ -1617,7 +1643,7 @@ class GPUEngine:
                 wgpu.TextureUsage.STORAGE_BINDING | wgpu.TextureUsage.TEXTURE_BINDING | wgpu.TextureUsage.COPY_SRC,
                 "final",
             )
-            if start_stage <= 8:
+            if start_stage <= 9:
                 self._dispatch_pass(
                     enc,
                     "layout",
@@ -1636,12 +1662,12 @@ class GPUEngine:
         if not tiling_mode and readback_metrics:
             device.queue.write_buffer(self._buffers["metrics"].buffer, 0, _METRICS_ZEROS)
             enc.copy_buffer_to_buffer(self._buffers["auto_mask"].buffer, 4, self._buffers["metrics"].buffer, _METRICS_AUTO_MASK_BASE * 4, 4)
-            # Always compute metrics on the content image (tex_toning) before any
+            # Always compute metrics on the content image (tex_vignette) before any
             # border/layout pass so that border pixels don't skew the histogram.
             self._dispatch_pass(
                 enc,
                 "metrics",
-                [(0, tex_toning.view), (1, self._buffers["metrics"])],
+                [(0, tex_vignette.view), (1, self._buffers["metrics"])],
                 crop_w,
                 crop_h,
             )
@@ -1689,7 +1715,7 @@ class GPUEngine:
                 enc,
                 "color_hist",
                 [
-                    (0, tex_toning.view),
+                    (0, tex_vignette.view),
                     (
                         1,
                         {
@@ -1706,7 +1732,7 @@ class GPUEngine:
                 enc,
                 "waveform",
                 [
-                    (0, tex_toning.view),
+                    (0, tex_vignette.view),
                     (
                         1,
                         {
@@ -1739,7 +1765,7 @@ class GPUEngine:
                 enc,
                 "vectorscope",
                 [
-                    (0, tex_toning.view),
+                    (0, tex_vignette.view),
                     (
                         1,
                         {
@@ -2573,10 +2599,20 @@ class GPUEngine:
             + struct.pack("ffff", adj_ceils[0], adj_ceils[1], adj_ceils[2], 0.0)
         )
 
+        # Lab luminance vignette, distinct from the finish print-border vignette.
+        v_data = struct.pack(
+            "fffff",
+            float(settings.vignette.strength),
+            float(settings.vignette.feather),
+            float(settings.vignette.roundness),
+            float(crop_w),
+            float(crop_h),
+        )
+
         full_buffer = bytearray()
         for name, d in zip(
             self._uniform_names,
-            [g_data, n_data, e_data, tr_data, c_data, l_data, li_data, cy_data, sa_data, t_data, f_data, y_data, dh_data],
+            [g_data, n_data, e_data, tr_data, c_data, l_data, li_data, cy_data, sa_data, t_data, v_data, f_data, y_data, dh_data],
         ):
             full_buffer += d + b"\x00" * (self._slot_bytes(name) - len(d))
 

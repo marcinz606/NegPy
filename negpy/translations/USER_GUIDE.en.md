@@ -376,6 +376,7 @@ The adjustments a lab scanner makes after the print.
 *   **CLAHE**: local contrast, to bring out detail. Strong values can look unnatural.
 *   **Glow** (Effects fold): a soft glow around bright areas, like the soft focus of a minilab scanner.
 *   **Halation** (Effects fold): a red glow around bright areas, as some films give.
+*   **Vignette**: darkens or lightens the edges of the crop. **Strength** sets the amount: negative darkens, positive lightens. **Feather** sets how soft the edge is. **Roundness** goes from a circle (0) to the shape of the crop (1).
 
 <!-- panel:altproc -->
 ### 6.2 Alternative Processes

@@ -289,7 +289,7 @@ The IR channel, statistical detection and manual strokes each give one continuou
     $$L_{diff} = L - \text{blur}(L, \text{radius}), \qquad \text{gain} = \text{amount} \cdot 2.5 \cdot \text{smoothstep}(0.25, 0.33, |L_{diff}|) \cdot m \cdot g(L)$$
     $$L_{final} = \text{clamp}\big(L + L_{diff}\cdot\text{gain},\; L_{min}-2,\; L_{max}+1\big)$$
 
-    Radius is in pixels of the rendered buffer: the preview's, or the exported size (§9, Export sharpening). Masking $m = \text{smoothstep}(0.5t, t, |\nabla L|)$, $t = 10\cdot\text{masking}$. Auto Masking uses $\text{clamp}(0.27\,\tilde g + \text{masking} - 0.1,\ 0,\ 1)$, where $\tilde g$ is the 30th percentile of the boxed $|\nabla L|$ over the pixels with $30 < L < 85$ of the buffer being sharpened, binned at $1/256$ $L^{\ast}$/px (`sharpen_grain`; on the GPU `sharpen_grain_hist.wgsl` and `sharpen_grain_pick.wgsl`, with no readback before the lab pass). Without midtones $0.27\,\tilde g$ is 0.1. The shadow gain $g(L) = \tfrac{1}{3} + \tfrac{2}{3}\,\text{smoothstep}(0, 35, L)$ tames the grain of thin negatives (Gallagher & Gindele, US 7,228,004). The $3\times3$ clamp is tighter above, because $L^{\ast}$ USM exaggerates light halos.
+    Radius is in pixels of the rendered buffer: the preview's, or the exported size (§10, Export sharpening). Masking $m = \text{smoothstep}(0.5t, t, |\nabla L|)$, $t = 10\cdot\text{masking}$. Auto Masking uses $\text{clamp}(0.27\,\tilde g + \text{masking} - 0.1,\ 0,\ 1)$, where $\tilde g$ is the 30th percentile of the boxed $|\nabla L|$ over the pixels with $30 < L < 85$ of the buffer being sharpened, binned at $1/256$ $L^{\ast}$/px (`sharpen_grain`; on the GPU `sharpen_grain_hist.wgsl` and `sharpen_grain_pick.wgsl`, with no readback before the lab pass). Without midtones $0.27\,\tilde g$ is 0.1. The shadow gain $g(L) = \tfrac{1}{3} + \tfrac{2}{3}\,\text{smoothstep}(0, 35, L)$ tames the grain of thin negatives (Gallagher & Gindele, US 7,228,004). The $3\times3$ clamp is tighter above, because $L^{\ast}$ USM exaggerates light halos.
 
     Deconvolution is Richardson-Lucy on linear $Y$ with a Gaussian PSF (`rl_*.wgsl`), $\text{clamp}(\text{round}(10\cdot\text{radius}), 5, 20)$ iterations, no damping:
 
@@ -355,7 +355,18 @@ $$g = \sigma\!\left(\frac{D - R}{w_e}\right), \qquad D' = D + s\,\big(1 - \ell\,
 
 ---
 
-## 9. Finish
+## 9. Vignette
+**Code**: `negpy.features.vignette`
+
+A luminance vignette in scene-linear, after crop and before Finish. A scalar gain on every channel moves luma, not color, so the edge darkens or lightens and never changes hue. The centre is the crop centre and the falloff runs inward from the crop edge.
+
+*   **Strength** $s$ (−1 to 1, default 0): the edge gain is $2^{s\,f}$, $f$ a cosine ramp $0.5(1 - \cos t\pi)$ over the radius from the crop centre. Positive $s$ lightens the edge, negative darkens it.
+*   **Feather** $\phi$ (0 to 1, default 0.5): the width of the falloff band, as a fraction of the radius. The band runs from $1 - \phi$ to the edge; at 0 the edge is hard.
+*   **Roundness** $\rho$ (0 to 1, default 0): blends the radius from a circle (0, normalised to the crop corner) to an ellipse (1, inscribed in the crop rectangle).
+
+---
+
+## 10. Finish
 **Code**: `negpy.features.finish`
 
 Post-crop finishing in scene-linear, before the output transform: edge burn, then filed carrier; layout extras run at compositing. The uncropped tool previews skip the carrier and the layout on both engines.

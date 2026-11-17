@@ -17,6 +17,7 @@ from negpy.desktop.view.widgets.collapsible import NO_ROLL_SCOPE_HINT, Collapsib
 from negpy.desktop.view.widgets.charts import MiniCurveWidget, MiniHistogramWidget, MiniRGBHistogramWidget
 from negpy.desktop.view.styles.theme import THEME
 from negpy.features.lab.models import LabConfig
+from negpy.features.vignette.models import VignetteConfig
 from negpy.features.altprocess.models import AltProcessConfig
 from negpy.features.toning.models import ToningConfig
 from negpy.features.geometry.logic import has_manual_crop
@@ -123,6 +124,7 @@ _BASELINE_FIELDS = (
 # the autocrop fields hold the shipped values only there, as an untouched or reset file does.
 _DEFAULT_EXPOSURE = DEFAULT_WORKSPACE_CONFIG.exposure
 _DEFAULT_LAB = LabConfig()
+_DEFAULT_VIGNETTE = VignetteConfig()
 _DEFAULT_TONING = ToningConfig()
 _DEFAULT_ALTPROC = AltProcessConfig()
 _DEFAULT_GEOMETRY = DEFAULT_WORKSPACE_CONFIG.geometry
@@ -931,6 +933,10 @@ class ControlsPanel(QWidget):
             )
         )
 
+        lab.vignette_strength_slider.setToolTip(tr("How strong the vignette is. Negative darkens the edges, positive lightens them."))
+        lab.vignette_feather_slider.setToolTip(tr("How soft the edge of the vignette is."))
+        lab.vignette_roundness_slider.setToolTip(tr("Moves the vignette from a circle to an ellipse."))
+
         ret.pick_dust_btn.setToolTip(
             tooltip_with_shortcut(
                 tr("Heal: click or paint over dust to remove it, and clean film under the brush stays as it is."),
@@ -1270,6 +1276,7 @@ class ControlsPanel(QWidget):
         cfg = self.controller.state.config
         _exp = _DEFAULT_EXPOSURE
         _lab = _DEFAULT_LAB
+        _vig = _DEFAULT_VIGNETTE
         _alt = _DEFAULT_ALTPROC
         _ton = _DEFAULT_TONING
         _geo = _DEFAULT_GEOMETRY
@@ -1294,6 +1301,9 @@ class ControlsPanel(QWidget):
                 lab.chroma_denoise != _lab.chroma_denoise and not unused_in_mode("lab", "chroma_denoise", cfg),
                 lab.glow_amount != _lab.glow_amount,
                 lab.halation_strength != _lab.halation_strength,
+                cfg.vignette.strength != _vig.strength,
+                cfg.vignette.feather != _vig.feather,
+                cfg.vignette.roundness != _vig.roundness,
             ]
         )
 

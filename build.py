@@ -106,6 +106,7 @@ params = [
     "--add-data=negpy/features/sabattier/shaders:negpy/features/sabattier/shaders",
     "--add-data=negpy/features/finish/shaders:negpy/features/finish/shaders",
     "--add-data=negpy/features/transparency/shaders:negpy/features/transparency/shaders",
+    "--add-data=negpy/features/vignette/shaders:negpy/features/vignette/shaders",
     "--add-data=negpy/desktop/view/styles:negpy/desktop/view/styles",
     "--add-data=negpy/translations:negpy/translations",
     "--add-data=icc:icc",

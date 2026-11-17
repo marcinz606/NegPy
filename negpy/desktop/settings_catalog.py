@@ -275,6 +275,9 @@ CATALOG: list[tuple[str, tuple[SettingRow, ...]]] = [
         _row(mark("Chroma Denoise"), "lab", "chroma_denoise", sticky=True),
         _row(mark("Glow"), "lab", "glow_amount", sticky=True),
         _row(mark("Halation"), "lab", "halation_strength", sticky=True),
+        _row(mark("Vignette Strength"), "vignette", "strength", sticky=True),
+        _row(mark("Vignette Feather"), "vignette", "feather", sticky=True),
+        _row(mark("Vignette Roundness"), "vignette", "roundness", sticky=True),
     )),
     (mark("Alternative Processes"), (
         _row(mark("Process"), "altproc", "alt_process"),

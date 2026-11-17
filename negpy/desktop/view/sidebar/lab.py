@@ -76,6 +76,19 @@ class LabSidebar(BaseSidebar):
         self.layout.addLayout(effects_header)
         self.layout.addWidget(effects_fold)
 
+        vig = self.state.config.vignette
+        self.layout.addWidget(section_subheader(tr("Vignette")))
+
+        self.vignette_strength_slider = CompactSlider(tr("Strength"), -1.0, 1.0, vig.strength, has_neutral=True)
+        self.layout.addWidget(self.vignette_strength_slider)
+
+        self.vignette_feather_slider = CompactSlider(tr("Feather"), 0.0, 1.0, vig.feather)
+        self.vignette_roundness_slider = CompactSlider(tr("Roundness"), 0.0, 1.0, vig.roundness)
+        self.vignette_fold = rail_fold(
+            "lab_vignette", self.vignette_strength_slider, self.vignette_feather_slider, self.vignette_roundness_slider
+        )
+        self.layout.addWidget(self.vignette_fold)
+
         self.layout.addStretch()
 
     def _connect_signals(self) -> None:
@@ -146,6 +159,27 @@ class LabSidebar(BaseSidebar):
             lambda v: self.update_config_section("lab", persist=True, readback_metrics=True, halation_strength=v)
         )
 
+        self.vignette_strength_slider.valueChanged.connect(
+            lambda v: self.update_config_section("vignette", persist=False, readback_metrics=False, strength=v)
+        )
+        self.vignette_strength_slider.valueCommitted.connect(
+            lambda v: self.update_config_section("vignette", persist=True, readback_metrics=True, strength=v)
+        )
+
+        self.vignette_feather_slider.valueChanged.connect(
+            lambda v: self.update_config_section("vignette", persist=False, readback_metrics=False, feather=v)
+        )
+        self.vignette_feather_slider.valueCommitted.connect(
+            lambda v: self.update_config_section("vignette", persist=True, readback_metrics=True, feather=v)
+        )
+
+        self.vignette_roundness_slider.valueChanged.connect(
+            lambda v: self.update_config_section("vignette", persist=False, readback_metrics=False, roundness=v)
+        )
+        self.vignette_roundness_slider.valueCommitted.connect(
+            lambda v: self.update_config_section("vignette", persist=True, readback_metrics=True, roundness=v)
+        )
+
     def _meters(self) -> dict:
         return self.state.auto_meters.get(self.state.current_file_hash or "", {})
 
@@ -186,6 +220,11 @@ class LabSidebar(BaseSidebar):
             self.glow_slider.setValue(conf.glow_amount)
             self.halation_slider.setValue(conf.halation_strength)
 
+            vig = self.state.config.vignette
+            self.vignette_strength_slider.setValue(vig.strength)
+            self.vignette_feather_slider.setValue(vig.feather)
+            self.vignette_roundness_slider.setValue(vig.roundness)
+
             # COLOR is entirely color controls, so hide the header with them in B&W.
             self.color_header.setVisible(not is_bw)
             self.saturation_slider.setVisible(not is_bw)
@@ -207,6 +246,9 @@ class LabSidebar(BaseSidebar):
             self.chroma_denoise_slider,
             self.glow_slider,
             self.halation_slider,
+            self.vignette_strength_slider,
+            self.vignette_feather_slider,
+            self.vignette_roundness_slider,
         ]
         for w in widgets:
             w.blockSignals(blocked)

@@ -2558,6 +2558,7 @@ class DesktopSessionManager(QObject):
         """
         from negpy.features.finish.models import FinishConfig
         from negpy.features.lab.models import LabConfig
+        from negpy.features.vignette.models import VignetteConfig
         from negpy.features.local.models import LocalAdjustmentsConfig
         from negpy.features.retouch.models import RetouchConfig
         from negpy.features.altprocess.models import AltProcessConfig
@@ -2566,6 +2567,7 @@ class DesktopSessionManager(QObject):
         defaults = {
             "exposure": mode_aware_exposure_reset(self.state.config.process.process_mode, DEFAULT_WORKSPACE_CONFIG.exposure),
             "lab": LabConfig(),
+            "vignette": VignetteConfig(),
             "local": LocalAdjustmentsConfig(),
             "altproc": AltProcessConfig(),
             "toning": ToningConfig(),
@@ -2577,6 +2579,9 @@ class DesktopSessionManager(QObject):
         if section not in defaults:
             return
         new_config = replace(self.state.config, **{section: defaults[section]})
+        # The Vignette lives in the Lab sidebar, so a Lab reset clears it too.
+        if section == "lab":
+            new_config = replace(new_config, vignette=VignetteConfig())
         if section == "process":
             new_config = replace(new_config, exposure=mode_aware_exposure_reset(new_config.process.process_mode, new_config.exposure))
         if section == "local":
