@@ -106,7 +106,7 @@ Wähle den Teil des Bildes, der bleibt, von Hand oder mit dem Auto-Zuschnitt.
 
 Der Auto-Zuschnitt braucht die Scannerlichtquelle oder den Halter als hellsten Teil des Scans. Er lässt ein Bild unverändert, wenn das Bild so hell ist wie die Lichtquelle oder das nächste Bild einen großen Teil einer Seite füllt. Schneide ein solches Bild von Hand zu oder nutze **Filmrand** und schneide nach innen.
 
-<!-- panel:geometry src:913e25e7 -->
+<!-- panel:geometry src:ad12a4c6 -->
 ### 4.2 Geraderichten
 
 Drehe das Bild und richte es gerade aus.
@@ -118,7 +118,7 @@ Drehe das Bild und richte es gerade aus.
 *   **Neigung** und **Schwenkung** (Falte): richten ein Gebäude aus, das von unten fotografiert wurde (Neigung), oder eine Wand, die von der Seite fotografiert wurde (Schwenkung). **Linien zeichnen** setzt beide aus Linien entlang der vier Filmkanten.
 *   **Leere Ecken zuschneiden**: schneidet die leeren Ecken ab, die Drehung, Neigung und Schwenkung hinterlassen.
 
-Schneide vor einer starken Neigung oder Schwenkung zu. Sonst kann der Filmrand ins Bild kommen und den Abzug abdunkeln. Objektivverzeichnung korrigierst du unter **Optik** ([§10.3](#103-optics)).
+Schneide vor einer starken Neigung oder Schwenkung zu. Sonst kann der Filmrand ins Bild kommen und den Abzug abdunkeln. Objektivverzeichnung korrigierst du unter **Optik** ([§10.6](#106-optics)).
 
 <!-- panel:color src:23d03265 -->
 ### 5.1 Filterung: Farbabgleich
@@ -132,7 +132,7 @@ Korrigiert die Farbe des Abzugs, wie die Farbfilter eines Vergrößerers in der 
 *   **Farbstichentfernung**: entfernt einen Farbstich, der in den dunklen und hellen Teilen des Bildes unterschiedlich ist. Der Start liegt bei 0,5 (halb) bei Farbnegativen und bei 0 bei Dias. Blätter, Himmel und Wasser gelten nicht als grau und behalten ihre Farbe.
 *   **Filter**: ein Farbfilter, wie er bei Schwarzweißfilm vor dem Kameraobjektiv sitzt. Er erscheint nur bei einem Farbnegativ oder Farbdia in S/W, und ersetzt die Regler darüber. Jeder Filter dunkelt die Farben ab, die seiner eigenen gegenüberliegen. Gelb #8, Tiefgelb #15, Orange #21 und Rot #25 machen einen blauen Himmel Schritt für Schritt dunkler. Rot macht außerdem Blätter dunkel und Haut blass. Gelbgrün #11 und Grün #58 machen Blätter heller und Haut dunkler. Keiner gibt den Look eines normalen Schwarzweißfilms.
 
-<!-- panel:tone src:773012ec -->
+<!-- panel:tone src:c29af454 -->
 ### 5.2 Tonwerte: Helligkeit und Kontrast
 
 Wie hell oder dunkel der Abzug ist und wie viel Kontrast er hat.
@@ -152,7 +152,7 @@ Wie hell oder dunkel der Abzug ist und wie viel Kontrast er hat.
     *   **Kontrastmaske**: öffnet große dunkle Bereiche, hält große helle zurück und erhält feine Details. In der Dunkelkammer entsteht dieser Effekt mit einer weichen, unscharfen Maske auf dem Negativ. Beim digitalen Abzug erreichen Fujifilm-Frontier-Scanner mit HyperTone einen ähnlichen Effekt. Bereiche weit vom mittleren Grau ändern sich am meisten, daher ändert sich ein kontrastarmes Bild wenig.
 *   **Global / R / G / B**: R, G oder B wendet die Gradationen nur auf eine Farbe an, für einen Farbstich, der in Schatten und Lichtern unterschiedlich ist.
 
-**Weißpunkt** und **Schwarzpunkt** findest du auf der Karte **Messung** im Tab Rolle ([§10.6](#106-metering-negative--positive)).
+**Weißpunkt** und **Schwarzpunkt** findest du auf der Karte **Messung** im Tab Rolle ([§10.3](#103-metering-negative--positive)).
 
 <!-- panel:paper src:1e3bc30a -->
 ### 5.3 Papierverhalten: das Papier
@@ -298,24 +298,72 @@ Ein **Arbeitsabzug** ist eine Version dieses Bildes, die du unter einem Namen be
 
 Jede Änderung, die du gemacht hast, die neueste oben (die letzten 100). **Jetzt** markiert den aktuellen Stand. Nach einem Rückgängig erscheinen spätere Schritte als **Rückgängig gemacht**, bis zu deiner nächsten Bearbeitung. Klicke auf einen Schritt, um dorthin zurückzugehen. **⋮** oder Rechtsklick → **Diese Version exportieren…** exportiert einen früheren Stand. **Mit diesem Schritt vergleichen** öffnet **Vorher / Nachher** mit diesem Schritt links, auf deinem aktuellen Zuschnitt. Drücke `\`, um den Vergleich zu schließen.
 
-<!-- panel:film src:0094e9db -->
+<!-- panel:film src:60044f56 -->
 ### 10.1 Einrichtung
 
 Was der Film ist und wie du ihn gescannt hast. Diese Angaben bestimmen, welche Karten und Regler erscheinen.
 
 *   **Farbe / S/W / Dia**: Farbnegativ (C-41), ein Schwarzweißabzug oder Dia (E-6 und ähnlich). S/W druckt jedes Negativ in Schwarzweiß. Bei einem Farbnegativ bietet die Karte Filterung dann einen Kontrast-Filter.
 *   **Positiv** (nur Dia): für eine Datei, die schon ein Positiv ist, etwa ein gescannter Abzug oder der Export einer anderen App. NegPy überspringt dann Inversion und Messung. Ein Dia, das keine Kamera-RAW ist, etwa ein TIFF, JPEG, JXL, ein Scanner-DNG oder ein Pakon-, Noritsu-, Coolscan- oder Flextight-Scan, startet als Positiv. Schalte es aus, um einem verblassten Scan die Dia-Tonkurve zu geben.
-*   **S/W** (nur Dia): zeigt das Dia in Schwarzweiß, für S/W-Umkehrfilm wie Scala. Ein Farbdia bekommt dann den Filter.
+*   **S/W-Dia** (nur Dia): zeigt das Dia in Schwarzweiß, für S/W-Umkehrfilm wie Scala. Ein Farbdia bekommt dann den Filter.
 *   **Kodierung** (Positiv, TIFF): wie die Werte das Licht kodieren. **Auto** liest das ICC-Profil der Datei, sonst gilt linear über 8 Bit und sRGB bei 8 Bit. **Linear** ist die lineare Ausgabe eines Scanners, etwa Nikon Scan mit ausgeschaltetem Farbmanagement. **2.2** ist ein Gamma von 2,2 in Adobe-RGB-Primärfarben. Wähle Linear oder 2.2 passend zur Scansoftware.
 *   **Kamera / Filmscanner**: womit du gescannt hast. NegPy liest das aus jeder Datei (eine Kamera-RAW-Datei ist eine Kamera), bis du eine Wahl triffst. Deine Wahl gilt für jedes Bild und legt den Scanner im Scan-Reiter fest.
 *   **Weißlicht / Schmalbandlicht** (nicht für ein S/W-Negativ): das Licht hinter dem Negativ. Weißlicht ist ein Leuchtkasten oder LED-Panel. Schmalband ist ein Licht mit reinem Rot, Grün und Blau, etwa ein Scanlight.
 
-Die Scan-Angaben sind eine Einstellung für die ganze App. Die Liste darunter zeigt, wie eine RAW-Datei dekodiert wird und welches Papier verwendet wird.
+Die Scan-Angaben sind eine Einstellung für die ganze App. Die Liste darunter zeigt, was NegPy aus der Datei gelesen hat und welches Papier verwendet wird.
 
 Eine Kamera zeigt die Karten Raw-Dekodierung und Optik. Eine Kamera mit Schmalbandlicht zeigt auch Trichrom und Kalibrierung. Eine Änderung aktualisiert jedes geöffnete Bild (Ctrl+Z macht sie pro Bild rückgängig), aber ein Papier, das du selbst gewählt hast, bleibt. Ein Kamera-Scan legt Dekodierung und Papier für jedes Bild aus seinem eigenen Licht fest.
 
+<!-- panel:baseline src:6773897f -->
+### 10.2 Rollenanalyse
+
+Misst die ganze Rolle einmal und teilt das Ergebnis, damit die Bilder eines Films gleich abgezogen werden. NegPy misst die Rolle und jede Szene selbst, sobald Bilder dazukommen, und erneut, wenn sich ein Zuschnitt oder eine Messeinstellung ändert. Kein Bild nutzt eine Basislinie, bis du einen Mittelwert einschaltest.
+
+*   **Mittelwert verwenden**: Ein Rechtsklick auf einen der drei schaltet alle Mittelwerte ein oder aus. **Luma** nutzt Schwarz- und Weißpunkt der Rolle, **Farbe** die Farbbalance der Rolle und **Farbstich** (Farbnegative) die Graubalance der Rolle für die Farbstichentfernung. Bei aktivem Farbstich behält ein Bild unter anderem Licht etwas von diesem Licht, wie bei einem Frontier-Abzug. Ein Magenta-Stich bleibt, ein warmer oder grüner Stich bleibt teilweise, und ein blauer Stich verschwindet. Mit Luma und Farbe wird die Rolle gleichmäßig abgezogen. Sind beide aus, wird jedes Bild einzeln gemessen.
+*   **Basislinie**: zeigt, woher die Basislinie stammt (Rolle, Szene oder Bild). Sie warnt, wenn keine vorhanden ist, wenn sie veraltet ist oder wenn die Farbe dieses Bildes stark vom Durchschnitt abweicht.
+*   **Neu analysieren**: misst jedes sichtbare Bild außerhalb einer Szene, speichert den Durchschnitt als Basislinie der Rolle und schaltet die Mittelwerte für die Rolle ein, sodass auch neue Bilder sie nutzen. Bilder, die stark von den anderen abweichen, behalten ihre eigene. Zuerst schneidet sie die Bilder zu, die auf den Auto-Zuschnitt warten.
+*   **Bild nutzen**: macht die eigene Messung dieses Bildes zur Basislinie der Rolle; Farbstich schaltet sich aus.
+*   **Von anderer Rolle** (Klappbereich): wähle die gespeicherte Basislinie einer anderen Rolle. Eine Rolle mit Häkchen hat eine.
+*   **Szenen**: Gruppen von Bildern mit eigener Basislinie, zum Beispiel ein Motiv unter einem Licht ([Szenen](#scenes)). **Analysieren** misst die Szene, **Auswählen** wählt ihre Bilder aus und **Löschen** entfernt die Gruppe.
+*   **Erkennen**: findet die Gruppen von Bildern unter anderem Licht als die Rolle, in beliebiger Bildreihenfolge, und zeigt sie auf dem Leuchttisch. Jede Gruppe wartet unter **Gefunden**. Um eine Gruppe zu ändern, ziehe Bilder auf eine andere Gruppe oder auf ein Bild ohne Szene, um sie auszuschließen. Rechtsklick › **Szene** macht dasselbe. Gib ihr einen Namen und **Übernehme** sie als Szene mit eigener Basislinie, oder **Verwirf** sie.
+
+<!-- panel:process src:2c179de9 -->
+### 10.3 Messung: Negativ → Positiv
+
+Um ein Negativ in ein Positiv umzuwandeln, misst NegPy die dunkelsten und hellsten Stellen (Schwarz- und Weißpunkt) und die Farbe des Films. Diese Regler bestimmen, was NegPy misst.
+
+*   **Allein messen**: nimmt dieses Bild oder jedes ausgewählte Bild vom Mittelwert der Rolle oder Szene und misst es allein, aus seinem aktuellen Zuschnitt.
+*   **Region zeichnen**: Zeichne einen Bereich, dann misst NegPy nur diesen Bereich. Doppelklicke hinein oder drücke `Enter` zum Bestätigen. `Esc` stellt die vorherige Region wieder her. **×** löscht sie.
+*   **Analysepuffer**: ignoriert beim Messen einen Rand um das Bild, damit Filmkanten und Halter nicht zählen.
+*   **Beschneidung**: wie viel des Abzugs reines Schwarz oder reines Weiß ist.
+*   **Grenzen sperren**: behält Schwarz- und Weißpunkt dieses Bildes, auch wenn sich der Zuschnitt oder die Rollenanalyse ändert.
+*   **Luma-Bereichsbeschnitt** (Klappbereich): wie eng Schwarz und Weiß gesetzt werden. Positive Werte geben mehr Kontrast, für dichte oder verschleierte Negative. Negative Werte erhalten mehr Details in Schatten und Lichtern.
+*   **Farbbeschnitt** (Klappbereich): wie eng die Farbbalance gesetzt wird.
+*   **Dmin** / **Dmax** (Klappbereich Von Hand wählen): für ein Bild, das NegPy schlecht misst. Klicke **Dmin**, dann die Filmbasis oder den tiefsten Schatten, um den Schwarzpunkt zu setzen. Klicke **Dmax**, dann das hellste Licht, um den Weißpunkt zu setzen. Jedes **×** löscht seinen eigenen Punkt. Beide sind aus, solange das Bild auf dem Rollenmittelwert druckt.
+*   **Weißpunkt** / **Schwarzpunkt** (Klappbereich): verschieben den gemessenen Weiß- und Schwarzpunkt. Ein positiver Weißpunkt hellt den Abzug auf. Ein positiver Schwarzpunkt hebt die Schwarztöne an. **R / G / B** verschiebt nur eine Farbe.
+
+Ein **Dia** braucht keine Umkehrung: Die Tonwertregler formen das Bild direkt. Auto-Dichte und Auto-Gradation sind aus. Schalte sie für ein verblasstes Dia ein. Auf einem Dia legt Bereich zeichnen die Fläche fest, die Schätzen, Schleier entfernen, Farbstichentfernung, Auto-Dichte und Auto-Gradation messen. Zeichne ihn, bevor du auf Schätzen klickst. In Lightroom-Begriffen ist Belichtung die Abzugsdichte (niedriger ist heller), Kontrast die ISO-R-Gradation, und Schatten und Lichter sind die Dichte von Schatten und Lichtern.
+
+<!-- panel:fade src:df17e8d2 -->
+### 10.4 Ausbleichrestaurierung: ausgeblichene Dias
+
+Gibt einem ausgeblichenen Dia seine Farbstoffschichten zurück. Die Karte erscheint nur bei Dias.
+
+*   **Schätzen**: stellt Graumischung und die Erhalt-Regler ein.
+*   **Umfang wiederherstellen** (Symbol neben Schätzen): an, setzt Rot-Erhalt aus dem Umfang des Bildes, und Schätzen behält ihn.
+*   **Rot-Erhalt**: wie viel roter Farbstoff übrig ist. Senke den Wert, bis der Kontrast zurückkommt. Ist Umfang wiederherstellen an, behält es deine Änderung jedes Mal, wenn es Rot neu setzt.
+*   **Grün-Erhalt** / **Blau-Erhalt**: dasselbe, gemessen an Rot.
+*   **Schleier entfernen**: macht gelb gewordene klare Bereiche weiß und führt Schätzen erneut aus. Schalte es ein, wenn Schätzen es vorschlägt.
+*   **Graumischung**: ändert, welchen Grautönen Schätzen vertraut. Ziehe den Regler, wenn die Farben nicht stimmen.
+*   **Crossover**: entfernt eine Farbverschiebung zwischen Schatten und Lichtern. Ziehe ihn auf jedem Bild, oder teile den eines Bildes mit Crossover teilen.
+
+Die Gruppe Rolle am Ende der Karte wirkt auf jedes Bild der Rolle:
+
+*   **Rolle schätzen**: liest jedes Dia der Rolle oder die ausgewählten und gibt jedem Bild denselben Erhalt und dasselbe Umfang wiederherstellen. Dias, die sich anders lesen, etwa bei Innenlicht, zählen nicht zur Messung, übernehmen aber das Ergebnis. Jedes Bild behält seinen eigenen Crossover.
+*   **Crossover teilen**: misst den Crossover auf diesem Bild und gibt ihn jedem Bild, mit der Stärke dieses Bildes. Nimm ein Bild mit klaren Grautönen in hellen und dunklen Bereichen, zum Beispiel eine Straße und weiße Kleidung. Der Rollenhinweis kann eines vorschlagen.
+
 <!-- panel:demosaic src:5627a0ef -->
-### 10.2 Raw-Dekodierung
+### 10.5 Raw-Dekodierung
 
 Wie eine Kamera-RAW-Datei in Pixel umgewandelt wird. Wird bei einer Kamera angezeigt.
 
@@ -324,7 +372,7 @@ Wie eine Kamera-RAW-Datei in Pixel umgewandelt wird. Wird bei einer Kamera angez
 *   **Wiederherstellung** (Dias): rekonstruiert ausgebrannte Lichter in einer Kamera-RAW-Datei. **Mischen** passt zu Sonne und Himmel. **Rekonstruieren** ist stärker, kann aber die Farbe falsch treffen. Ein neues Bild vom Filmscanner beginnt mit ausgeschalteter Wiederherstellung. Unter Wiederherstellung erscheint eine Warnung, wenn das Bild ausgefressene Lichter hat, die rosa werden können.
 
 <!-- panel:optics src:33b2d330 -->
-### 10.3 Optik
+### 10.6 Optik
 
 Korrekturen für Objektiv und Licht, gleich für jedes Bild, das du mit diesem Aufbau scannst. Wird bei einer Kamera angezeigt.
 
@@ -344,7 +392,7 @@ Entfernt ungleichmäßiges Licht, zum Beispiel dunklere Ecken, mit einer Aufnahm
 Ein Bild behält sein eigenes Profil, solange es nicht seiner Rolle folgt. So kann jedes Licht und jedes Filmformat eines haben. Ein neues Kamerabild oder ein Kamerabild mit fehlendem Profil nimmt das Profil, das du zuletzt bei einem Kamerabild gewählt hast. Ein neues Bild vom Filmscanner beginnt ohne Optik-Korrekturen. Mit der Einstellung Filmscanner erscheint diese Karte nur bei einem Bild, das eine Korrektur hat.
 
 <!-- panel:sensor src:f2d1b580 -->
-### 10.4 Kalibrierung: Farben deines Scan-Aufbaus
+### 10.7 Kalibrierung: Farben deines Scan-Aufbaus
 
 Korrigiert Farbfehler, die von Lichtquelle, Kamera und Film kommen.
 
@@ -361,54 +409,6 @@ Korrigiert Farbfehler, die von Lichtquelle, Kamera und Film kommen.
 *   Die Farbfeld-Schaltfläche öffnet **Aus Testtafel messen** (Farbnegative): Sie misst eine Matrix aus einer Aufnahme eines ColorChecker 24 oder SpyderCheckr 24 auf dem Film. Ziehe die vier Punkte auf die Eckfelder.
 
 **Farbton-Trimmung** (Kamera mit schmalbandigem Licht): dreht alle Farben auf dem Farbkreis, für ein Licht, das Gelb orange oder Grün oliv färbt. Lass den Wert bei weißem Licht auf 0. Sie wirkt auch bei Dias, wo das Sensor-Farbvermischungsprofil nicht wirkt.
-
-<!-- panel:fade src:df17e8d2 -->
-### 10.5 Ausbleichrestaurierung: ausgeblichene Dias
-
-Gibt einem ausgeblichenen Dia seine Farbstoffschichten zurück. Die Karte erscheint nur bei Dias.
-
-*   **Schätzen**: stellt Graumischung und die Erhalt-Regler ein.
-*   **Umfang wiederherstellen** (Symbol neben Schätzen): an, setzt Rot-Erhalt aus dem Umfang des Bildes, und Schätzen behält ihn.
-*   **Rot-Erhalt**: wie viel roter Farbstoff übrig ist. Senke den Wert, bis der Kontrast zurückkommt. Ist Umfang wiederherstellen an, behält es deine Änderung jedes Mal, wenn es Rot neu setzt.
-*   **Grün-Erhalt** / **Blau-Erhalt**: dasselbe, gemessen an Rot.
-*   **Schleier entfernen**: macht gelb gewordene klare Bereiche weiß und führt Schätzen erneut aus. Schalte es ein, wenn Schätzen es vorschlägt.
-*   **Graumischung**: ändert, welchen Grautönen Schätzen vertraut. Ziehe den Regler, wenn die Farben nicht stimmen.
-*   **Crossover**: entfernt eine Farbverschiebung zwischen Schatten und Lichtern. Ziehe ihn auf jedem Bild, oder teile den eines Bildes mit Crossover teilen.
-
-Die Gruppe Rolle am Ende der Karte wirkt auf jedes Bild der Rolle:
-
-*   **Rolle schätzen**: liest jedes Dia der Rolle oder die ausgewählten und gibt jedem Bild denselben Erhalt und dasselbe Umfang wiederherstellen. Dias, die sich anders lesen, etwa bei Innenlicht, zählen nicht zur Messung, übernehmen aber das Ergebnis. Jedes Bild behält seinen eigenen Crossover.
-*   **Crossover teilen**: misst den Crossover auf diesem Bild und gibt ihn jedem Bild, mit der Stärke dieses Bildes. Nimm ein Bild mit klaren Grautönen in hellen und dunklen Bereichen, zum Beispiel eine Straße und weiße Kleidung. Der Rollenhinweis kann eines vorschlagen.
-
-<!-- panel:process src:2c179de9 -->
-### 10.6 Messung: Negativ → Positiv
-
-Um ein Negativ in ein Positiv umzuwandeln, misst NegPy die dunkelsten und hellsten Stellen (Schwarz- und Weißpunkt) und die Farbe des Films. Diese Regler bestimmen, was NegPy misst.
-
-*   **Allein messen**: nimmt dieses Bild oder jedes ausgewählte Bild vom Mittelwert der Rolle oder Szene und misst es allein, aus seinem aktuellen Zuschnitt.
-*   **Region zeichnen**: Zeichne einen Bereich, dann misst NegPy nur diesen Bereich. Doppelklicke hinein oder drücke `Enter` zum Bestätigen. `Esc` stellt die vorherige Region wieder her. **×** löscht sie.
-*   **Analysepuffer**: ignoriert beim Messen einen Rand um das Bild, damit Filmkanten und Halter nicht zählen.
-*   **Beschneidung**: wie viel des Abzugs reines Schwarz oder reines Weiß ist.
-*   **Grenzen sperren**: behält Schwarz- und Weißpunkt dieses Bildes, auch wenn sich der Zuschnitt oder die Rollenanalyse ändert.
-*   **Luma-Bereichsbeschnitt** (Klappbereich): wie eng Schwarz und Weiß gesetzt werden. Positive Werte geben mehr Kontrast, für dichte oder verschleierte Negative. Negative Werte erhalten mehr Details in Schatten und Lichtern.
-*   **Farbbeschnitt** (Klappbereich): wie eng die Farbbalance gesetzt wird.
-*   **Dmin** / **Dmax** (Klappbereich Von Hand wählen): für ein Bild, das NegPy schlecht misst. Klicke **Dmin**, dann die Filmbasis oder den tiefsten Schatten, um den Schwarzpunkt zu setzen. Klicke **Dmax**, dann das hellste Licht, um den Weißpunkt zu setzen. Jedes **×** löscht seinen eigenen Punkt. Beide sind aus, solange das Bild auf dem Rollenmittelwert druckt.
-*   **Weißpunkt** / **Schwarzpunkt** (Klappbereich): verschieben den gemessenen Weiß- und Schwarzpunkt. Ein positiver Weißpunkt hellt den Abzug auf. Ein positiver Schwarzpunkt hebt die Schwarztöne an. **R / G / B** verschiebt nur eine Farbe.
-
-Ein **Dia** braucht keine Umkehrung: Die Tonwertregler formen das Bild direkt. Auto-Dichte und Auto-Gradation sind aus. Schalte sie für ein verblasstes Dia ein. Auf einem Dia legt Bereich zeichnen die Fläche fest, die Schätzen, Schleier entfernen, Farbstichentfernung, Auto-Dichte und Auto-Gradation messen. Zeichne ihn, bevor du auf Schätzen klickst. In Lightroom-Begriffen ist Belichtung die Abzugsdichte (niedriger ist heller), Kontrast die ISO-R-Gradation, und Schatten und Lichter sind die Dichte von Schatten und Lichtern.
-
-<!-- panel:baseline src:7fc2c469 -->
-### 10.7 Rollenanalyse
-
-Misst die ganze Rolle einmal und teilt das Ergebnis, damit die Bilder eines Films gleich abgezogen werden. NegPy misst die Rolle und jede Szene selbst, sobald Bilder dazukommen, und erneut, wenn sich ein Zuschnitt oder eine Messeinstellung ändert. Kein Bild nutzt eine Basislinie, bis du einen Mittelwert einschaltest. Ohne geöffnete Rolle ist die Karte ausgegraut: Öffne oder speichere zuerst eine Rolle.
-
-*   **Neu analysieren**: misst jedes sichtbare Bild außerhalb einer Szene, speichert den Durchschnitt als Basislinie der Rolle und schaltet die Mittelwerte für die Rolle ein, sodass auch neue Bilder sie nutzen. Bilder, die stark von den anderen abweichen, behalten ihre eigene.
-*   **Dieses Bild verwenden**: macht die eigene Messung dieses Bildes zur Basislinie der Rolle; Farbstich schaltet sich aus.
-*   **Mittelwert verwenden**: Ein Rechtsklick auf einen der drei schaltet alle Mittelwerte ein oder aus. **Luma** nutzt Schwarz- und Weißpunkt der Rolle, **Farbe** die Farbbalance der Rolle und **Farbstich** (Farbnegative) die Graubalance der Rolle für die Farbstichentfernung. Bei aktivem Farbstich behält ein Bild unter anderem Licht etwas von diesem Licht, wie bei einem Frontier-Abzug. Ein Magenta-Stich bleibt, ein warmer oder grüner Stich bleibt teilweise, und ein blauer Stich verschwindet. Mit Luma und Farbe wird die Rolle gleichmäßig abgezogen. Sind beide aus, wird jedes Bild einzeln gemessen.
-*   **Basislinie**: zeigt, woher die Basislinie stammt (Rolle, Szene oder Bild). Sie warnt, wenn keine vorhanden ist, wenn sie veraltet ist oder wenn die Farbe dieses Bildes stark vom Durchschnitt abweicht.
-*   **Rollen**: wähle die gespeicherte Basislinie einer anderen Rolle. Eine Rolle mit Häkchen hat eine.
-*   **Szenen**: Gruppen von Bildern mit eigener Basislinie, zum Beispiel ein Motiv unter einem Licht ([Szenen](#scenes)). **Analysieren** misst die Szene, **Auswählen** wählt ihre Bilder aus und **Löschen** entfernt die Gruppe.
-*   **Szenen erkennen**: findet die Gruppen von Bildern unter anderem Licht als die Rolle, in beliebiger Bildreihenfolge, und zeigt sie auf dem Leuchttisch. Jede Gruppe wartet unter **Gefunden**. Um eine Gruppe zu ändern, ziehe Bilder auf eine andere Gruppe oder auf ein Bild ohne Szene, um sie auszuschließen. Rechtsklick › **Szene** macht dasselbe. Gib ihr einen Namen und **Übernehme** sie als Szene mit eigener Basislinie, oder **Verwirf** sie.
 
 <!-- panel:assembly src:96b2e550 -->
 ### 10.8 Bildzusammenstellung
@@ -600,7 +600,7 @@ Scannt mit einer Kamera auf einem Reprostativ, per USB im Modus **PC Remote** ve
 *   **Film** (mit einem Lento Dock): was das Dock beim Klick auf Scan tut. **Nächstes Bild** transportiert den Film nach jedem Scan um ein Bild. **Ganzer Streifen** scannt jedes Bild und wirft den Streifen dann aus; Stopp beendet den Lauf. Neu aufnehmen bewegt den Film nie. **Auswerfen** transportiert den Streifen heraus. Die Taste S des Docks wirkt wie Scan.
 *   **Flat Field aufnehmen**: nimmt nach dem Auswerfen eines ganzen Streifens das leere Dock auf und speichert es als Flat-Field-Profil der Rolle.
 
-<!-- panel:scan_light src:417cc437 -->
+<!-- panel:scan_light src:6e486298 -->
 ### Vorgabe
 
 Sichtbar, solange ein Scanlight verbunden ist. Eine Vorgabe enthält die Lichtwerte und die Kamerabelichtung für eine Filmart.
@@ -613,7 +613,7 @@ Sichtbar, solange ein Scanlight verbunden ist. Eine Vorgabe enthält die Lichtwe
 *   **Aufnahmemodus**: **Trichrom** macht eine Belichtung pro Farbe und fügt sie zusammen. **Einzelbelichtung** macht eine Belichtung mit allen drei Farben an. **Mischen** hält die Kamera in Bulb offen und schaltet Rot, Grün und Blau nacheinander ein, für eine Datei. Ein Trichrom- oder Misch-Preset kann zwischen beiden wechseln.
 *   **Auslösung** (Mischen): was den Verschluss offen hält. **USB** nutzt die Bulb-Steuerung der Kamera. **Kabel** nutzt ein Fernauslöserkabel in der 3,5-mm-Buchse des Scanlight, für Belichtungen bis 2,55 s.
 *   **Sensorprofil** (Misch-Vorgabe ohne eigenes Profil): das Sensor-Farbvermischungsprofil für ihre Scans. Scannen wartet auf eines. Die Schaltfläche mit den Röhrchen erstellt eines.
-*   **Sensor-Farbvermischungsprofil erstellen** (Einzelbelichtung oder Mischen): speichert zusätzlich ein Sensor-Farbvermischungsprofil, das die Scans dieser Vorgabe nutzen (siehe Kalibrierung, §10.4).
+*   **Sensor-Farbvermischungsprofil erstellen** (Einzelbelichtung oder Mischen): speichert zusätzlich ein Sensor-Farbvermischungsprofil, das die Scans dieser Vorgabe nutzen (siehe Kalibrierung, §10.7).
 *   **ISO**, **Verschlusszeit**, **Blende**: die Belichtung der Vorgabe. Eine Änderung gilt, bis du die Vorgabe erneut wählst. Die Messtaste misst.
 *   **IR-Verschlusszeit** und **Infrarot** (Lichter mit Infrarot-LEDs): fügt jedem Scan eine Infrarotbelichtung für die Staubentfernung hinzu, gespeichert als `_IR`-Datei. Es braucht eine Kamera, die Infrarot sieht (Vollspektrum oder umgebaut), und manuellen Fokus. Nur für Farbfilm.
 *   **Kanalverzögerung**: eine Pause zwischen den Belichtungen für Rot, Grün und Blau, für Kameras, die sie brauchen.

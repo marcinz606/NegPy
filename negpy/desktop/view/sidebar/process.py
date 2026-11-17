@@ -144,7 +144,7 @@ class ProcessSidebar(BaseSidebar):
             (tr("Positive, slides only: the file is already a positive, such as a scanned print or another app's export.")),
         )
         # "&&": QPushButton reads a single "&" as a mnemonic and hides it.
-        self.slide_bw_btn = self._labeled_toggle("fa5s.adjust", tr("B&W").replace("&", "&&"), conf.slide_bw, "")
+        self.slide_bw_btn = self._labeled_toggle("fa5s.adjust", tr("B&W Slide").replace("&", "&&"), conf.slide_bw, "")
         slide_row = QHBoxLayout()
         slide_row.setSpacing(THEME.space_sm)
         slide_row.addWidget(self.positive_source_btn, 1)

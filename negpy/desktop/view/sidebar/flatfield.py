@@ -132,6 +132,7 @@ class FlatFieldSidebar(BaseSidebar):
 
             self.enable_btn.setChecked(conf.apply and idx > 0)
             self.enable_btn.setEnabled(idx > 0)
+            self.delete_btn.setEnabled(idx > 0)
             self.hint.setVisible(idx <= 0)
         finally:
             self.block_signals(False)

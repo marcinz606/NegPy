@@ -197,7 +197,7 @@ Fai clic destro su un fotogramma, o usa le scorciatoie, per **Tenerlo** (un segn
 
 Un segno a forma di pellicola nell'angolo in alto a destra indica che il fotogramma stampa sulla media del rullino; è ambra quando il colore del fotogramma è lontano da quella media. Un segno a forma di immagine accanto indica che il fotogramma mantiene un valore proprio in un riquadro della scheda Rullino, quindi una modifica al rullino non lo raggiunge; passaci sopra per vedere quali riquadri. Un segno nell'angolo in basso a sinistra indica che il fotogramma è costruito da più file (un'unione, una fusione HDR, una tricromia o un mezzo formato), oppure che è stato scattato con un'acquisizione a Miscela o a Esposizione singola; passaci sopra per il nome. Un punto esclamativo indica che il file non si è aperto (fai clic per riprovare); un piccolo punto ambra indica che la miniatura non è aggiornata.
 
-Il menu del clic destro inoltre copia, incolla e reimposta le impostazioni, le applica ad altri fotogrammi, rianalizza i fotogrammi ([§10.6](#106-misurazione-negativo--positivo)), mette la selezione sulla media del rullino o la riporta sulla propria misura, mostra il file nella sua cartella e sposta i file nel Cestino (la modifica resta).
+Il menu del clic destro inoltre copia, incolla e reimposta le impostazioni, le applica ad altri fotogrammi, rianalizza i fotogrammi ([§10.3](#103-misurazione-negativo--positivo)), mette la selezione sulla media del rullino o la riporta sulla propria misura, mostra il file nella sua cartella e sposta i file nel Cestino (la modifica resta).
 
 ### Unione e HDR
 
@@ -272,7 +272,7 @@ Scegli la parte dell'immagine da conservare, a mano o con il Ritaglio automatico
 
 Il Ritaglio automatico richiede che la luce dello scanner o il supporto sia la parte più luminosa della scansione. Lascia stare un fotogramma quando l'immagine è luminosa quanto la luce, o quando il fotogramma successivo occupa gran parte di un lato. Ritaglia a mano un fotogramma del genere, oppure usa **Bordo della pellicola** e rifila verso l'interno.
 
-<!-- panel:geometry src:913e25e7 -->
+<!-- panel:geometry src:ad12a4c6 -->
 ### 4.2 Raddrizza
 
 Ruota l'immagine e mettila in bolla.
@@ -284,7 +284,7 @@ Ruota l'immagine e mettila in bolla.
 *   **Basculaggio** e **Brandeggio** (sezione ripiegabile): raddrizzano un edificio ripreso dal basso (Basculaggio) o un muro ripreso di lato (Brandeggio). **Traccia linee** imposta entrambi da linee lungo i quattro bordi della pellicola.
 *   **Ritaglia gli angoli vuoti**: elimina gli angoli vuoti lasciati da rotazione, Basculaggio e Brandeggio.
 
-Ritaglia prima di un Basculaggio o Brandeggio ampio, altrimenti il bordo della pellicola può entrare nell'inquadratura e scurire la stampa. La distorsione dell'obiettivo si corregge in **Ottica** ([§10.3](#103-ottica)).
+Ritaglia prima di un Basculaggio o Brandeggio ampio, altrimenti il bordo della pellicola può entrare nell'inquadratura e scurire la stampa. La distorsione dell'obiettivo si corregge in **Ottica** ([§10.6](#106-ottica)).
 
 ---
 
@@ -304,7 +304,7 @@ Corregge il colore della stampa, come fanno i filtri colorati di un ingranditore
 *   **Rimozione della dominante**: rimuove una dominante di colore diversa tra le parti scure e chiare dell'immagine. Parte da 0,5 (metà) sui negativi a colori e da 0 sulle diapositive. Foglie, cielo e acqua non contano come grigio, quindi mantengono il loro colore.
 *   **Filtro**: un filtro colorato, come sull'obiettivo della fotocamera per la pellicola in bianco e nero. Compare solo su un negativo a colori o una diapositiva a colori in B/N, e sostituisce i controlli precedenti. Ogni filtro scurisce i colori opposti al proprio. Giallo n. 8, Giallo intenso n. 15, Arancione n. 21 e Rosso n. 25 scuriscono un cielo blu, passo dopo passo. Il rosso rende anche scure le foglie e pallida la pelle. Giallo-verde n. 11 e Verde n. 58 schiariscono le foglie e scuriscono la pelle. Nessuno dà l'aspetto di una normale pellicola in bianco e nero.
 
-<!-- panel:tone src:773012ec -->
+<!-- panel:tone src:c29af454 -->
 ### 5.2 Tono: luminosità e contrasto
 
 Quanto è chiara o scura la stampa, e quanto contrasto ha.
@@ -324,7 +324,7 @@ Quanto è chiara o scura la stampa, e quanto contrasto ha.
     *   **Maschera di contrasto**: apre le grandi zone scure e trattiene quelle grandi e chiare, conservando il dettaglio fine. In camera oscura, uno stampatore ottiene questo effetto con una maschera morbida e sfocata posta sul negativo. Nella stampa digitale, gli scanner Fujifilm Frontier ottengono un effetto simile con HyperTone. Le zone lontane dal grigio medio cambiano di più, quindi un fotogramma a basso contrasto cambia poco.
 *   **Globale / R / G / B**: R, G o B applica le gradazioni a un solo colore, per una dominante diversa tra ombre e alte luci.
 
-**Punto del bianco** e **Punto del nero** si trovano nel riquadro **Misurazione** della scheda Rullino ([§10.6](#106-misurazione-negativo--positivo)).
+**Punto del bianco** e **Punto del nero** si trovano nel riquadro **Misurazione** della scheda Rullino ([§10.3](#103-misurazione-negativo--positivo)).
 
 <!-- panel:paper src:1e3bc30a -->
 ### 5.3 Risposta della carta: la carta
@@ -496,24 +496,72 @@ Ogni modifica che hai fatto, la più recente in alto (le ultime 100). **Ora** in
 
 Questi riquadri contengono ciò che i fotogrammi di un rullino condividono: la pellicola, come è stata scansionata e le misurazioni del rullino. Ogni riquadro ha la coppia Fotogramma / Rullino ([§1](#fotogramma-o-rullino)). La riga sopra i riquadri elenca i riquadri che questo fotogramma modifica per conto proprio.
 
-<!-- panel:film src:0094e9db -->
+<!-- panel:film src:60044f56 -->
 ### 10.1 Configurazione
 
 Che pellicola è e come l'hai scansionata. Queste scelte decidono quali riquadri e controlli compaiono.
 
 *   **Colore / B/N / Diapositiva**: negativo a colori (C-41), una stampa in bianco e nero, oppure diapositiva (E-6 e simili). B/N stampa qualsiasi negativo in bianco e nero. Su un negativo a colori, il riquadro Filtratura offre allora un Filtro di contrasto.
 *   **Positivo** (solo Diapositiva): per un file che è già un positivo, come una stampa scansionata o l'esportazione di un'altra app. NegPy salta allora inversione e misurazione. Una diapositiva che non è un RAW di fotocamera, come una scansione TIFF, JPEG, JXL, DNG di scanner o Pakon, Noritsu, Coolscan o Flextight, parte come Positivo. Disattivalo per dare a una scansione sbiadita la curva tonale delle diapositive.
-*   **B/N** (solo Diapositiva): rende la diapositiva in bianco e nero, per pellicole invertibili B/N come la Scala. Una diapositiva a colori riceve allora il Filtro.
+*   **Diapositiva B/N** (solo Diapositiva): rende la diapositiva in bianco e nero, per pellicole invertibili B/N come la Scala. Una diapositiva a colori riceve allora il Filtro.
 *   **Codifica** (TIFF positivo): come i campioni codificano la luce. **Auto** legge il profilo ICC del file, altrimenti presuppone lineare sopra gli 8 bit e sRGB a 8 bit. **Lineare** è l'uscita lineare di uno scanner, come Nikon Scan con la gestione del colore disattivata. **2,2** è una gamma 2,2 con primari Adobe RGB. Scegli Lineare o 2,2 in base al software dello scanner.
 *   **Fotocamera / Scanner per pellicola**: con cosa hai eseguito la scansione. NegPy lo legge da ogni file (un RAW di fotocamera è una fotocamera) finché non ne scegli uno. La tua scelta vale per ogni fotogramma e imposta lo scanner della scheda Scansione.
 *   **Luce bianca / Luce a banda stretta** (non per un negativo B/N): la luce dietro il negativo. La luce bianca è un visore luminoso o un pannello LED. La banda stretta è una luce con rosso, verde e blu puri, come uno Scanlight.
 
-Le scelte di scansione sono un'unica impostazione per tutta l'app. L'elenco sotto di esse mostra come viene decodificato un file RAW e quale supporto di stampa viene usato.
+Le scelte di scansione sono un'unica impostazione per tutta l'app. L'elenco sotto di esse mostra che cosa NegPy ha letto dal file e quale supporto di stampa viene usato.
 
 Una fotocamera mostra i riquadri Decodifica RAW e Ottica. Una fotocamera con luce a banda stretta mostra anche Tricromia e Calibrazione. Una modifica aggiorna ogni fotogramma aperto (Ctrl+Z la annulla fotogramma per fotogramma), ma un supporto di stampa che hai scelto tu resta. Una Scansione con fotocamera imposta la decodifica e il supporto di stampa di ogni fotogramma in base alla propria luce.
 
+<!-- panel:baseline src:6773897f -->
+### 10.2 Analisi del rullino
+
+Misura l'intero rullino una volta e condivide il risultato, così i fotogrammi di una pellicola stampano in modo simile. NegPy misura il rullino e ogni scena man mano che arrivano i fotogrammi, e di nuovo dopo una modifica del ritaglio o della Misurazione. Nessun fotogramma usa un riferimento finché non attivi una media.
+
+*   **Usa la media**: fai clic destro su uno qualsiasi dei tre per attivare o disattivare tutte le medie. **Luma** usa i punti del nero e del bianco del rullino, **Colore** il bilanciamento del colore del rullino, e **Dominante** (negativi a colori) il bilanciamento del grigio del rullino per la Rimozione della dominante. Con Dominante attiva, un fotogramma scattato sotto una luce diversa conserva un po' di quella luce, come su una stampa Frontier. Una dominante magenta resta, una dominante calda o verde resta in parte, e una dominante blu scompare. Con Luma e Colore attivi, il rullino stampa in modo uniforme; con entrambi disattivati, ogni fotogramma viene misurato da solo.
+*   **Riferimento**: indica da dove proviene il riferimento (rullino, scena o fotogramma). Avvisa quando non ce n'è uno, quando non è aggiornato, o quando il colore di questo fotogramma è lontano dalla media.
+*   **Rianalizza**: misura ogni fotogramma visibile al di fuori di una scena, salva la media come riferimento del rullino e attiva le medie per il rullino e i suoi nuovi fotogrammi. I fotogrammi lontani dagli altri mantengono i propri valori. Prima ritaglia i fotogrammi in attesa del Ritaglio automatico.
+*   **Usa fotogramma**: rende la misura propria di questo fotogramma il riferimento del rullino; Dominante si disattiva.
+*   **Da un altro rullino** (sezione ripiegabile): scegli il riferimento salvato di un altro rullino. Un rullino spuntato ne ha uno.
+*   **Scene**: gruppi di fotogrammi con un riferimento proprio, come un soggetto sotto una certa luce ([Scene](#scene)). **Analizza** misura la scena, **Seleziona** ne seleziona i fotogrammi ed **Elimina** rimuove il gruppo.
+*   **Rileva**: trova i gruppi di fotogrammi sotto una luce diversa da quella del rullino, in qualsiasi ordine di fotogrammi, e li mostra sul Tavolo luminoso. Ogni gruppo resta in attesa sotto **Trovati**. Per cambiare un gruppo, trascina i fotogrammi su un altro gruppo, oppure su un fotogramma senza scena per escluderli; clic destro › **Scena** fa lo stesso. Dagli un nome, poi **Accettalo** come scena con un riferimento proprio, oppure **Scartalo**.
+
+<!-- panel:process src:2c179de9 -->
+### 10.3 Misurazione: negativo → positivo
+
+Per trasformare un negativo in un positivo, NegPy ne misura le parti più scure e più chiare (i punti del nero e del bianco) e il colore della pellicola. Questi controlli stabiliscono cosa misura.
+
+*   **Misura da solo**: toglie questo fotogramma, o ogni fotogramma selezionato, dalla media del rullino o della scena e lo misura da solo, dal suo ritaglio attuale.
+*   **Disegna regione**: disegna un'area, e NegPy misura solo quell'area. Fai doppio clic al suo interno o premi `Invio` per confermare, e `Esc` ripristina la regione precedente. **×** la cancella.
+*   **Margine di analisi**: ignora un bordo attorno al fotogramma durante la misurazione, così i bordi della pellicola e i supporti non contano.
+*   **Tosatura**: quanta parte della stampa è nero puro o bianco puro.
+*   **Blocca limiti**: mantiene i punti del nero e del bianco di questo fotogramma, anche quando cambiano il ritaglio o l'Analisi del rullino.
+*   **Tosatura della gamma di luma** (sezione ripiegabile): quanto strettamente vengono impostati il nero e il bianco. Positivo dà più contrasto, per negativi densi o velati. Negativo conserva più dettaglio nelle ombre e nelle alte luci.
+*   **Tosatura colore** (sezione ripiegabile): quanto strettamente viene impostato il bilanciamento del colore.
+*   **Dmin** / **Dmax** (sezione Scegli a mano): per un fotogramma che NegPy misura male. Fai clic su **Dmin**, poi sulla base della pellicola o sull'ombra più profonda, per impostare il punto del nero. Fai clic su **Dmax**, poi sull'alta luce più brillante, per impostare il punto del bianco. Ogni **×** cancella il proprio punto. Entrambi sono disattivati mentre il fotogramma stampa sulla media del rullino.
+*   **Punto del bianco** / **Punto del nero** (sezione ripiegabile): spostano i punti del bianco e del nero misurati. Un punto del bianco positivo schiarisce la stampa; un punto del nero positivo solleva i neri. **R / G / B** sposta un solo colore.
+
+Una **diapositiva** non richiede inversione: i controlli tonali modellano direttamente l'immagine. Densità automatica e Gradazione automatica partono disattivate; attivale per una diapositiva sbiadita. Su una diapositiva, Disegna regione stabilisce l'area misurata da Stima, Rimuovi macchia, Rimozione della dominante, Densità automatica e Gradazione automatica. Disegnala prima di fare clic su Stima. Nei termini di Lightroom, Esposizione è la Densità di stampa (più basso è più chiaro), Contrasto è la Gradazione ISO-R, e Ombre e Luci sono la Densità delle ombre e delle alte luci.
+
+<!-- panel:fade src:df17e8d2 -->
+### 10.4 Ripristino dello sbiadimento: diapositive sbiadite
+
+Restituisce a una diapositiva sbiadita i suoi strati di colorante. Il riquadro compare solo per le diapositive.
+
+*   **Stima**: imposta Miscela di grigio e le Persistenze.
+*   **Ripristina intervallo** (icona accanto a Stima): se attivo, imposta Persistenza del rosso dall'intervallo del fotogramma; Stima la mantiene.
+*   **Persistenza del rosso**: quanto colorante rosso è rimasto. Abbassala finché il contrasto non ritorna. Con Ripristina intervallo attivo, la tua modifica resta ogni volta che reimposta il rosso.
+*   **Persistenza del verde** / **Persistenza del blu**: lo stesso, misurato rispetto al rosso.
+*   **Rimuovi macchia**: sbianca le zone trasparenti ingiallite e stima di nuovo. Attivalo quando Stima lo suggerisce.
+*   **Miscela di grigio**: cambia di quali grigi si fida Stima. Trascinala se i colori sembrano sbagliati.
+*   **Incrocio**: rimuove una variazione di colore tra ombre e alte luci. Trascinalo su ogni fotogramma, oppure condividi quello di un fotogramma con Condividi incrocio.
+
+Il gruppo Rullino alla fine del riquadro agisce su ogni fotogramma del rullino:
+
+*   **Stima rullino**: legge ogni diapositiva del rullino, o quelle selezionate, e dà a ogni fotogramma le stesse Persistenze e lo stesso Ripristina intervallo. Le diapositive che si leggono in modo diverso, come con luce interna, restano fuori dalla lettura ma ricevono comunque il risultato. Ogni fotogramma mantiene il proprio Incrocio.
+*   **Condividi incrocio**: misura l'incrocio su questo fotogramma e lo dà a ogni fotogramma, con l'intensità di questo fotogramma. Usa un fotogramma con grigi netti nelle zone chiare e scure, come una strada e vestiti bianchi. Il suggerimento del rullino può proporne uno.
+
 <!-- panel:demosaic src:5627a0ef -->
-### 10.2 Decodifica RAW
+### 10.5 Decodifica RAW
 
 Come un file RAW di fotocamera viene trasformato in pixel. Compare per una fotocamera.
 
@@ -522,7 +570,7 @@ Come un file RAW di fotocamera viene trasformato in pixel. Compare per una fotoc
 *   **Recupero** (diapositive): ricostruisce le alte luci bruciate in un RAW di fotocamera. **Miscela** è adatto a sole e cielo. **Ricostruisci** è più forte ma può sbagliare il colore. Un nuovo fotogramma da scanner per pellicola parte con Recupero disattivato. Sotto Recupero compare un avviso quando il fotogramma ha alte luci tosate, che possono diventare rosa.
 
 <!-- panel:optics src:33b2d330 -->
-### 10.3 Ottica
+### 10.6 Ottica
 
 Correzioni per l'obiettivo e la luce, uguali per ogni fotogramma che scansioni con questa configurazione. Compare per una fotocamera.
 
@@ -542,7 +590,7 @@ Rimuove la luce non uniforme, come gli angoli più scuri, con uno scatto della s
 Un fotogramma mantiene il proprio profilo a meno che non segua il suo rullino, così ogni luce e ogni formato di pellicola può averne uno. Un nuovo fotogramma da fotocamera, o un fotogramma da fotocamera il cui profilo manca, prende l'ultimo profilo che hai scelto su un fotogramma da fotocamera. Un nuovo fotogramma da scanner per pellicola parte senza correzioni di Ottica. Con Scanner per pellicola impostato, questo riquadro compare solo su un fotogramma che ne ha una.
 
 <!-- panel:sensor src:f2d1b580 -->
-### 10.4 Calibrazione: i colori della tua configurazione di scansione
+### 10.7 Calibrazione: i colori della tua configurazione di scansione
 
 Corregge gli errori di colore dovuti alla luce, alla fotocamera e alla pellicola.
 
@@ -559,54 +607,6 @@ Corregge gli errori di colore dovuti alla luce, alla fotocamera e alla pellicola
 *   Il pulsante con il campione di colore apre **Misura dalla tabella** (negativi a colori): misura una matrice da una ColorChecker 24 o una SpyderCheckr 24 fotografata sulla pellicola. Trascina i quattro punti sulle tacche d'angolo.
 
 **Rifinitura della tinta** (fotocamera con luce a banda stretta): ruota tutte le tinte, per una luce che rende arancioni i gialli o oliva i verdi. Lascia 0 per la luce bianca. A differenza del profilo del sensore, funziona anche sulle diapositive.
-
-<!-- panel:fade src:df17e8d2 -->
-### 10.5 Ripristino dello sbiadimento: diapositive sbiadite
-
-Restituisce a una diapositiva sbiadita i suoi strati di colorante. Il riquadro compare solo per le diapositive.
-
-*   **Stima**: imposta Miscela di grigio e le Persistenze.
-*   **Ripristina intervallo** (icona accanto a Stima): se attivo, imposta Persistenza del rosso dall'intervallo del fotogramma; Stima la mantiene.
-*   **Persistenza del rosso**: quanto colorante rosso è rimasto. Abbassala finché il contrasto non ritorna. Con Ripristina intervallo attivo, la tua modifica resta ogni volta che reimposta il rosso.
-*   **Persistenza del verde** / **Persistenza del blu**: lo stesso, misurato rispetto al rosso.
-*   **Rimuovi macchia**: sbianca le zone trasparenti ingiallite e stima di nuovo. Attivalo quando Stima lo suggerisce.
-*   **Miscela di grigio**: cambia di quali grigi si fida Stima. Trascinala se i colori sembrano sbagliati.
-*   **Incrocio**: rimuove una variazione di colore tra ombre e alte luci. Trascinalo su ogni fotogramma, oppure condividi quello di un fotogramma con Condividi incrocio.
-
-Il gruppo Rullino alla fine del riquadro agisce su ogni fotogramma del rullino:
-
-*   **Stima rullino**: legge ogni diapositiva del rullino, o quelle selezionate, e dà a ogni fotogramma le stesse Persistenze e lo stesso Ripristina intervallo. Le diapositive che si leggono in modo diverso, come con luce interna, restano fuori dalla lettura ma ricevono comunque il risultato. Ogni fotogramma mantiene il proprio Incrocio.
-*   **Condividi incrocio**: misura l'incrocio su questo fotogramma e lo dà a ogni fotogramma, con l'intensità di questo fotogramma. Usa un fotogramma con grigi netti nelle zone chiare e scure, come una strada e vestiti bianchi. Il suggerimento del rullino può proporne uno.
-
-<!-- panel:process src:2c179de9 -->
-### 10.6 Misurazione: negativo → positivo
-
-Per trasformare un negativo in un positivo, NegPy ne misura le parti più scure e più chiare (i punti del nero e del bianco) e il colore della pellicola. Questi controlli stabiliscono cosa misura.
-
-*   **Misura da solo**: toglie questo fotogramma, o ogni fotogramma selezionato, dalla media del rullino o della scena e lo misura da solo, dal suo ritaglio attuale.
-*   **Disegna regione**: disegna un'area, e NegPy misura solo quell'area. Fai doppio clic al suo interno o premi `Invio` per confermare, e `Esc` ripristina la regione precedente. **×** la cancella.
-*   **Margine di analisi**: ignora un bordo attorno al fotogramma durante la misurazione, così i bordi della pellicola e i supporti non contano.
-*   **Tosatura**: quanta parte della stampa è nero puro o bianco puro.
-*   **Blocca limiti**: mantiene i punti del nero e del bianco di questo fotogramma, anche quando cambiano il ritaglio o l'Analisi del rullino.
-*   **Tosatura della gamma di luma** (sezione ripiegabile): quanto strettamente vengono impostati il nero e il bianco. Positivo dà più contrasto, per negativi densi o velati. Negativo conserva più dettaglio nelle ombre e nelle alte luci.
-*   **Tosatura colore** (sezione ripiegabile): quanto strettamente viene impostato il bilanciamento del colore.
-*   **Dmin** / **Dmax** (sezione Scegli a mano): per un fotogramma che NegPy misura male. Fai clic su **Dmin**, poi sulla base della pellicola o sull'ombra più profonda, per impostare il punto del nero. Fai clic su **Dmax**, poi sull'alta luce più brillante, per impostare il punto del bianco. Ogni **×** cancella il proprio punto. Entrambi sono disattivati mentre il fotogramma stampa sulla media del rullino.
-*   **Punto del bianco** / **Punto del nero** (sezione ripiegabile): spostano i punti del bianco e del nero misurati. Un punto del bianco positivo schiarisce la stampa; un punto del nero positivo solleva i neri. **R / G / B** sposta un solo colore.
-
-Una **diapositiva** non richiede inversione: i controlli tonali modellano direttamente l'immagine. Densità automatica e Gradazione automatica partono disattivate; attivale per una diapositiva sbiadita. Su una diapositiva, Disegna regione stabilisce l'area misurata da Stima, Rimuovi macchia, Rimozione della dominante, Densità automatica e Gradazione automatica. Disegnala prima di fare clic su Stima. Nei termini di Lightroom, Esposizione è la Densità di stampa (più basso è più chiaro), Contrasto è la Gradazione ISO-R, e Ombre e Luci sono la Densità delle ombre e delle alte luci.
-
-<!-- panel:baseline src:7fc2c469 -->
-### 10.7 Analisi del rullino
-
-Misura l'intero rullino una volta e condivide il risultato, così i fotogrammi di una pellicola stampano in modo simile. NegPy misura il rullino e ogni scena man mano che arrivano i fotogrammi, e di nuovo dopo una modifica del ritaglio o della Misurazione. Nessun fotogramma usa un riferimento finché non attivi una media. Senza un rullino aperto, il riquadro è disattivato: apri o salva prima un rullino.
-
-*   **Rianalizza**: misura ogni fotogramma visibile al di fuori di una scena, salva la media come riferimento del rullino e attiva le medie per il rullino e i suoi nuovi fotogrammi. I fotogrammi lontani dagli altri mantengono i propri valori.
-*   **Usa questo fotogramma**: rende la misura propria di questo fotogramma il riferimento del rullino; Dominante si disattiva.
-*   **Usa la media**: fai clic destro su uno qualsiasi dei tre per attivare o disattivare tutte le medie. **Luma** usa i punti del nero e del bianco del rullino, **Colore** il bilanciamento del colore del rullino, e **Dominante** (negativi a colori) il bilanciamento del grigio del rullino per la Rimozione della dominante. Con Dominante attiva, un fotogramma scattato sotto una luce diversa conserva un po' di quella luce, come su una stampa Frontier. Una dominante magenta resta, una dominante calda o verde resta in parte, e una dominante blu scompare. Con Luma e Colore attivi, il rullino stampa in modo uniforme; con entrambi disattivati, ogni fotogramma viene misurato da solo.
-*   **Riferimento**: indica da dove proviene il riferimento (rullino, scena o fotogramma). Avvisa quando non ce n'è uno, quando non è aggiornato, o quando il colore di questo fotogramma è lontano dalla media.
-*   **Rullini**: scegli il riferimento salvato di un altro rullino. Un rullino spuntato ne ha uno.
-*   **Scene**: gruppi di fotogrammi con un riferimento proprio, come un soggetto sotto una certa luce ([Scene](#scene)). **Analizza** misura la scena, **Seleziona** ne seleziona i fotogrammi ed **Elimina** rimuove il gruppo.
-*   **Rileva scene**: trova i gruppi di fotogrammi sotto una luce diversa da quella del rullino, in qualsiasi ordine di fotogrammi, e li mostra sul Tavolo luminoso. Ogni gruppo resta in attesa sotto **Trovati**. Per cambiare un gruppo, trascina i fotogrammi su un altro gruppo, oppure su un fotogramma senza scena per escluderli; clic destro › **Scena** fa lo stesso. Dagli un nome, poi **Accettalo** come scena con un riferimento proprio, oppure **Scartalo**.
 
 <!-- panel:assembly src:96b2e550 -->
 ### 10.8 Composizione del fotogramma
@@ -836,7 +836,7 @@ Esegue la scansione con una fotocamera su uno stativo di riproduzione, collegata
 *   **Pellicola** (con un Lento Dock): cosa fa il caricatore quando fai clic su Scansiona. **Fotogramma successivo** fa avanzare la pellicola di un fotogramma dopo ogni scansione. **Intera striscia** scansiona ogni fotogramma, poi espelle la striscia; Ferma la termina. Riprendi non sposta mai la pellicola. **Espelli** fa uscire la striscia. Il pulsante S del caricatore funziona come Scansiona.
 *   **Scatta Campo piatto**: dopo l'espulsione di un'intera striscia, fotografa il caricatore vuoto e lo salva come profilo di Campo piatto del rullino.
 
-<!-- panel:scan_light src:417cc437 -->
+<!-- panel:scan_light src:6e486298 -->
 ### Preimpostazione
 
 Compare mentre è collegato uno Scanlight. Una preimpostazione contiene i livelli della luce e l'esposizione della fotocamera per un tipo di pellicola.
@@ -849,7 +849,7 @@ Compare mentre è collegato uno Scanlight. Una preimpostazione contiene i livell
 *   **Modalità di acquisizione**: **Tricromia** esegue un'esposizione per colore e le unisce; **Esposizione singola** esegue un'esposizione con tutti e tre i colori accesi. **Miscela** tiene aperta la fotocamera in posa B e accende a turno rosso, verde e blu, per un unico file. Una preimpostazione Tricromia o Miscela può passare dall'una all'altra.
 *   **Scatto dell'otturatore** (Miscela): cosa tiene aperto l'otturatore. **USB** usa il controllo della posa B della fotocamera. **Cavo** usa un cavo di scatto nella presa jack da 3,5 mm dello Scanlight, per esposizioni fino a 2,55 s.
 *   **Profilo del sensore** (preimpostazione Miscela senza un profilo proprio): il profilo di diafonia del sensore per le sue scansioni. Scansiona attende che ce ne sia uno. Il pulsante con le provette ne crea uno.
-*   **Crea profilo di diafonia del sensore** (Esposizione singola o Miscela): salva anche un profilo di diafonia del sensore usato dalle scansioni di questa preimpostazione (vedi Calibrazione, §10.4).
+*   **Crea profilo di diafonia del sensore** (Esposizione singola o Miscela): salva anche un profilo di diafonia del sensore usato dalle scansioni di questa preimpostazione (vedi Calibrazione, §10.7).
 *   **ISO**, **Otturatore**, **Diaframma**: l'esposizione della preimpostazione. Una modifica vale finché non scegli di nuovo la preimpostazione. Il pulsante con l'indicatore misura.
 *   **Otturatore IR** e **Infrarosso** (luci con LED a infrarossi): aggiunge a ogni scansione un'esposizione a infrarossi per la rimozione della polvere, salvata come file `_IR`. Richiede una fotocamera che veda l'infrarosso (a spettro completo o convertita) e la messa a fuoco manuale. Solo pellicola a colori.
 *   **Ritardo tra i canali**: una pausa tra le esposizioni rossa, verde e blu, per le fotocamere che ne hanno bisogno.

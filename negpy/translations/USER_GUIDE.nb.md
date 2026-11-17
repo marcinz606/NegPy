@@ -106,7 +106,7 @@ Velg den delen av bildet du vil beholde, selv eller med autobeskjæring.
 
 Autobeskjæring krever at skannerlyset eller holderen er den lyseste delen av skanningen. Den lar et bilde være i fred når bildet er like lyst som lyset, eller når neste bilde fyller en stor del av én side. Beskjær et slikt bilde selv, eller bruk **Filmkant** og juster innover.
 
-<!-- panel:geometry src:913e25e7 -->
+<!-- panel:geometry src:ad12a4c6 -->
 ### 4.2 Rett opp
 
 Drei bildet og sett det i vater.
@@ -118,7 +118,7 @@ Drei bildet og sett det i vater.
 *   **Tilt** og **Sving** (fold): rett opp en bygning fotografert nedenfra (Tilt) eller en vegg fotografert fra siden (Sving). **Tegn linjer** angir begge ut fra linjer langs de fire filmkantene.
 *   **Beskjær tomme hjørner**: beskjærer bort de tomme hjørnene som rotasjon, Tilt og Sving etterlater.
 
-Beskjær før en stor Tilt eller Sving, ellers kan filmkanten komme til syne og gjøre kopien mørkere. Objektivforvrengning rettes i **Optikk** ([§10.3](#103-optics)).
+Beskjær før en stor Tilt eller Sving, ellers kan filmkanten komme til syne og gjøre kopien mørkere. Objektivforvrengning rettes i **Optikk** ([§10.6](#106-optics)).
 
 <!-- panel:color src:23d03265 -->
 ### 5.1 Filtrering: fargebalanse
@@ -132,7 +132,7 @@ Korrigerer fargen i kopien, slik fargefiltrene i et forstørrelsesapparat i mør
 *   **Fjerning av fargestikk**: fjerner et fargestikk som er ulikt i de mørke og lyse delene av bildet. Den starter på 0,5 (halvparten) for fargenegativer og på 0 for dias. Blader, himmel og vann regnes ikke som grått, så de beholder fargen.
 *   **Filter**: et farget filter, som på kameraobjektivet for svart-hvitt-film. Det vises bare for et fargenegativ eller fargedias i S/H, og erstatter kontrollene ovenfor. Hvert filter gjør fargene motsatt av sin egen mørkere. Gul #8, Dyp gul #15, Oransje #21 og Rød #25 gjør en blå himmel mørkere, trinn for trinn. Rød gjør også blader mørke og hud blek. Gulgrønn #11 og Grønn #58 gjør blader lysere og hud mørkere. Ingen gir utseendet til en vanlig svart-hvitt-film.
 
-<!-- panel:tone src:773012ec -->
+<!-- panel:tone src:c29af454 -->
 ### 5.2 Tone: lyshet og kontrast
 
 Hvor lys eller mørk kopien er, og hvor mye kontrast den har.
@@ -152,7 +152,7 @@ Hvor lys eller mørk kopien er, og hvor mye kontrast den har.
     *   **Kontrastmaske**: åpner store mørke områder og holder tilbake store lyse, og beholder fine detaljer. I mørkerommet får en kopist dette med en myk, uskarp maske lagt på negativet. I digital kopiering får Fujifilm Frontier-skannere en lignende virkning med HyperTone. Områder langt fra mellomgrå endres mest, så et bilde med lav kontrast endres lite.
 *   **Global / R / G / B**: R, G eller B bruker graderingene på bare én farge, for et fargestikk som er ulikt i skygger og høylys.
 
-**Hvitpunkt** og **Svartpunkt** er på kortet **Lysmåling** i fanen Rull ([§10.6](#106-metering-negative--positive)).
+**Hvitpunkt** og **Svartpunkt** er på kortet **Lysmåling** i fanen Rull ([§10.3](#103-metering-negative--positive)).
 
 <!-- panel:paper src:1e3bc30a -->
 ### 5.3 Papirrespons: papiret
@@ -298,24 +298,72 @@ En **arbeidskopi** er en versjon av dette bildet som du beholder under et navn, 
 
 Hver endring du har gjort, den nyeste øverst (de siste 100). **Nå** markerer den gjeldende tilstanden; etter en angring vises senere trinn som **Angret** til neste redigering. Klikk et trinn for å gå tilbake til det. **⋮** eller høyreklikk → **Eksporter denne versjonen…** eksporterer en tidligere tilstand. **Sammenlign med dette trinnet** åpner **Før / etter** med det trinnet til venstre, på den gjeldende beskjæringen din. Trykk `\` for å lukke den.
 
-<!-- panel:film src:0094e9db -->
+<!-- panel:film src:60044f56 -->
 ### 10.1 Oppsett
 
 Hva filmen er, og hvordan du skannet den. Disse valgene bestemmer hvilke kort og kontroller som vises.
 
 *   **Farge / S/H / Dias**: fargenegativ (C-41), en svart-hvitt-kopi, eller dias (E-6 og lignende). S/H kopierer ethvert negativ i svart-hvitt. For et fargenegativ gir kortet Filtrering da et kontrastfilter.
 *   **Positiv** (bare Dias): for en fil som allerede er et positiv, for eksempel en skannet kopi eller en eksport fra en annen app. NegPy hopper da over invertering og lysmåling. Et dias som ikke er en kamera-RAW, for eksempel en TIFF, JPEG, JXL, en skanner-DNG eller en skanning fra Pakon, Noritsu, Coolscan eller Flextight, starter som Positiv. Slå det av for å gi en falmet skanning diasets tonekurve.
-*   **S/H** (bare Dias): viser diaset i svart-hvitt, for svart-hvitt reversalfilm som Scala. Et fargedias får da filteret.
+*   **S/H-dias** (bare Dias): viser diaset i svart-hvitt, for svart-hvitt reversalfilm som Scala. Et fargedias får da filteret.
 *   **Koding** (positiv TIFF): hvordan verdiene koder lys. **Auto** leser filens ICC-profil, og ellers lineær over 8 bit og sRGB ved 8 bit. **Lineær** er lineære utdata fra en skanner, for eksempel Nikon Scan med fargestyring av. **2.2** er gamma 2,2 i Adobe RGB-primærfarger. Velg Lineær eller 2.2 for å passe skannerprogramvaren.
 *   **Kamera / Filmskanner**: hva du skannet med. NegPy leser det fra hver fil (en kamera-RAW er et kamera) til du velger noe. Valget ditt gjelder for hvert bilde og angir skanneren i fanen Skann.
 *   **Hvitt lys / Smalbåndslys** (ikke for et S/H-negativ): lyset bak negativet. Hvitt lys er en lysboks eller LED-plate. Smalbånd er et lys med rent rødt, grønt og blått, for eksempel en Scanlight.
 
-Skannevalgene er én innstilling for hele appen. Listen under dem viser hvordan en RAW-fil dekodes og hvilket kopipapir som brukes.
+Skannevalgene er én innstilling for hele appen. Listen under dem viser hva NegPy leste fra filen og hvilket kopipapir som brukes.
 
 Et kamera viser kortene RAW-dekoding og Optikk. Et kamera med smalbåndslys viser også Trichrome og Kalibrering. En endring oppdaterer hvert åpent bilde (Ctrl+Z angrer den per bilde), men et kopipapir du har valgt selv, blir stående. En kameraskanning angir dekodingen og kopipapiret for hvert bilde ut fra sitt eget lys.
 
+<!-- panel:baseline src:6773897f -->
+### 10.2 Rullanalyse
+
+Måler hele rullen én gang og deler resultatet, så bildene fra én film kopieres likt. NegPy måler rullen og hver scene etter hvert som bildene kommer inn, og på nytt etter en endring av beskjæring eller lysmåling. Ingen bilder bruker et grunnlag før du slår på et gjennomsnitt.
+
+*   **Bruk gjennomsnitt**: høyreklikk en av de tre for å slå hvert gjennomsnitt på eller av. **Luma** bruker rullens svart- og hvitpunkt, **Farge** rullens fargebalanse, og **Fargestikk** (fargenegativer) rullens gråbalanse for fjerning av fargestikk. Med Fargestikk på beholder et bilde tatt under et annet lys noe av det lyset, som på en Frontier-kopi. Et magentastikk blir værende, et varmt eller grønt stikk blir delvis værende, og et blått stikk forsvinner. Med Luma og Farge på kopieres rullen jevnt; med begge av måles hvert bilde for seg.
+*   **Grunnlag**: viser hvor grunnlaget kom fra (rull, scene eller bilde). Den advarer når det ikke finnes noe, når det er utdatert, eller når fargen i dette bildet er langt fra gjennomsnittet.
+*   **Analyser på nytt**: måler hvert synlig bilde utenfor en scene, lagrer gjennomsnittet som rullens grunnlag og slår på gjennomsnittene for rullen og de nye bildene. Bilder som er langt fra resten, beholder sine egne. Den beskjærer først bildene som venter på Autobeskjær.
+*   **Bruk bilde**: gjør dette bildets egen måling til rullens grunnlag; Fargestikk slås av.
+*   **Fra en annen rull** (fold): velg en annen rulls lagrede grunnlag. En rull med hake har et.
+*   **Scener**: grupper av bilder med sitt eget grunnlag, for eksempel ett motiv under ett lys ([Scener](#scenes)). **Analyser** måler scenen, **Velg** velger bildene i den og **Slett** fjerner gruppen.
+*   **Oppdag**: finner gruppene av bilder under et annet lys enn rullen, i hvilken som helst bilderekkefølge, og viser dem på lysbordet. Hver gruppe venter under **Funnet**. For å endre en gruppe drar du bilder til en annen gruppe, eller til et bilde uten scene for å utelate dem; høyreklikk › **Scene** gjør det samme. Gi gruppen et navn, og **Godta** den som en scene med eget grunnlag, eller **Forkast** den.
+
+<!-- panel:process src:2c179de9 -->
+### 10.3 Lysmåling: negativ → positiv
+
+For å gjøre et negativ om til et positiv måler NegPy de mørkeste og lyseste delene (svart- og hvitpunktet) og fargen på filmen. Disse kontrollene angir hva den måler.
+
+*   **Mål alene**: tar dette bildet, eller hvert valgte bilde, ut av gjennomsnittet for rullen eller scenen og måler det for seg, fra den gjeldende beskjæringen.
+*   **Tegn område**: tegn et område, så måler NegPy bare det området. Dobbeltklikk innenfor eller trykk `Enter` for å bekrefte, og `Esc` setter tilbake området du hadde før. **×** fjerner det.
+*   **Analysebuffer**: ser bort fra en kant rundt bildet ved måling, så filmkanter og holdere ikke teller med.
+*   **Klipping**: hvor mye av kopien som er helt svart eller helt hvit.
+*   **Lås grenser**: beholder svart- og hvitpunktet for dette bildet, selv når beskjæringen eller rullanalysen endres.
+*   **Luma-områdeklipping** (fold): hvor stramt svart og hvitt settes. Positiv gir mer kontrast, for tette eller tåkete negativer. Negativ beholder flere detaljer i skygger og høylys.
+*   **Fargeklipping** (fold): hvor stramt fargebalansen settes.
+*   **Dmin** / **Dmax** (folden Velg selv): for et bilde som NegPy måler dårlig. Klikk **Dmin**, og så filmbasen eller den dypeste skyggen, for å angi svartpunktet. Klikk **Dmax**, og så det lyseste høylyset, for å angi hvitpunktet. Hver **×** fjerner sitt eget punkt. Begge er av mens bildet kopieres etter rullens gjennomsnitt.
+*   **Hvitpunkt** / **Svartpunkt** (fold): flytter det målte hvit- og svartpunktet. Et positivt hvitpunkt gjør kopien lysere; et positivt svartpunkt løfter svarttonene. **R / G / B** flytter bare én farge.
+
+Et **dias** trenger ingen invertering: tonekontrollene former bildet direkte. Autotetthet og autogradering starter av; slå dem på for et falmet dias. På et dias angir Tegn område området som Beregn, Fjern flekk, Fjerning av fargestikk, Autotetthet og Autogradering måler. Tegn det før du klikker Beregn. Med Lightroom-begreper er Eksponering lik Kopitetthet (lavere er lysere), Kontrast lik ISO-R-gradering, og Skygger og Høylys lik Skyggetetthet og Høylystetthet.
+
+<!-- panel:fade src:df17e8d2 -->
+### 10.4 Fargegjenoppretting: falmede dias
+
+Gir et falmet dias fargelagene tilbake. Kortet vises bare for dias.
+
+*   **Beregn**: angir Gråmiks og overlevelsesglidebryterne.
+*   **Gjenopprett tonevidde** (ikonet ved Beregn): på, angir Rød overlevelse ut fra bildets tonevidde, og Beregn beholder den.
+*   **Rød overlevelse**: hvor mye rødt fargestoff som er igjen. Senk den til kontrasten kommer tilbake. Med Gjenopprett tonevidde på beholder den endringen din hver gang den angir rødt på nytt.
+*   **Grønn overlevelse** / **Blå overlevelse**: det samme, målt mot rødt.
+*   **Fjern flekk**: gjør gulnede klare områder hvite og kjører Beregn på nytt. Slå det på når Beregn foreslår det.
+*   **Gråmiks**: endrer hvilke grå toner Beregn stoler på. Dra den hvis fargene ser feil ut.
+*   **Crossover**: fjerner en fargeforskyvning mellom skygger og høylys. Dra den på hvert bilde, eller del ett bildes crossover med Del Crossover.
+
+Gruppen Rull nederst på kortet virker på hvert bilde på rullen:
+
+*   **Beregn rull**: leser hvert dias på rullen, eller de valgte, og gir hvert bilde samme overlevelse og Gjenopprett tonevidde. Dias som leses ulikt, for eksempel i innelys, holdes utenfor målingen, men får resultatet. Hvert bilde beholder sin egen Crossover.
+*   **Del Crossover**: måler crossoveren i dette bildet og gir den til hvert bilde, med dette bildets styrke. Bruk et bilde med tydelige gråtoner i lyse og mørke områder, for eksempel en vei og hvite klær. Rullehintet kan foreslå ett.
+
 <!-- panel:demosaic src:5627a0ef -->
-### 10.2 RAW-dekoding
+### 10.5 RAW-dekoding
 
 Hvordan en kamera-RAW-fil gjøres om til piksler. Vises for et kamera.
 
@@ -324,7 +372,7 @@ Hvordan en kamera-RAW-fil gjøres om til piksler. Vises for et kamera.
 *   **Gjenoppretting** (dias): gjenoppbygger utbrente høylys i en kamera-RAW. **Blanding** passer sol og himmel. **Rekonstruer** er sterkere, men kan gi feil farge. Et nytt bilde fra filmskanneren starter med Gjenoppretting av. En advarsel vises under Gjenoppretting når bildet har klippede høylys, som kan bli rosa.
 
 <!-- panel:optics src:33b2d330 -->
-### 10.3 Optikk
+### 10.6 Optikk
 
 Korreksjoner for objektivet og lyset, de samme for hvert bilde du skanner med dette oppsettet. Vises for et kamera.
 
@@ -344,7 +392,7 @@ Fjerner ujevnt lys, for eksempel mørkere hjørner, med et bilde av den bare lys
 Et bilde beholder sin egen profil med mindre det følger rullen, så hvert lys og filmformat kan ha én. Et nytt kamerabilde, eller et kamerabilde der profilen mangler, får den siste profilen du valgte på et kamerabilde. Et nytt bilde fra filmskanneren starter uten Optikk-korreksjoner. Med Filmskanner valgt vises dette kortet bare på et bilde som har en korreksjon.
 
 <!-- panel:sensor src:f2d1b580 -->
-### 10.4 Kalibrering: farger fra skanneoppsettet ditt
+### 10.7 Kalibrering: farger fra skanneoppsettet ditt
 
 Korrigerer fargefeil som kommer fra lyset, kameraet og filmen din.
 
@@ -361,54 +409,6 @@ Korrigerer fargefeil som kommer fra lyset, kameraet og filmen din.
 *   Fargeprøveknappen åpner **Mål fra kart** (fargenegativer): den måler en matrise fra et ColorChecker 24 eller SpyderCheckr 24 fotografert på filmen. Dra de fire prikkene til hjørnefeltene.
 
 **Justering av fargetone** (kamera med smalbåndslys): dreier alle fargetoner, for et lys som gjør gult oransje eller grønt olivenfarget. Behold 0 for hvitt lys. I motsetning til sensorprofilen virker den også på dias.
-
-<!-- panel:fade src:df17e8d2 -->
-### 10.5 Fargegjenoppretting: falmede dias
-
-Gir et falmet dias fargelagene tilbake. Kortet vises bare for dias.
-
-*   **Beregn**: angir Gråmiks og overlevelsesglidebryterne.
-*   **Gjenopprett tonevidde** (ikonet ved Beregn): på, angir Rød overlevelse ut fra bildets tonevidde, og Beregn beholder den.
-*   **Rød overlevelse**: hvor mye rødt fargestoff som er igjen. Senk den til kontrasten kommer tilbake. Med Gjenopprett tonevidde på beholder den endringen din hver gang den angir rødt på nytt.
-*   **Grønn overlevelse** / **Blå overlevelse**: det samme, målt mot rødt.
-*   **Fjern flekk**: gjør gulnede klare områder hvite og kjører Beregn på nytt. Slå det på når Beregn foreslår det.
-*   **Gråmiks**: endrer hvilke grå toner Beregn stoler på. Dra den hvis fargene ser feil ut.
-*   **Crossover**: fjerner en fargeforskyvning mellom skygger og høylys. Dra den på hvert bilde, eller del ett bildes crossover med Del Crossover.
-
-Gruppen Rull nederst på kortet virker på hvert bilde på rullen:
-
-*   **Beregn rull**: leser hvert dias på rullen, eller de valgte, og gir hvert bilde samme overlevelse og Gjenopprett tonevidde. Dias som leses ulikt, for eksempel i innelys, holdes utenfor målingen, men får resultatet. Hvert bilde beholder sin egen Crossover.
-*   **Del Crossover**: måler crossoveren i dette bildet og gir den til hvert bilde, med dette bildets styrke. Bruk et bilde med tydelige gråtoner i lyse og mørke områder, for eksempel en vei og hvite klær. Rullehintet kan foreslå ett.
-
-<!-- panel:process src:2c179de9 -->
-### 10.6 Lysmåling: negativ → positiv
-
-For å gjøre et negativ om til et positiv måler NegPy de mørkeste og lyseste delene (svart- og hvitpunktet) og fargen på filmen. Disse kontrollene angir hva den måler.
-
-*   **Mål alene**: tar dette bildet, eller hvert valgte bilde, ut av gjennomsnittet for rullen eller scenen og måler det for seg, fra den gjeldende beskjæringen.
-*   **Tegn område**: tegn et område, så måler NegPy bare det området. Dobbeltklikk innenfor eller trykk `Enter` for å bekrefte, og `Esc` setter tilbake området du hadde før. **×** fjerner det.
-*   **Analysebuffer**: ser bort fra en kant rundt bildet ved måling, så filmkanter og holdere ikke teller med.
-*   **Klipping**: hvor mye av kopien som er helt svart eller helt hvit.
-*   **Lås grenser**: beholder svart- og hvitpunktet for dette bildet, selv når beskjæringen eller rullanalysen endres.
-*   **Luma-områdeklipping** (fold): hvor stramt svart og hvitt settes. Positiv gir mer kontrast, for tette eller tåkete negativer. Negativ beholder flere detaljer i skygger og høylys.
-*   **Fargeklipping** (fold): hvor stramt fargebalansen settes.
-*   **Dmin** / **Dmax** (folden Velg selv): for et bilde som NegPy måler dårlig. Klikk **Dmin**, og så filmbasen eller den dypeste skyggen, for å angi svartpunktet. Klikk **Dmax**, og så det lyseste høylyset, for å angi hvitpunktet. Hver **×** fjerner sitt eget punkt. Begge er av mens bildet kopieres etter rullens gjennomsnitt.
-*   **Hvitpunkt** / **Svartpunkt** (fold): flytter det målte hvit- og svartpunktet. Et positivt hvitpunkt gjør kopien lysere; et positivt svartpunkt løfter svarttonene. **R / G / B** flytter bare én farge.
-
-Et **dias** trenger ingen invertering: tonekontrollene former bildet direkte. Autotetthet og autogradering starter av; slå dem på for et falmet dias. På et dias angir Tegn område området som Beregn, Fjern flekk, Fjerning av fargestikk, Autotetthet og Autogradering måler. Tegn det før du klikker Beregn. Med Lightroom-begreper er Eksponering lik Kopitetthet (lavere er lysere), Kontrast lik ISO-R-gradering, og Skygger og Høylys lik Skyggetetthet og Høylystetthet.
-
-<!-- panel:baseline src:7fc2c469 -->
-### 10.7 Rullanalyse
-
-Måler hele rullen én gang og deler resultatet, så bildene fra én film kopieres likt. NegPy måler rullen og hver scene etter hvert som bildene kommer inn, og på nytt etter en endring av beskjæring eller lysmåling. Ingen bilder bruker et grunnlag før du slår på et gjennomsnitt. Når ingen rull er åpen, er kortet nedtonet: åpne eller lagre en rull først.
-
-*   **Analyser på nytt**: måler hvert synlig bilde utenfor en scene, lagrer gjennomsnittet som rullens grunnlag og slår på gjennomsnittene for rullen og de nye bildene. Bilder som er langt fra resten, beholder sine egne.
-*   **Bruk dette bildet**: gjør dette bildets egen måling til rullens grunnlag; Fargestikk slås av.
-*   **Bruk gjennomsnitt**: høyreklikk en av de tre for å slå hvert gjennomsnitt på eller av. **Luma** bruker rullens svart- og hvitpunkt, **Farge** rullens fargebalanse, og **Fargestikk** (fargenegativer) rullens gråbalanse for fjerning av fargestikk. Med Fargestikk på beholder et bilde tatt under et annet lys noe av det lyset, som på en Frontier-kopi. Et magentastikk blir værende, et varmt eller grønt stikk blir delvis værende, og et blått stikk forsvinner. Med Luma og Farge på kopieres rullen jevnt; med begge av måles hvert bilde for seg.
-*   **Grunnlag**: viser hvor grunnlaget kom fra (rull, scene eller bilde). Den advarer når det ikke finnes noe, når det er utdatert, eller når fargen i dette bildet er langt fra gjennomsnittet.
-*   **Ruller**: velg en annen rulls lagrede grunnlag. En rull med hake har et.
-*   **Scener**: grupper av bilder med sitt eget grunnlag, for eksempel ett motiv under ett lys ([Scener](#scenes)). **Analyser** måler scenen, **Velg** velger bildene i den og **Slett** fjerner gruppen.
-*   **Oppdag scener**: finner gruppene av bilder under et annet lys enn rullen, i hvilken som helst bilderekkefølge, og viser dem på lysbordet. Hver gruppe venter under **Funnet**. For å endre en gruppe drar du bilder til en annen gruppe, eller til et bilde uten scene for å utelate dem; høyreklikk › **Scene** gjør det samme. Gi gruppen et navn, og **Godta** den som en scene med eget grunnlag, eller **Forkast** den.
 
 <!-- panel:assembly src:96b2e550 -->
 ### 10.8 Bildesammensetning
@@ -600,7 +600,7 @@ Skanner med et kamera på et reprostativ, koblet til med USB i **PC Remote**-mod
 *   **Film** (med en Lento Dock): hva holderen gjør når du klikker Skann. **Neste bilde** flytter filmen ett bilde etter hver skanning. **Hele stripen** skanner hvert bilde og mater så ut stripen; Stopp avslutter det. Ta på nytt flytter aldri filmen. **Mat ut** flytter stripen ut. S-knappen på holderen virker som Skann.
 *   **Ta flatfelt**: når en hel stripe er matet ut, fotograferes den tomme holderen og lagres som rullens flatfeltprofil.
 
-<!-- panel:scan_light src:417cc437 -->
+<!-- panel:scan_light src:6e486298 -->
 ### Forhåndsinnstilling
 
 Vises mens en Scanlight er tilkoblet. En forhåndsinnstilling inneholder lysnivåene og kameraeksponeringen for én type film.
@@ -613,7 +613,7 @@ Vises mens en Scanlight er tilkoblet. En forhåndsinnstilling inneholder lysniv�
 *   **Opptaksmodus**: **Trichrome** tar én eksponering per farge og slår dem sammen; **Én eksponering** tar én eksponering med alle tre fargene på. **Blanding** holder kameraet åpent i Bulb og tenner rødt, grønt og blått etter tur, for én fil. En Trichrome- eller Blanding-forhåndsinnstilling kan bytte mellom de to.
 *   **Utløser** (Blanding): hva som holder lukkeren åpen. **USB** bruker kameraets egen bulb-styring. **Kabel** bruker en utløserkabel i Scanlights 3,5 mm-kontakt, for eksponeringer opptil 2,55 s.
 *   **Sensorprofil** (Blanding-forhåndsinnstilling uten egen profil): sensorkrysstaleprofilen for skanningene. Skanningen venter på en. Knappen med glassene lager en.
-*   **Lag sensorkrysstaleprofil** (Én eksponering eller Blanding): lagrer også en sensorkrysstaleprofil som skanningene med denne forhåndsinnstillingen bruker (se Kalibrering, §10.4).
+*   **Lag sensorkrysstaleprofil** (Én eksponering eller Blanding): lagrer også en sensorkrysstaleprofil som skanningene med denne forhåndsinnstillingen bruker (se Kalibrering, §10.7).
 *   **ISO**, **Lukker**, **Blender**: eksponeringen for forhåndsinnstillingen. En endring gjelder til du velger forhåndsinnstillingen igjen. Måleknappen måler.
 *   **IR-lukker** og **Infrarød** (lys med infrarøde LED-er): legger til en infrarød eksponering i hver skanning for støvfjerning, lagret som en `_IR`-fil. Det krever et kamera som ser infrarødt (fullspekter eller konvertert) og manuell fokus. Bare fargefilm.
 *   **Kanalforsinkelse**: en pause mellom den røde, grønne og blå eksponeringen, for kameraer som trenger det.

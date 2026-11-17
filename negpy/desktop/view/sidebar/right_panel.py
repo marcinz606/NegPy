@@ -400,9 +400,9 @@ class RightPanel(QWidget):
         return page
 
     def _build_roll_page(self) -> QWidget:
-        """The cards for facts the whole roll shares, not one frame's own edit: its film, scanning rig,
-        decode, optics, calibration, metering, shared baseline and frame assembly. Setup leads, since
-        it decides which of the others apply."""
+        """The cards for facts the whole roll shares, not one frame's own edit. Setup leads, since it
+        decides which of the others apply; the cards of every roll come next, the ones set once per
+        scanning rig last."""
         cp = self.controls_panel
         page = QWidget()
         page_layout = QVBoxLayout(page)
@@ -413,12 +413,12 @@ class RightPanel(QWidget):
         self.roll_tab_header.bind(
             (
                 cp.film_section,
+                cp.baseline_section,
+                cp.process_section,
+                cp.fade_section,
                 cp.demosaic_section,
                 cp.optics_section,
                 cp.sensor_section,
-                cp.fade_section,
-                cp.process_section,
-                cp.baseline_section,
             )
         )
         self.roll_tab_header.apply_requested.connect(cp.push_roll_cards)
@@ -429,12 +429,12 @@ class RightPanel(QWidget):
         page_layout.addWidget(cp.roll_override_summary)
         for section in (
             cp.film_section,
+            cp.baseline_section,
+            cp.process_section,
+            cp.fade_section,
             cp.demosaic_section,
             cp.optics_section,
             cp.sensor_section,
-            cp.fade_section,
-            cp.process_section,
-            cp.baseline_section,
             cp.assembly_section,
         ):
             page_layout.addWidget(section)

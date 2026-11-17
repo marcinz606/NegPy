@@ -413,7 +413,7 @@ BOUNDS_INPUT_FIELDS = frozenset(
 
 # The Roll-tab card names a frame's locks are listed by.
 ROLL_CARD_LABELS = {
-    "film": tr("Film Mode"),
+    "film": tr("Setup"),
     "sensor": tr("Calibration"),
     "fade": tr("Fade Restoration"),
     "demosaic": tr("Raw Decode"),
