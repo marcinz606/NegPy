@@ -250,15 +250,16 @@ class ControlsPanel(QWidget):
             icon_name="mdi.view-split-vertical",
         )
 
-        # Where this frame's bounds come from: the roll and scene baselines, then the Use
-        # Luma/Color Average switches that read them.
+        # Where this frame's bounds come from: the Use Luma/Color Average switches, then the
+        # roll and scene baselines they read.
         self.roll_sidebar = RollAnalysisSidebar(self.controller)
         baseline_body = QWidget()
         baseline_layout = QVBoxLayout(baseline_body)
         baseline_layout.setContentsMargins(0, 0, 0, 0)
         baseline_layout.setSpacing(THEME.space_sm)
-        baseline_layout.addWidget(self.roll_sidebar)
+        baseline_layout.addWidget(self.roll_sidebar.no_roll_hint)
         baseline_layout.addWidget(self.process_sidebar.baseline_bar)
+        baseline_layout.addWidget(self.roll_sidebar)
         self.baseline_section = self._make_section(
             tr("Roll Analysis"),
             "baseline",
@@ -789,7 +790,7 @@ class ControlsPanel(QWidget):
 
         proc.slide_bw_btn.setToolTip(
             tooltip_with_shortcut(
-                tr("B&W, slides only: render the slide in black and white, for B&W reversal film or a color slide."),
+                tr("B&W Slide: render the slide in black and white, for B&W reversal film or a color slide."),
                 "toggle_slide_bw",
             )
         )

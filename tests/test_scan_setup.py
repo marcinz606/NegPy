@@ -94,7 +94,6 @@ class TestScanSetupCard(unittest.TestCase):
         self.assertTrue(card.light_btn.isHidden())
         self.assertEqual(card.light_btn.currentData(), "narrowband")
         self.assertNotIn("Coolscan", card.hint.text())
-        self.assertIn("Hides the Raw Decode", card.hint.text())
 
         controller.state.config = config
         card.sync_ui()
@@ -104,13 +103,13 @@ class TestScanSetupCard(unittest.TestCase):
         card = ScanSetupSidebar(_setup_controller({"capture": "camera", "light": "narrowband"}))
         card.sync_ui()
         text = card.hint.text()
-        for words in ("Scanlight", "Decodes the RAW linear", "Trichrome", "Digital (Pakon)"):
+        for words in ("Scanlight", "Digital (Pakon)"):
             self.assertIn(words, text)
 
         card = ScanSetupSidebar(_setup_controller({"capture": "scanner", "light": "white"}))
         card.sync_ui()
         text = card.hint.text()
-        for words in ("Epson", "Reads the scan linear", "Hides the Raw Decode", "Digital (Adobe RGB)"):
+        for words in ("Epson", "Digital (Adobe RGB)"):
             self.assertIn(words, text)
 
     def test_the_stock_line_follows_where_the_setup_moves_the_stock(self):

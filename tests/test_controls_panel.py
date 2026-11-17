@@ -103,7 +103,7 @@ def test_sync_scope_buttons_names_film_mode_too():
 
     ControlsPanel._sync_scope_buttons(panel)
 
-    panel.roll_override_summary.setText.assert_called_once_with("Keeps its own value on: Film Mode")
+    panel.roll_override_summary.setText.assert_called_once_with("Keeps its own value on: Setup")
 
 
 def test_sync_scope_buttons_marks_only_the_diverged_card_as_frame():

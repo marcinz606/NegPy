@@ -48,9 +48,9 @@ def test_picker_owns_its_batch_analysis_subheader(qapp):
     Point) isn't Roll Analysis, and labeling it that way would mislead."""
     _, sidebar, _ids = _sidebar()
     body = sidebar.body.layout()
-    assert body.itemAt(0).layout().itemAt(0).widget().text() == "ROLLS"
-    assert body.itemAt(1).widget().text() == "Roll Analysis first crops the frames that wait for Auto Crop."
-    assert body.itemAt(2).widget() is sidebar.roll_combo
+    assert body.itemAt(0).layout().itemAt(0).widget().text() == "ROLL BASELINE"
+    assert sidebar.other_roll_fold.content.isAncestorOf(sidebar.roll_combo)
+    assert not sidebar.other_roll_fold.is_open()
 
 
 def test_picker_defaults_to_the_active_roll_and_lists_every_library_roll(qapp):
@@ -113,7 +113,7 @@ def test_the_baseline_buttons_sit_on_the_rolls_header(qapp):
     row = sidebar.body.layout().itemAt(0).layout()
     widgets = [row.itemAt(i).widget() for i in range(row.count())]
     assert widgets[1:] == [sidebar.reanalyze_btn, sidebar.from_frame_btn]
-    assert widgets[0].text() == "ROLLS"
+    assert widgets[0].text() == "ROLL BASELINE"
 
 
 def test_the_baseline_actions_carry_a_short_label_and_their_full_name_in_the_tooltip(qapp):
@@ -228,6 +228,7 @@ def test_status_hint_is_blank_when_the_active_roll_is_picked(qapp):
     sidebar._on_roll_picked(ids["Portra 400"])
 
     assert sidebar.roll_status_hint.text() == ""
+    assert sidebar.roll_status_hint.isHidden()
 
 
 def test_status_hint_is_blank_without_an_active_roll(qapp):
