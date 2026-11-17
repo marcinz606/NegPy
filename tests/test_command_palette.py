@@ -23,9 +23,9 @@ def test_a_synonym_ranks_its_darkroom_names_first():
 
 
 def test_exact_name_beats_prefix_beats_substring():
-    entries = [make_entry("slider", n, "Exposure › Tone", None) for n in ("Shoulder Width", "Toe Width", "Toe")]
-    assert _names(rank(entries, "toe")) == ["Toe", "Toe Width"]
-    assert _names(rank(entries, "width")) == ["Shoulder Width", "Toe Width"]
+    entries = [make_entry("slider", n, "Exposure › Tone", None) for n in ("Shoulder Trim", "Toe Trim", "Toe")]
+    assert _names(rank(entries, "toe")) == ["Toe", "Toe Trim"]
+    assert _names(rank(entries, "trim")) == ["Shoulder Trim", "Toe Trim"]
 
 
 def test_every_query_word_must_match_and_the_card_counts():
@@ -153,8 +153,8 @@ def test_a_channel_card_indexes_every_page_whichever_it_shows(qapp):
         chooser.setCurrentIndex(index)
         names = [e.name for e in build_index(window) if e.kind == "slider" and e.name.startswith("Black Point")]
         assert sorted(names) == ["Black Point (Blue)", "Black Point (Global)", "Black Point (Green)", "Black Point (Red)"]
-    swapped = {e.name for e in build_index(window) if e.kind == "slider" and "Toe Width" in e.name}
-    assert swapped == {"Toe Width (Global)", "Toe Width (Red)", "Toe Width (Green)", "Toe Width (Blue)"}
+    swapped = {e.name for e in build_index(window) if e.kind == "slider" and "Dye Separation" in e.name}
+    assert swapped == {"Dye Separation (Global)", "Dye Separation (Red)", "Dye Separation (Green)", "Dye Separation (Blue)"}
 
 
 def test_a_channel_row_shows_its_page_and_writes_its_channel(qapp, monkeypatch):

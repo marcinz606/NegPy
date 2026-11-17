@@ -134,16 +134,8 @@ fn bounds(p: &PrintCurve) -> Bounds {
     };
     for ch in 0..3 {
         b.a_hl[ch] = p.a_sh_base * p.width_ref / p.shoulder_width[ch].max(eps);
-        let a_sh_w = p.a_toe_base * p.width_ref / p.toe_width[ch].max(eps);
-        let t = p.toe[ch];
-        // A negative toe tightens the shadow roll-off instead of moving d_max_eff past paper black.
-        let d_max_base = if t >= 0.0 {
-            b.a_sh[ch] = a_sh_w;
-            p.d_max - t * p.toe_height
-        } else {
-            b.a_sh[ch] = a_sh_w * (1.0 - t * 4.0);
-            p.d_max
-        };
+        b.a_sh[ch] = p.a_toe_base * p.width_ref / p.toe_width[ch].max(eps);
+        let d_max_base = p.d_max - p.toe[ch] * p.toe_height;
         let dmn = (p.d_min_rgb[ch] + p.shoulder[ch] * p.sh_height).max(0.0);
         b.d_min_eff[ch] = dmn;
         b.d_max_eff[ch] = if d_max_base < dmn + 0.1 {
@@ -151,13 +143,8 @@ fn bounds(p: &PrintCurve) -> Bounds {
         } else {
             d_max_base
         };
-        // BPC references the physical d_max, so toe lifts survive; a negative toe raises the clip.
-        let db = if t < 0.0 {
-            p.d_max + t * p.toe_height
-        } else {
-            p.d_max
-        };
-        b.bpc_black[ch] = exp10_f64(-db);
+        // BPC references the physical d_max, so a lowered d_max_eff stays lifted.
+        b.bpc_black[ch] = exp10_f64(-p.d_max);
     }
     b
 }

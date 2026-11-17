@@ -27,9 +27,7 @@ def _reference_points(config, toe, shoulder):
         pivot=pivot,
         d_min=d_min,
         toe=toe,
-        toe_width=config.toe_width,
         shoulder=shoulder,
-        shoulder_width=config.shoulder_width,
     )
     return slope, pivot, curve
 
@@ -91,9 +89,7 @@ def test_chart_honours_the_papers_own_dmax(qapp):
         pivot=pivot,
         d_min=d_min,
         toe=toe_eff,
-        toe_width=config.toe_width,
         shoulder=shoulder_eff,
-        shoulder_width=config.shoulder_width,
         bpc=not config.paper_black,
     )
     assert np.max(np.abs(plotted - print_curve_output(blind, 1.0 - plt_x))) > 1e-3
@@ -118,9 +114,7 @@ def test_chart_plots_cast_curvature(qapp):
             pivot=pivots[ch],
             d_min=d_min,
             toe=toe_eff,
-            toe_width=config.toe_width,
             shoulder=shoulder_eff,
-            shoulder_width=config.shoulder_width,
             curvature=curvature,
         )
         plt_x = np.array([p[0] for p in w._channel_curves[ch][1]], dtype=np.float64)

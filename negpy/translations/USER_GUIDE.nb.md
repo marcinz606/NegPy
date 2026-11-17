@@ -154,7 +154,7 @@ Hvor lys eller mørk kopien er, og hvor mye kontrast den har.
 
 **Hvitpunkt** og **Svartpunkt** er på kortet **Lysmåling** i fanen Rull ([§10.6](#106-metering-negative--positive)).
 
-<!-- panel:paper src:ab51bc8d -->
+<!-- panel:paper src:1e3bc30a -->
 ### 5.3 Papirrespons: papiret
 
 Papiret bildet kopieres på, og hvordan det gjør lys om til toner fra svart til hvitt.
@@ -166,8 +166,8 @@ Papiret bildet kopieres på, og hvordan det gjør lys om til toner fra svart til
 *   **Papirsvart**: viser svarttonen til ekte papir, litt lysere enn rent svart.
 *   **Kurveform** (fold):
     *   **Snap**: mellomtonekontrast. Svart og hvitt flytter seg ikke.
-    *   **Tå**: former skyggene. Positiv løfter dem, negativ gjør dem dypere. **Tåbredde** angir hvor langt inn i mellomtonene den når.
-    *   **Skulder**: former høylysene. Positiv mykner dem, negativ gjør dem lysere og kan miste detaljer. **Skulderbredde** angir hvor langt den når.
+    *   **Tå**: former hvordan skyggene går over i svart. Positiv gjør overgangen mykere og åpner skyggene, negativ gjør den hardere. Svart flytter seg ikke.
+    *   **Skulder**: former hvordan høylysene går over i hvitt. Positiv gjør overgangen mykere, negativ gjør den hardere og kan miste detaljer. Hvitt flytter seg ikke.
 *   **Global / R / G / B**: R, G eller B bruker kurvekontrollene på ett fargelag.
 
 <!-- panel:local src:7d85677b -->

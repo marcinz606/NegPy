@@ -326,7 +326,7 @@ Quanto è chiara o scura la stampa, e quanto contrasto ha.
 
 **Punto del bianco** e **Punto del nero** si trovano nel riquadro **Misurazione** della scheda Rullino ([§10.6](#106-misurazione-negativo--positivo)).
 
-<!-- panel:paper src:ab51bc8d -->
+<!-- panel:paper src:1e3bc30a -->
 ### 5.3 Risposta della carta: la carta
 
 La carta su cui viene stampata l'immagine, e il modo in cui trasforma la luce in toni dal nero al bianco.
@@ -338,8 +338,8 @@ La carta su cui viene stampata l'immagine, e il modo in cui trasforma la luce in
 *   **Nero carta**: mostra il nero di una carta reale, un po' più chiaro del nero puro.
 *   **Forma della curva** (sezione ripiegabile):
     *   **Incisività**: contrasto dei mezzitoni. Il nero e il bianco non si spostano.
-    *   **Piede**: modella le ombre. Positivo le solleva, negativo le rende più profonde. **Ampiezza del piede** stabilisce fin dove si estende nei mezzitoni.
-    *   **Spalla**: modella le alte luci. Positivo le ammorbidisce, negativo le schiarisce e può perdere dettaglio. **Ampiezza della spalla** stabilisce fin dove si estende.
+    *   **Piede**: modella il passaggio delle ombre al nero. Positivo lo ammorbidisce e apre le ombre, negativo lo rende più duro. Il nero non si sposta.
+    *   **Spalla**: modella il passaggio delle alte luci al bianco. Positivo lo ammorbidisce, negativo lo rende più duro e può perdere dettaglio. Il bianco non si sposta.
 *   **Globale / R / G / B**: R, G o B applica i controlli della curva a un solo strato di colore.
 
 <!-- panel:local src:7d85677b -->

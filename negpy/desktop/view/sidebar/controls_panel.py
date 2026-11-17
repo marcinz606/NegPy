@@ -702,26 +702,14 @@ class ControlsPanel(QWidget):
         )
         paper.toe_slider.setToolTip(
             tooltip_with_shortcut(
-                tr("Shapes the shadows: positive lifts them, and negative makes them deeper."),
+                tr("Shapes how the shadows reach black: positive makes the change softer, and negative makes it harder."),
                 ["toe_inc", "toe_dec"],
-            )
-        )
-        paper.toe_w_slider.setToolTip(
-            tooltip_with_shortcut(
-                tr("How far the Toe change reaches into the midtones."),
-                ["toe_width_inc", "toe_width_dec"],
             )
         )
         paper.sh_slider.setToolTip(
             tooltip_with_shortcut(
-                tr("Shapes the highlights: positive softens them, and negative brightens them and can lose detail."),
+                tr("Shapes how the highlights reach white: positive makes the change softer, and negative makes it harder."),
                 ["shoulder_inc", "shoulder_dec"],
-            )
-        )
-        paper.sh_w_slider.setToolTip(
-            tooltip_with_shortcut(
-                tr("How far the Shoulder change reaches into the midtones."),
-                ["shoulder_width_inc", "shoulder_width_dec"],
             )
         )
         paper.midtone_gamma_slider.setToolTip(

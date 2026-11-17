@@ -154,7 +154,7 @@ Wie hell oder dunkel der Abzug ist und wie viel Kontrast er hat.
 
 **Weißpunkt** und **Schwarzpunkt** findest du auf der Karte **Messung** im Tab Rolle ([§10.6](#106-metering-negative--positive)).
 
-<!-- panel:paper src:ab51bc8d -->
+<!-- panel:paper src:1e3bc30a -->
 ### 5.3 Papierverhalten: das Papier
 
 Das Papier, auf das das Bild abgezogen wird, und wie es Licht in Tonwerte von Schwarz bis Weiß umsetzt.
@@ -166,8 +166,8 @@ Das Papier, auf das das Bild abgezogen wird, und wie es Licht in Tonwerte von Sc
 *   **Papierschwarz**: zeigt das Schwarz von echtem Papier, etwas heller als reines Schwarz.
 *   **Kurvenform** (Falte):
     *   **Snap**: Kontrast der Mitteltöne. Schwarz und Weiß bewegen sich nicht.
-    *   **Fuß**: formt die Schatten. Positiv hebt sie an, negativ macht sie tiefer. **Fußbreite** legt fest, wie weit er in die Mitteltöne reicht.
-    *   **Schulter**: formt die Lichter. Positiv macht sie weicher, negativ heller, wobei Details verloren gehen können. **Schulterbreite** legt fest, wie weit sie reicht.
+    *   **Fuß**: formt, wie die Schatten ins Schwarz übergehen. Positiv macht den Übergang weicher und öffnet die Schatten, negativ macht ihn härter. Schwarz bleibt, wo es ist.
+    *   **Schulter**: formt, wie die Lichter ins Weiß übergehen. Positiv macht den Übergang weicher, negativ macht ihn härter, wobei Details verloren gehen können. Weiß bleibt, wo es ist.
 *   **Global / R / G / B**: R, G oder B wendet die Kurvenregler auf eine Farbschicht an.
 
 <!-- panel:local src:7d85677b -->
