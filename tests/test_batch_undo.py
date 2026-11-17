@@ -397,3 +397,32 @@ def test_undoing_share_crossover_gives_the_open_frame_its_lock_back(tmp_path):
         assert rolls.frame_override_cards(repo, roll_id, "h1") == {"fade"}
     finally:
         _stop(controller)
+
+
+def test_reset_roll_drops_the_rolls_values_and_frame_edits_and_undo_puts_them_back(tmp_path):
+    from negpy.services.assets import rolls
+
+    controller, session, repo, roll_id = _fade_roll(tmp_path, locked="h2")
+    try:
+        rolls.set_roll_normalization(repo, roll_id, (0.1, 0.1, 0.1), (0.9, 0.9, 0.9))
+        rolls.create_scene(repo, roll_id, "Beach", ["h1", "h3"])
+        before = dict(rolls.roll_for_id(repo, roll_id))
+
+        controller.reset_open_roll()
+
+        entry = rolls.roll_for_id(repo, roll_id)
+        assert not any(key in entry for key in rolls._ROLL_SETTINGS_KEYS)
+        assert entry["member_paths"] == before["member_paths"] and entry["name"] == "Slides"
+        for f in session.state.uploaded_files:
+            process = session.config_for_asset(f).process
+            assert process.fade_ratio_g == DEFAULT_WORKSPACE_CONFIG.process.fade_ratio_g, f["hash"]
+            assert process.process_mode == DEFAULT_WORKSPACE_CONFIG.process.process_mode, f["hash"]
+
+        controller.undo_last_batch()
+
+        assert rolls.roll_for_id(repo, roll_id) == before
+        assert "fade" in rolls.frame_override_cards(repo, roll_id, "h2")
+        assert session.config_for_asset(session.state.uploaded_files[1]).process.fade_ratio_g == 0.7
+        assert session.config_for_asset(session.state.uploaded_files[2]).process.fade_ratio_g == 0.9
+    finally:
+        _stop(controller)

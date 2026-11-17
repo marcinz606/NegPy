@@ -13,6 +13,7 @@ from negpy.desktop.view.confirm import (
     confirm_remove_from_roll,
     confirm_remove_missing,
     confirm_reset_frames,
+    confirm_reset_roll,
     confirm_restore_removed,
     confirm_unload_all,
 )
@@ -68,6 +69,17 @@ def _reset_roll(window, controller) -> None:
     count = len(controller.session.asset_model.visible_actual_indices_ordered())
     if count and confirm_reset_frames(window, count, roll=True) and controller.session.reset_roll_settings(scope="roll"):
         controller.request_render()
+
+
+def reset_open_roll(window, controller) -> None:
+    """Reset the open roll and every frame loaded from it, after a confirmation."""
+    roll_id = controller.state.active_roll_id
+    count = len(controller.state.uploaded_files)
+    if not roll_id or not count:
+        return
+    name = (rolls.roll_for_id(controller.session.repo, roll_id) or {}).get("name") or tr("this roll")
+    if confirm_reset_roll(window, name, count):
+        controller.reset_open_roll()
 
 
 def _unload_all(window, controller) -> None:
@@ -686,6 +698,7 @@ class ShortcutManager:
             "paste": lambda: open_paste_dialog(self.window, controller),
             "sync_bounds": lambda: open_sync_bounds_dialog(self.window, controller.session),
             "reset_roll": lambda: _reset_roll(self.window, controller),
+            "reset_open_roll": lambda: reset_open_roll(self.window, controller),
             "close_roll": lambda: _unload_all(self.window, controller),
             "remove_from_roll": lambda: remove_from_roll(self.window, controller),
             "locate_roll_folder": lambda: self.window.right_panel.library_tree.locate_open_roll_folder(),

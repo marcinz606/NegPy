@@ -6523,6 +6523,29 @@ class AppController(QObject):
         self.set_status(tr("Reset {value} to defaults", value=count_of(len(visible), "frame")), timeout=3000)
         self.request_render()
 
+    def reset_open_roll(self) -> None:
+        """Reset Roll: the open roll loses its own values, card locks, baseline, film base and
+        scenes, and every loaded frame resets, as one batch for undo_last_batch."""
+        if self._roll_needed(tr("Open a roll to reset it.")) or self._batch_busy(tr("Reset Roll")):
+            return
+        roll_id = self.state.active_roll_id
+        frames = list(self.state.uploaded_files)
+        with self.session.recording_batch(tr("Reset Roll")) as batch:
+            # Before the frames: a frame's reset starts from the roll's values.
+            dropped = rolls.reset_roll_settings(self.session.repo, roll_id)
+            self.session.reset_roll(frames)
+            batch.roll_undo = lambda: self._roll_settings_replaced(roll_id, restore=dropped)
+        self._roll_settings_replaced(roll_id)
+        self.set_status(tr("Reset the roll and {value}", value=count_of(len(frames), "frame")), timeout=3000)
+        self.request_render()
+
+    def _roll_settings_replaced(self, roll_id: str, restore: Optional[dict] = None) -> None:
+        if restore is not None:
+            rolls.restore_roll_settings(self.session.repo, roll_id, restore)
+        if roll_id == self.state.active_roll_id:
+            self.session.refresh_scene_marks()
+            self._roll_defaults_changed(roll_id, set(rolls.ROLL_DEFAULT_FIELDS))
+
     def set_roll_baseline_from_frame(self, roll_id: str) -> None:
         """Save the active frame's own measurement as the roll's baseline, then push it out the
         way a Roll Analysis result is pushed. Its own, not what it renders: a frame on the

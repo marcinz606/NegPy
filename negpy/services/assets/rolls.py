@@ -649,6 +649,43 @@ def delete_roll(repo: Any, roll_id: str) -> None:
             repo.save_global_setting(DISMISSED_FOLDERS_KEY, [*dismissed, path])
 
 
+_ROLL_SETTINGS_KEYS = (
+    "defaults",
+    "frame_seed",
+    "frame_overrides",
+    "frame_baselines",
+    "normalization",
+    "scenes",
+    "film_base",
+    "fade_crossover_source",
+)
+
+
+def reset_roll_settings(repo: Any, roll_id: str) -> Dict[str, Any]:
+    """Drop the roll's own values, card locks, baseline, film base and scenes. The name, the
+    frames and the forks stay. Returns what it dropped, for restore_roll_settings."""
+    store = _read(repo)
+    entry = store.get(roll_id)
+    if entry is None:
+        return {}
+    dropped = {key: entry.pop(key) for key in _ROLL_SETTINGS_KEYS if key in entry}
+    if dropped:
+        _write(repo, store)
+    return dropped
+
+
+def restore_roll_settings(repo: Any, roll_id: str, dropped: Dict[str, Any]) -> None:
+    """Put back what reset_roll_settings dropped, over whatever the roll holds for those keys now."""
+    store = _read(repo)
+    entry = store.get(roll_id)
+    if entry is None:
+        return
+    for key in _ROLL_SETTINGS_KEYS:
+        entry.pop(key, None)
+    entry.update(copy.deepcopy(dropped))
+    _write(repo, store)
+
+
 def all_rolls_sorted(repo: Any) -> List[tuple]:
     """(roll_id, entry) pairs for every roll, folder and virtual alike, name-sorted."""
     return sorted(_view(repo).items(), key=lambda pair: pair[1].get("name", "").casefold())
