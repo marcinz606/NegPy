@@ -1053,6 +1053,7 @@
   "Export {value} px": "Xuất {value} px",
   "Export {value} through {value1} ({value2})?": "Xuất {value} đến {value1} ({value2})?",
   "Export {value}?": "Xuất {value}?",
+  "Exported to {folder} in {value:.2f}s": "Đã xuất vào {folder} trong {value:.2f} giây",
   "Exporting": "Đang xuất",
   "Exporting Linear Output": "Đang xuất đầu ra tuyến tính",
   "Exports a flat 16-bit master at full size. Pick Print or Pixels below to make it smaller.": "Xuất một bản gốc phẳng 16 bit ở kích thước đầy đủ. Chọn In hoặc Điểm ảnh bên dưới để làm nó nhỏ hơn.",

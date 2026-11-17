@@ -1053,6 +1053,7 @@
   "Export {value} px": "{value} px exportieren",
   "Export {value} through {value1} ({value2})?": "{value} bis {value1} ({value2}) exportieren?",
   "Export {value}?": "{value} exportieren?",
+  "Exported to {folder} in {value:.2f}s": "In {value:.2f} s nach {folder} exportiert",
   "Exporting": "Export läuft",
   "Exporting Linear Output": "Lineare Ausgabe wird exportiert",
   "Exports a flat 16-bit master at full size. Pick Print or Pixels below to make it smaller.": "Exportiert einen flachen 16-Bit-Master in voller Größe. Wähle unten Abzug oder Pixel, um ihn zu verkleinern.",

@@ -29,3 +29,28 @@ def test_a_clean_batch_asks_nothing(monkeypatch):
 
     box_cls.assert_not_called()
     assert win.canvas.hud.showMessage.call_args.kwargs["kind"] == "info"
+
+
+def test_a_clean_batch_names_its_folder(monkeypatch):
+    monkeypatch.setattr(main_window, "QMessageBox", MagicMock())
+    win = _window()
+
+    MainWindow._on_export_finished(win, 3.0, [], "/scans/export")
+
+    assert win.canvas.hud.showMessage.call_args.args[0] == "Exported to /scans/export in 3.00s"
+
+
+def test_show_library_shows_the_tab_before_the_first_import():
+    calls = []
+    win = SimpleNamespace(
+        controller=SimpleNamespace(has_rolls=lambda: False),
+        drawer=SimpleNamespace(isVisible=lambda: True),
+        right_panel=SimpleNamespace(
+            show_tab_by_key=calls.append,
+            library_tree=SimpleNamespace(prompt_import_folder=lambda: calls.append("import")),
+        ),
+    )
+
+    MainWindow.show_library(win)
+
+    assert calls == ["library", "import"]

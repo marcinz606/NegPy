@@ -584,7 +584,7 @@ class AppController(QObject):
     # Emitted before the GPU engine frees its texture pool; the canvas samples a
     # pooled texture directly and must drop it first.
     gpu_textures_released = pyqtSignal()
-    export_finished = pyqtSignal(float, list)  # elapsed seconds, the failed files' messages
+    export_finished = pyqtSignal(float, list, str)  # elapsed seconds, the failed files' messages, the one folder written to
     render_requested = pyqtSignal(RenderTask)
     preview_load_requested = pyqtSignal(PreviewLoadTask)
     prefetch_load_requested = pyqtSignal(PreviewLoadTask)
@@ -759,6 +759,7 @@ class AppController(QObject):
         self._first_render_t0: Optional[float] = None
         self._export_start_time = 0.0
         self._export_errors: list[str] = []
+        self._export_folders: list[str] = []
         # (roll id, pushing frame, pushed cards, their roll fields before the push)
         self._frame_merge_trash = True
         self._discovery_running = False
@@ -1149,6 +1150,7 @@ class AppController(QObject):
         self.render_worker.error.connect(self._on_pick_better_error)
 
         self.export_worker.progress.connect(self._on_batch_progress)
+        self.export_worker.batch_written.connect(self._on_export_batch_written)
         self.export_worker.finished.connect(self._on_export_finished)
         self.export_worker.cancelled.connect(self._on_export_batch_cancelled)
         self.export_worker.error.connect(self._on_export_task_error)
@@ -10607,7 +10609,8 @@ class AppController(QObject):
         elapsed = time.time() - self._export_start_time
         owner = self._active_batch if self._active_batch in ("export", "contact_sheet") else "export"
         self._end_batch(owner)
-        self.export_finished.emit(elapsed, list(self._export_errors))
+        folders, self._export_folders = self._export_folders, []
+        self.export_finished.emit(elapsed, list(self._export_errors), folders[0] if len(folders) == 1 else "")
         quit_pending, self._launch_quit_pending = self._launch_quit_pending, None
         if quit_pending is not None and owner == "export" and not self._export_errors:
             self.launch_export_done.emit(quit_pending)
@@ -10622,6 +10625,9 @@ class AppController(QObject):
             )
             self._contact_sheet_folder = ""
         self._update_thumbnail_from_state()
+
+    def _on_export_batch_written(self, folders: list) -> None:
+        self._export_folders = folders
 
     def _on_contact_sheet_written(self, folder: str) -> None:
         self._contact_sheet_folder = folder
