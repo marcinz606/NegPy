@@ -1,5 +1,24 @@
 # Change Log
 
+## 0.70.0
+
+- New: **Digital (Nikon Scan) print stock** — the tone curve and colors of Nikon Scan 4 fitted as 3D LUT.
+- New: **Fade Restoration for a whole roll** — Estimate Roll pools one set of fade values from the roll's slides and can share one frame's crossover with the others; a hand Red Survival now stays under Restore Range. @thetalkingdrum
+- New: **Drop a folder on the Library** — makes it a roll, like Import Folder as a Roll. @thetalkingdrum
+- New: **Italian translation** — the app, the in-app guide, the README and the docs, with more hard-coded UI text now translatable. @Spaccioclarinet99
+- Change: **Faster render and export** — the last pipeline steps run in Rust negpy_core.
+- Change: **Toe and Shoulder** — set the knee shape of the paper curve, keep paper black and white, and replace Toe Width and Shoulder Width; per-layer black for the Kodak RA4 stocks.
+- Change: **Heal/Scratch tools** — find defects with the optical detector instead of using separate algorithm.
+- Change: **Roll tab** — cards ordered by use (Setup, Roll Analysis, Metering, Fade Restoration first), a simpler Roll Analysis.
+- Change: **Smoother slider drags** — the preview updates in steady steps while you drag instead of waiting for slider settle. @thetalkingdrum
+- Change: **Export message** — names the folder when a batch writes to one folder.
+- Change: **Plustek** — pyopticfilm 1.3.10; the OpticFilm 135i shows as not supported for scanning. @jboneng
+- Change: **Nikon scanners** — nkscan bumped 0.20.0, fixed multisampling and faster ICE. @activexray
+- Fix: **Batch Undo** — puts back only the settings a batch changed, and each frame's card locks. @thetalkingdrum
+- Fix: **Virtual rolls** — find their photos after their folders move, with Locate Folder… per missing folder. @thetalkingdrum
+- Fix: **Camera capture** — 102 MP RAWs such as the GFX100S load. @RP2
+- Fix: **Startup** — an unreadable preset no longer stops the app.
+
 ## 0.69.0
 
 - New: **Command-line launch** — open files and folders, set export options with flags, or render positives with no window. @jboneng
