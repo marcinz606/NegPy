@@ -253,7 +253,7 @@ def migrate_flat_config(data: Dict[str, Any]) -> Dict[str, Any]:
             sharpness = math.log(max(float(width or 2.5), 0.1) / 2.5, span)
             return min(max(value + sharpness, -1.0), 1.0)
 
-        data["toe"] = _knee(float(data.get("toe", 0.0)), data["toe_width"], 4.0)
+        data["toe"] = _knee(float(data.get("toe", 0.0)), data["toe_width"], 2.5)
         data["shoulder"] = _knee(1.4 * max(float(data.get("shoulder", 0.0)), 0.0), data.get("shoulder_width"), 1.9)
 
     if "export_fmt" in data:

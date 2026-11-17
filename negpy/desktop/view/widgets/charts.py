@@ -288,8 +288,8 @@ class PhotometricCurveWidget(QWidget):
                 process_mode,
                 toe=toe_ch,
                 shoulder=sh_ch,
-                toe_width=tw_ch,
-                shoulder_width=sw_ch,
+                toe_stretch=tw_ch,
+                shoulder_stretch=sw_ch,
                 midtone_gamma=mg_ch,
                 highlight_density=highlight_density,
                 shadow_density=shadow_density,
@@ -351,16 +351,14 @@ class PhotometricCurveWidget(QWidget):
                 mg3 = per_channel_midtone_gamma(
                     effective_paper_profile(params.paper_profile, process_mode), params.midtone_gamma, snap_trims
                 )
-                toe3, sh3, tw3, sw3, hold3 = print_knees(
-                    slopes[1], params.toe, params.shoulder, knee_trims[:3], knee_trims[3:], d_min=d_min, paper=paper, midtone_gamma=mg3
-                )
+                toe3, sh3, tw3, sw3 = print_knees(slopes[1], params.toe, params.shoulder, knee_trims[:3], knee_trims[3:], paper=paper)
                 ch_colors = (QColor(THEME.channel_red_text), QColor(THEME.channel_green_text), QColor(THEME.channel_blue_text))
                 self._channel_curves = [
                     (
                         ch_colors[ch],
                         _curve_points(
                             slopes[ch],
-                            pivots[ch] - hold3[ch] / slopes[ch],
+                            pivots[ch],
                             toe3[ch],
                             sh3[ch],
                             mg3[ch],

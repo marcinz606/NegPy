@@ -24,7 +24,6 @@ from negpy.features.exposure.logic import (
     highlight_hold_offset,
     shadow_hold_offset,
     per_channel_curve_params,
-    per_channel_midtone_gamma,
 )
 from negpy.features.exposure.bw_filter import BW_FILTER_WEIGHTS, collapse_matrix
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS, BwFilter, ExposureConfig, RenderIntent
@@ -290,21 +289,14 @@ class PhotometricProcessor:
             self.config.highlight_yellow * cmy_max,
         )
 
-        toe3, sh3, tw3, sw3, hold3 = print_knees(
+        toe3, sh3, ts3, ss3 = print_knees(
             slopes[1],
             self.config.toe,
             self.config.shoulder,
             (self.config.toe_trim_red, self.config.toe_trim_green, self.config.toe_trim_blue),
             (self.config.shoulder_trim_red, self.config.shoulder_trim_green, self.config.shoulder_trim_blue),
-            d_min=d_min,
             paper=paper,
-            midtone_gamma=per_channel_midtone_gamma(
-                paper,
-                self.config.midtone_gamma,
-                (self.config.midtone_gamma_trim_red, self.config.midtone_gamma_trim_green, self.config.midtone_gamma_trim_blue),
-            ),
         )
-        knee_pivots = [pivots[ch] - hold3[ch] / slopes[ch] for ch in range(3)]
         sg_deltas, hg_deltas = split_grade_deltas(
             self.config.grade,
             self.config.shadow_grade,
@@ -374,13 +366,13 @@ class PhotometricProcessor:
 
         img_pos = apply_characteristic_curve(
             image,
-            params_r=(knee_pivots[0], slopes[0]),
-            params_g=(knee_pivots[1], slopes[1]),
-            params_b=(knee_pivots[2], slopes[2]),
+            params_r=(pivots[0], slopes[0]),
+            params_g=(pivots[1], slopes[1]),
+            params_b=(pivots[2], slopes[2]),
             toe=toe3[1],
             toe_trims=(toe3[0] - toe3[1], 0.0, toe3[2] - toe3[1]),
             shoulder=sh3[1],
-            knee_widths=(tw3, sw3),
+            knee_stretch=(ts3, ss3),
             shadow_cmy=shadow_cmy,
             highlight_cmy=highlight_cmy,
             cmy_offsets=cmy_offsets,

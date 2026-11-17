@@ -32,16 +32,16 @@ class TestToeShoulderSmoothness(unittest.TestCase):
         img = _ramp_image()
         for toe, shoulder, pivot in itertools.product((-1.0, 1.0), (-1.0, 1.0), (0.5, 0.79, 0.95)):
             params = (pivot, _SLOPE)
-            res = apply_characteristic_curve(img, params, params, params, knee_widths=_knees(toe, shoulder))
+            res = apply_characteristic_curve(img, params, params, params, knee_stretch=_knees(toe, shoulder))
             row = res[0, :, 0]
             self.assertTrue(np.all(np.diff(row) <= 1e-5), f"tone reversal at toe={toe} shoulder={shoulder} pivot={pivot}")
 
     def test_toe_has_useful_strength(self):
         """A full soft toe visibly opens the deep shadows."""
-        img = np.full((4, 4, 3), 0.95, dtype=np.float32)
+        img = np.full((4, 4, 3), 1.1, dtype=np.float32)
         params = (0.79, _SLOPE)
         base = float(apply_characteristic_curve(img, params, params, params)[0, 0, 0])
-        soft = float(apply_characteristic_curve(img, params, params, params, knee_widths=_knees(toe=1.0))[0, 0, 0])
+        soft = float(apply_characteristic_curve(img, params, params, params, knee_stretch=_knees(toe=1.0))[0, 0, 0])
         self.assertGreater(soft, base * 1.1)
 
     def test_toe_leaves_highlights_invariant(self):
@@ -49,16 +49,16 @@ class TestToeShoulderSmoothness(unittest.TestCase):
         params = (0.79, _SLOPE)
         base = float(apply_characteristic_curve(img, params, params, params)[0, 0, 0])
         for toe in (-1.0, 1.0):
-            res = float(apply_characteristic_curve(img, params, params, params, knee_widths=_knees(toe=toe))[0, 0, 0])
-            self.assertAlmostEqual(res, base, delta=0.015, msg=f"toe={toe}")
+            res = float(apply_characteristic_curve(img, params, params, params, knee_stretch=_knees(toe=toe))[0, 0, 0])
+            self.assertAlmostEqual(res, base, delta=1e-6, msg=f"toe={toe}")
 
-    def test_hard_shoulder_leaves_shadows_invariant(self):
-        """A soft shoulder is a long roll-off and reaches the shadows; a hard one does not."""
+    def test_shoulder_leaves_shadows_invariant(self):
         img = np.full((4, 4, 3), 1.0, dtype=np.float32)  # deep shadow side
         params = (0.79, _SLOPE)
         base = float(apply_characteristic_curve(img, params, params, params)[0, 0, 0])
-        res = float(apply_characteristic_curve(img, params, params, params, knee_widths=_knees(shoulder=-1.0))[0, 0, 0])
-        self.assertAlmostEqual(res, base, delta=0.015)
+        for shoulder in (-1.0, 1.0):
+            res = float(apply_characteristic_curve(img, params, params, params, knee_stretch=_knees(shoulder=shoulder))[0, 0, 0])
+            self.assertAlmostEqual(res, base, delta=1e-6, msg=f"shoulder={shoulder}")
 
     def test_chart_matches_kernel(self):
         """CharacteristicCurve (H&D chart) must match the pipeline kernel."""
@@ -67,8 +67,8 @@ class TestToeShoulderSmoothness(unittest.TestCase):
         for toe, shoulder in ((0.0, 0.0), (0.6, -0.4), (-1.0, 1.0)):
             params = (pivot, _SLOPE)
             tw3, sw3 = _knees(toe, shoulder)
-            res_kernel = apply_characteristic_curve(img, params, params, params, knee_widths=(tw3, sw3))
-            curve = CharacteristicCurve(contrast=_SLOPE, pivot=pivot, toe_width=tw3[0], shoulder_width=sw3[0])
+            res_kernel = apply_characteristic_curve(img, params, params, params, knee_stretch=(tw3, sw3))
+            curve = CharacteristicCurve(contrast=_SLOPE, pivot=pivot, toe_stretch=tw3[0], shoulder_stretch=sw3[0])
             density = np.asarray(curve(img[0, :, 0].astype(np.float32)))
             expected = np.clip(10.0 ** (-density), 0.0, 1.0)
             np.testing.assert_allclose(res_kernel[0, :, 0], expected, atol=1e-4)
