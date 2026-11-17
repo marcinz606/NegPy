@@ -187,7 +187,7 @@ Tegn en form, og gjør så bare det området lysere (skygging) eller mørkere (e
 
 **Kopieringsnotater** (`Shift+N`) markerer maskene på bildet med numre og verdier, slik notatene til en kopist gjør.
 
-<!-- panel:lab src:b7af42f2 -->
+<!-- panel:lab src:7c63fd2f -->
 ### 6.1 Lab: farge og detaljer
 
 Justeringene en laboratorieskanner gjør etter kopien.
@@ -200,7 +200,7 @@ Justeringene en laboratorieskanner gjør etter kopien.
 *   **CLAHE**: lokal kontrast, for å få frem detaljer. Sterke verdier kan se unaturlige ut.
 *   **Glød** (folden Effekter): en myk glød rundt lyse områder, som den myke fokusen i en minilab-skanner.
 *   **Halasjon** (folden Effekter): en rød glød rundt lyse områder, slik noen filmer gir.
-*   **Vignett**: gjør kantene på beskjæringen mørkere eller lysere. **Styrke** angir mengden: negativ gjør mørkere, positiv gjør lysere. **Mykhet** angir hvor myk kanten er. **Rundhet** går fra en sirkel (0) til formen på beskjæringen (1).
+*   **Vignett**: gjør kantene på beskjæringen mørkere eller lysere. **Styrke** angir mengden: negativ gjør mørkere, positiv gjør lysere. **Mykhet** angir hvor myk kanten er. **Rundhet** går fra en sirkel (0) til formen på beskjæringen (1). Det **øye** ved siden av Vignett viser eller skjuler det berørte båndet på lerretet.
 
 <!-- panel:altproc src:1b810792 -->
 ### 6.2 Alternative prosesser

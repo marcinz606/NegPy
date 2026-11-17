@@ -1,10 +1,19 @@
 from negpy.kernel.system.i18n import tr
 from PyQt6.QtWidgets import QHBoxLayout
+import qtawesome as qta
 from negpy.desktop.view.widgets.fold import group_fold, rail_fold
 from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.auto_sliders import auto_masking_share, shown_masking, stored_masking
-from negpy.desktop.view.styles.templates import ICON_BUTTON_WIDTH, field_label, hint_label, section_subheader
+from negpy.desktop.view.styles.templates import (
+    ICON_BUTTON_WIDTH,
+    field_label,
+    header_button,
+    header_row,
+    hint_label,
+    section_subheader,
+)
+from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.step_combo import StepCombo
 from negpy.features.lab.logic import NEUTRAL_MASKING
 from negpy.features.lab.models import SharpenMethod
@@ -77,7 +86,14 @@ class LabSidebar(BaseSidebar):
         self.layout.addWidget(effects_fold)
 
         vig = self.state.config.vignette
-        self.layout.addWidget(section_subheader(tr("Vignette")))
+        guide_on = self.state.vignette_guide_on
+        self.vignette_guide_btn = header_button(
+            self._toggle_icon("fa5s.eye" if guide_on else "fa5s.eye-slash", guide_on),
+            tr("Show or hide the vignette guide on the canvas"),
+        )
+        self.vignette_guide_btn.setCheckable(True)
+        self.vignette_guide_btn.setChecked(guide_on)
+        self.layout.addLayout(header_row(section_subheader(tr("Vignette")), self.vignette_guide_btn))
 
         self.vignette_strength_slider = CompactSlider(tr("Strength"), -1.0, 1.0, vig.strength, has_neutral=True)
         self.layout.addWidget(self.vignette_strength_slider)
@@ -183,6 +199,15 @@ class LabSidebar(BaseSidebar):
         # Adjusting any vignette control draws the affected band on the canvas until it is left 1s.
         for slider in (self.vignette_strength_slider, self.vignette_feather_slider, self.vignette_roundness_slider):
             slider.valueChanged.connect(self.controller.vignette_overlay_requested.emit)
+        self.vignette_guide_btn.toggled.connect(self._on_vignette_guide_toggled)
+
+    @staticmethod
+    def _toggle_icon(icon_name: str, on: bool):
+        return qta.icon(icon_name, color=THEME.text_primary if on else THEME.text_hint)
+
+    def _on_vignette_guide_toggled(self, checked: bool) -> None:
+        self.vignette_guide_btn.setIcon(self._toggle_icon("fa5s.eye" if checked else "fa5s.eye-slash", checked))
+        self.controller.set_vignette_guide(checked)
 
     def _meters(self) -> dict:
         return self.state.auto_meters.get(self.state.current_file_hash or "", {})

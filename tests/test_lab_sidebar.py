@@ -29,8 +29,17 @@ if not QApplication.instance():
 def _sidebar(sharpen_method=SharpenMethod.USM, meters=None, **lab_fields) -> LabSidebar:
     lab = replace(WorkspaceConfig().lab, sharpen_method=sharpen_method, **lab_fields)
     config = replace(WorkspaceConfig(), lab=lab)
-    state = SimpleNamespace(config=config, auto_meters={"h": meters or {}}, current_file_hash="h")
-    controller = SimpleNamespace(state=state, image_updated=SimpleNamespace(connect=lambda _slot: None))
+    state = SimpleNamespace(
+        config=config,
+        auto_meters={"h": meters or {}},
+        current_file_hash="h",
+        vignette_guide_on=False,
+    )
+    controller = SimpleNamespace(
+        state=state,
+        image_updated=SimpleNamespace(connect=lambda _slot: None),
+        vignette_overlay_requested=SimpleNamespace(emit=lambda *a, **k: None),
+    )
     return LabSidebar(controller)
 
 

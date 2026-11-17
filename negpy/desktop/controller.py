@@ -588,6 +588,7 @@ class AppController(QObject):
     analysis_buffer_drag_changed = pyqtSignal(bool)
     rotation_guide_requested = pyqtSignal()
     vignette_overlay_requested = pyqtSignal()
+    vignette_guide_changed = pyqtSignal(bool)  # the eye toggle beside the Vignette controls
     keystone_lines_cleared = pyqtSignal()
     crop_guide_changed = pyqtSignal()
     dust_overlay_changed = pyqtSignal()
@@ -3680,6 +3681,16 @@ class AppController(QObject):
         """Marks paper black and paper white on the frame. Repaint only."""
         self.state.clipping_overlay = (not self.state.clipping_overlay) if force is None else bool(force)
         self.clipping_overlay_changed.emit(self.state.clipping_overlay)
+
+    def set_vignette_guide(self, on: bool) -> None:
+        """The Lab vignette band guide (the eye toggle beside the controls). Repaint only
+        — the band is drawn from the live config, no re-render is needed."""
+        self.state.vignette_guide_on = on
+        self.vignette_guide_changed.emit(on)
+
+    def toggle_vignette_guide(self) -> None:
+        """Toggles the Lab vignette band guide (the eye toggle beside the controls)."""
+        self.set_vignette_guide(not self.state.vignette_guide_on)
 
     def toggle_zone_hover_highlight(self, force: Optional[bool] = None) -> None:
         on = (not self.state.zone_hover_highlight) if force is None else bool(force)

@@ -1301,8 +1301,8 @@ class CanvasOverlay(QWidget):
             # The Zone Overlay draws the spotlight itself, in place of its map.
             if self.state.zone_highlight is not None and not self.state.zones_overlay:
                 self._draw_zone_spotlight(painter, int(self.state.zone_highlight))
-            # The vignette band is a content overlay, shown while its controls are adjusted.
-            if self._vignette_overlay_visible:
+            # The vignette band is a content overlay, shown only while its controls are adjusted, and only while the eye guide is on.
+            if self.state.vignette_guide_on and self._vignette_overlay_visible:
                 self._draw_vignette_overlay(painter)
 
         # Pins are content-anchored, so they hide with the strip (whose mosaic
@@ -1390,10 +1390,10 @@ class CanvasOverlay(QWidget):
         _draw_dashed_frame(painter, d)
 
     def _draw_vignette_overlay(self, painter: QPainter) -> None:
-        """The vignette's affected band: the inner curve (where the gain starts, dist = 1 -
-        feather) to the outer curve (where it is full, dist = 1.0). roundness morphs each
-        from a circle (0) to an ellipse following the crop aspect (1); a faint fill marks the
-        band, and the gain's direction picks the color, warm for a lighter edge, cool for a darker one."""
+        """The vignette's affected band: from the inner curve (where the gain starts, dist = 1 -
+        feather) to the crop edge (where it is full). roundness morphs the inner curve from a circle
+        to an ellipse; the crop edge stays the fixed outer boundary, so no corner sits outside the
+        vignetted region. A faint fill marks the band, warm for a lighter edge, cool for a darker one"""
         vig = self.state.config.vignette
         if abs(vig.strength) < 1e-6:
             return
@@ -1425,11 +1425,17 @@ class CanvasOverlay(QWidget):
             return QPolygonF(pts)
 
         inner_curve = curve(inner)
-        outer_curve = curve(1.0)
         dodge, burn = palette_for(self.state.color_vision).dodge_burn
         color = dodge if vig.strength > 0 else burn
 
         painter.save()
+        # The outer boundary is the crop edge, fixed and not a function of roundness, so a corner
+        # never sits outside the vignetted region, even when roundness makes the gain elliptical.
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        outer_pen = QPen(with_alpha(color, 170), 1.3, Qt.PenStyle.DashLine)
+        outer_pen.setCosmetic(True)
+        painter.setPen(outer_pen)
+        painter.drawRect(d)
         painter.setClipRect(d)
         # Faint fill of the affected area: the content rect minus the inner-curve interior.
         painter.setPen(Qt.PenStyle.NoPen)
@@ -1439,16 +1445,12 @@ class CanvasOverlay(QWidget):
         band.addPolygon(inner_curve)
         band.setFillRule(Qt.FillRule.OddEvenFill)
         painter.drawPath(band)
-        # The two curves: inner = where the gain starts (the shape); outer = where it is full.
+        # The inner curve, where the gain starts: it morphs circle to ellipse with roundness.
         painter.setBrush(Qt.BrushStyle.NoBrush)
         inner_pen = QPen(with_alpha(color, 210), 1.6, Qt.PenStyle.SolidLine)
         inner_pen.setCosmetic(True)
         painter.setPen(inner_pen)
         painter.drawPolygon(inner_curve)
-        outer_pen = QPen(with_alpha(color, 170), 1.3, Qt.PenStyle.DashLine)
-        outer_pen.setCosmetic(True)
-        painter.setPen(outer_pen)
-        painter.drawPolygon(outer_curve)
         painter.restore()
 
     def _draw_crop_guides(self, painter: QPainter, rect: QRectF) -> None:

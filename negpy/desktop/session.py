@@ -271,6 +271,10 @@ class AppState:
     # A persisted preference.
     zone_hover_highlight: bool = True
 
+    # Vignette guide overlay on the canvas (the eye toggle beside the Vignette controls):
+    # display-only and session-only, never persisted.
+    vignette_guide_on: bool = False
+
     # Grain focuser: a near-1:1 loupe following the cursor. Display-only, session-only.
     grain_focuser: bool = False
     # Densitometer reading in a chip beside the pointer. A persisted preference.

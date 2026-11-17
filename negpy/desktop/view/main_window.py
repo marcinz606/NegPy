@@ -758,6 +758,7 @@ class MainWindow(QMainWindow):
         self.canvas.overlay.zone_shares_changed.connect(self.toolbar.set_zone_shares)
         self.canvas.overlay.zone_pointer_changed.connect(self.toolbar.set_zone_pointer)
         self.controller.clipping_overlay_changed.connect(lambda _on: self.canvas.overlay.update())
+        self.controller.vignette_guide_changed.connect(lambda _on: self.canvas.overlay.update())
         self.right_panel.analysis_overlay_changed.connect(self._sync_analysis_plate)
         self.canvas.analysis_plate.cycle_requested.connect(self.right_panel.cycle_analysis_view)
         self._sync_analysis_plate()
