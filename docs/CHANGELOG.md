@@ -9,7 +9,7 @@
 - New: **Italian translation** — the app, the in-app guide, the README and the docs, with more hard-coded UI text now translatable. @Spaccioclarinet99
 - Change: **Faster render and export** — the last pipeline steps run in Rust negpy_core.
 - Change: **Toe and Shoulder** — start from the print stock's own curve: 0 is the stock, Toe softens or hardens its shadows, Shoulder its highlights, and the stock's black and white stay. Toe Width and Shoulder Width are removed; saved edits convert to the closest Toe and Shoulder.
-- Change: **Kodak RA4 stocks** — each color layer has its own black.
+- Change: **Kodak RA4 papers** — the deepest black has the slight color tint of the real paper, not a neutral black.
 - Change: **Heal/Scratch tools** — find defects with the optical detector instead of using separate algorithm.
 - Change: **Roll tab** — cards ordered by use (Setup, Roll Analysis, Metering, Fade Restoration first), a simpler Roll Analysis.
 - Change: **Smoother slider drags** — the preview updates in steady steps while you drag instead of waiting for slider settle. @thetalkingdrum
