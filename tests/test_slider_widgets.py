@@ -107,6 +107,46 @@ def test_commit_flushes_a_pending_frame_when_the_value_returned(qapp):
     assert not slider.timer.isActive()
 
 
+def test_a_steady_drag_renders_on_the_max_wait(qapp):
+    """Moves closer together than the debounce still render: max_wait emits the value once per
+    period while the drag moves, and the trailing frame skips a value already shown."""
+    slider = CompactSlider("Density", 0.0, 2.0, 1.0)
+    changed = MagicMock()
+    slider.valueChanged.connect(changed)
+
+    slider.slider.setValue(slider._to_int(1.2))
+    assert slider.timer.isActive() and slider.max_wait.isActive()
+    slider.max_wait.timeout.emit()  # the drag is still moving when the cap runs out
+    changed.assert_called_once_with(1.2)
+
+    slider.timer.timeout.emit()  # the hand stops on the value already shown
+    changed.assert_called_once_with(1.2)
+    assert not slider.max_wait.isActive()
+
+    slider.slider.setValue(slider._to_int(1.4))
+    slider.timer.timeout.emit()
+    assert changed.call_args_list[-1].args == (1.4,)
+    assert changed.call_count == 2
+
+
+def test_commit_after_a_max_wait_frame_does_not_render_it_again(qapp):
+    slider = CompactSlider("Density", 0.0, 2.0, 1.0)
+    changed = MagicMock()
+    committed = MagicMock()
+    slider.valueChanged.connect(changed)
+    slider.valueCommitted.connect(committed)
+
+    slider.slider.setValue(slider._to_int(1.5))
+    slider.slider.setValue(slider._to_int(1.0))  # back to the committed value
+    slider.max_wait.timeout.emit()
+    changed.assert_called_once_with(1.0)
+    slider._on_committed()
+
+    committed.assert_not_called()
+    changed.assert_called_once_with(1.0)
+    assert not slider.timer.isActive() and not slider.max_wait.isActive()
+
+
 def test_setvalue_rebases_commit_baseline_across_reuse(qapp):
     """Regression for #crosstalk-separation-not-saved: a widget reused across images
     (setValue() on file switch, e.g. Process sidebar sync_ui()) must rebase its commit

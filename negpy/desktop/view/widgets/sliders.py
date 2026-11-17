@@ -26,6 +26,8 @@ _RESET_HINT = f'<div style="color:{THEME.text_secondary};">{tr("Double-click to 
 
 # Quiet period after the last slider step before a render is asked for.
 _EMIT_INTERVAL_MS = 33
+# Longest a moving drag waits for a render: without it a steady drag renders only when it pauses.
+_MAX_WAIT_MS = 66
 
 
 class _NoScrollSlider(QSlider):
@@ -172,10 +174,15 @@ class BaseSlider(QWidget):
         self.spin.setRange(min_val, max_val)
         self.spin.setValue(default_val)
 
-        # Trailing debounce. See _schedule_emit for why it stays trailing.
+        # Trailing debounce, capped by max_wait. See _schedule_emit.
         self.timer = QTimer()
         self.timer.setSingleShot(True)
         self.timer.setInterval(_EMIT_INTERVAL_MS)
+        self.max_wait = QTimer()
+        self.max_wait.setSingleShot(True)
+        self.max_wait.setInterval(_MAX_WAIT_MS)
+        # The value max_wait emitted in this gesture, so the trailing frame does not render it again.
+        self._wait_emitted: Optional[float] = None
 
         self._connect_base_signals()
 
@@ -188,7 +195,8 @@ class BaseSlider(QWidget):
     def _connect_base_signals(self) -> None:
         self.slider.valueChanged.connect(self._on_slider_changed)
         self.spin.valueChanged.connect(self._on_spin_changed)
-        self.timer.timeout.connect(self._emit_value)
+        self.timer.timeout.connect(self._on_trailing)
+        self.max_wait.timeout.connect(self._on_max_wait)
         self.slider.sliderReleased.connect(self._on_committed)
         self.spin.editingFinished.connect(self._on_committed)
         self.slider.sliderPressed.connect(self.dragStarted.emit)
@@ -198,11 +206,14 @@ class BaseSlider(QWidget):
         # The commit below renders this value; a trailing frame would repeat it.
         pending = self.timer.isActive()
         self.timer.stop()
+        self.max_wait.stop()
         current_val = self.spin.value()
+        shown = self._wait_emitted
+        self._wait_emitted = None
         if current_val != self._last_committed_value:
             self._last_committed_value = current_val
             self.valueCommitted.emit(current_val)
-        elif pending:
+        elif pending and current_val != shown:
             # Dragged away and back: no commit fires, so that trailing frame is the only thing that
             # would put the preview back on the committed value.
             self._emit_value()
@@ -232,12 +243,26 @@ class BaseSlider(QWidget):
         self._schedule_emit()
 
     def _schedule_emit(self) -> None:
-        """Trailing debounce: the handle must never wait on a render.
+        """Trailing debounce, with at most one frame per `_MAX_WAIT_MS` while the drag moves.
 
-        Emitting mid-drag pulls the whole per-render UI fan-out onto the handle's own
-        thread. A leading edge was tried here and reverted for that reason.
+        The handle must never wait on a render: an emit per move pulls the whole per-render UI
+        fan-out onto the handle's own thread. A leading edge was tried here and reverted for that reason.
         """
+        if not self.max_wait.isActive():
+            self.max_wait.start()
         self.timer.start(_EMIT_INTERVAL_MS)
+
+    def _on_max_wait(self) -> None:
+        if self.timer.isActive():
+            self._wait_emitted = self.spin.value()
+            self._emit_value()
+
+    def _on_trailing(self) -> None:
+        self.max_wait.stop()
+        shown = self._wait_emitted
+        self._wait_emitted = None
+        if self.spin.value() != shown:
+            self._emit_value()
 
     def _emit_value(self) -> None:
         self.valueChanged.emit(self.spin.value())
