@@ -1053,6 +1053,7 @@
   "Export {value} px": "書き出し {value} px",
   "Export {value} through {value1} ({value2})?": "{value} を {value1} でエクスポートしますか?（{value2}）",
   "Export {value}?": "{value}をエクスポートしますか?",
+  "Exported to {folder} in {value:.2f}s": "{folder} にエクスポートしました: {value:.2f}s",
   "Exporting": "書き出し中",
   "Exporting Linear Output": "リニア出力のエクスポート",
   "Exports a flat 16-bit master at full size. Pick Print or Pixels below to make it smaller.": "フラットな 16 ビットのマスターをフルサイズで書き出します。小さくするには下でプリントかピクセルを選びます。",

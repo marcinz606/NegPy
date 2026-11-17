@@ -1053,6 +1053,7 @@
   "Export {value} px": "Eksporter {value} px",
   "Export {value} through {value1} ({value2})?": "Vil du eksportere {value} via {value1} ({value2})?",
   "Export {value}?": "Vil du eksportere {value}?",
+  "Exported to {folder} in {value:.2f}s": "Eksportert til {folder} på {value:.2f} s",
   "Exporting": "Eksporterer",
   "Exporting Linear Output": "Eksporterer lineært resultat",
   "Exports a flat 16-bit master at full size. Pick Print or Pixels below to make it smaller.": "Eksporterer en flat 16-biters master i full størrelse. Velg Kopi eller Piksler nedenfor for å gjøre den mindre.",
