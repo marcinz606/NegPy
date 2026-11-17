@@ -187,12 +187,12 @@ Tegn en form, og gjør så bare det området lysere (skygging) eller mørkere (e
 
 **Kopieringsnotater** (`Shift+N`) markerer maskene på bildet med numre og verdier, slik notatene til en kopist gjør.
 
-<!-- panel:lab src:461f7f11 -->
+<!-- panel:lab src:e8e4a89c -->
 ### 6.1 Lab: farge og detaljer
 
 Justeringene en laboratorieskanner gjør etter kopien.
 
-*   **Kroma**: fargestyrke. 1 er uendret, 0 er svart-hvitt. Et bytte fra S/H til farge setter 0 tilbake til 1.
+*   **Kroma**: fargestyrke. 1 er uendret, 0 er svart-hvitt.
 *   **Hudbeskyttelse**: hindrer at hudtoner får for sterk farge.
 *   **Kromastøyreduksjon**: fjerner fargede prikker. Filmkornet blir stående. Den er på 2,5 for fargefilm.
 *   **Skarphet**: gjør detaljer skarpere uten fargede kanter. Folden inneholder **Metode** (Uskarp maske gjør kantene skarpere; Dekonvolusjon opphever skannerens uskarphet), **Radius** (størrelsen på detaljene, i eksporterte piksler; vurder den i **Eksportstørrelse** eller med **Kornfokuserer**) og **Maskering** (gjør bare kanter skarpere, så himmel og hud holder seg jevne).

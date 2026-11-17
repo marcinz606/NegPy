@@ -368,7 +368,7 @@ Draw a shape, then make only that area lighter (dodge) or darker (burn). A slide
 
 The adjustments a lab scanner makes after the print.
 
-*   **Chroma**: color strength. 1 is unchanged, 0 is black and white. A switch from B&W to color sets 0 back to 1.
+*   **Chroma**: color strength. 1 is unchanged, 0 is black and white.
 *   **Skin Protection**: keeps skin tones from getting too strong in color.
 *   **Chroma Denoise**: removes colored speckles. Film grain stays. It is on at 2.5 for color film.
 *   **Sharpening**: sharpens detail without colored edges. Its fold holds **Method** (Unsharp Mask makes edges crisper; Deconvolution undoes the scanner's blur), **Radius** (the size of the detail, in exported pixels; judge it in **Export Size** or with the **Grain Focuser**) and **Masking** (sharpen only edges, so sky and skin stay smooth).

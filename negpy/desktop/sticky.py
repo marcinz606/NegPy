@@ -14,6 +14,7 @@ from typing import Any, Optional
 import negpy.kernel.system.paths as paths
 from negpy.domain.interfaces import IRepository
 from negpy.domain.models import ExportConfig, ExportPresetOutputMode, WorkspaceConfig
+from negpy.features.lab.models import LabConfig
 from negpy.desktop.settings_catalog import (
     CATALOG,
     DEFAULT_STICKY_IDS,
@@ -162,6 +163,7 @@ def migrate_legacy_export_destination(repo: IRepository) -> None:
 
 _AUTO_CROP_ROW_MIGRATED_KEY = "auto_crop_sticky_row_v1"
 _SQUARE_ROW_MIGRATED_KEY = "sticky_rows_square_before_crop_v1"
+_CHROMA_ZERO_MIGRATED_KEY = "sticky_chroma_zero_v1"
 
 
 def migrate_square_before_crop_sticky_row(repo: IRepository) -> None:
@@ -184,3 +186,14 @@ def migrate_auto_crop_sticky_row(repo: IRepository) -> None:
     stored = repo.get_global_setting(STICKY_ROWS_KEY)
     if isinstance(stored, list):
         save_sticky_rows(repo, sorted(set(stored) | {"geometry.crop_from_auto"}))
+
+
+def migrate_carried_chroma_zero(repo: IRepository) -> None:
+    """Set a carried Chroma of 0 back to 1, once. A B&W frame hid it and carried it to color
+    files, where a switch to Color saved it again; a fresh file then opens gray."""
+    if repo.get_global_setting(_CHROMA_ZERO_MIGRATED_KEY):
+        return
+    repo.save_global_setting(_CHROMA_ZERO_MIGRATED_KEY, True)
+    stored = repo.get_global_setting(STICKY_CONFIG_KEY)
+    if isinstance(stored, dict) and stored.get("saturation") == 0.0:
+        repo.save_global_setting(STICKY_CONFIG_KEY, {**stored, "saturation": float(LabConfig.saturation)})

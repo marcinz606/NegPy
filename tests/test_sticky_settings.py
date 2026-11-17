@@ -17,6 +17,7 @@ from negpy.desktop.sticky import (
     STICKY_ROWS_KEY,
     load_sticky_rows,
     migrate_auto_crop_sticky_row,
+    migrate_carried_chroma_zero,
     migrate_legacy,
     migrate_legacy_export_destination,
     save_sticky_rows,
@@ -145,6 +146,25 @@ class TestAutoCropStickyRowMigration(unittest.TestCase):
         migrate_auto_crop_sticky_row(repo)
         self.assertNotIn(STICKY_ROWS_KEY, repo.store)
         self.assertIn("geometry.crop_from_auto", {r.id for r in load_sticky_rows(repo)})
+
+
+class TestCarriedChromaZeroMigration(unittest.TestCase):
+    def test_sets_a_carried_chroma_of_zero_back_to_one_once(self):
+        repo = _repo({STICKY_CONFIG_KEY: {"saturation": 0.0, "process_mode": "C41"}})
+        migrate_carried_chroma_zero(repo)
+        self.assertEqual(repo.store[STICKY_CONFIG_KEY], {"saturation": 1.0, "process_mode": "C41"})
+
+        repo.store[STICKY_CONFIG_KEY] = {"saturation": 0.0}
+        migrate_carried_chroma_zero(repo)
+        self.assertEqual(repo.store[STICKY_CONFIG_KEY], {"saturation": 0.0})
+
+    def test_leaves_any_other_chroma_and_a_fresh_install_alone(self):
+        repo = _repo({STICKY_CONFIG_KEY: {"saturation": 0.4}})
+        migrate_carried_chroma_zero(repo)
+        self.assertEqual(repo.store[STICKY_CONFIG_KEY], {"saturation": 0.4})
+        fresh = _repo()
+        migrate_carried_chroma_zero(fresh)
+        self.assertNotIn(STICKY_CONFIG_KEY, fresh.store)
 
 
 class TestExportDestinationMigration(unittest.TestCase):
