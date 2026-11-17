@@ -54,14 +54,14 @@ def test_chart_patches_match_numpy():
     corners = np.array([[20.0, 30.0], [230.0, 28.0], [232.0, 350.0], [18.0, 352.0]])
     h, w = encoded.shape[:2]
     linear = working_oetf_decode(np.clip(encoded, 0.0, 1.0))
-    r = max(1, int(round(chart.sample_radius(corners))))
+    r = max(1, int(round(chart.sample_radius(corners, chart.COLORCHECKER_24))))
     want = np.empty((24, 3))
-    for i, (x, y) in enumerate(chart.patch_centers(corners)):
+    for i, (x, y) in enumerate(chart.patch_centers(corners, chart.COLORCHECKER_24)):
         x0, x1 = int(np.clip(round(x) - r, 0, w - 1)), int(np.clip(round(x) + r + 1, 1, w))
         y0, y1 = int(np.clip(round(y) - r, 0, h - 1)), int(np.clip(round(y) + r + 1, 1, h))
         want[i] = np.median(linear[y0:y1, x0:x1, :3].reshape(-1, 3), axis=0)
-    np.testing.assert_array_equal(chart._patch_medians(encoded, corners, float(np.float32(563.0 / 256.0))), want)
-    np.testing.assert_array_equal(chart.sample_patches(linear, corners), want)
+    np.testing.assert_array_equal(chart._patch_medians(encoded, corners, chart.COLORCHECKER_24, 0, float(np.float32(563.0 / 256.0))), want)
+    np.testing.assert_array_equal(chart.sample_patches(linear, corners, chart.COLORCHECKER_24), want)
 
 
 def test_alphas_overlap_matches_numpy():

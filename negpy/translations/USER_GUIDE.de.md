@@ -391,7 +391,7 @@ Entfernt ungleichmäßiges Licht, zum Beispiel dunklere Ecken, mit einer Aufnahm
 
 Ein Bild behält sein eigenes Profil, solange es nicht seiner Rolle folgt. So kann jedes Licht und jedes Filmformat eines haben. Ein neues Kamerabild oder ein Kamerabild mit fehlendem Profil nimmt das Profil, das du zuletzt bei einem Kamerabild gewählt hast. Ein neues Bild vom Filmscanner beginnt ohne Optik-Korrekturen. Mit der Einstellung Filmscanner erscheint diese Karte nur bei einem Bild, das eine Korrektur hat.
 
-<!-- panel:sensor src:f2d1b580 -->
+<!-- panel:sensor src:5722a58e -->
 ### 10.7 Kalibrierung: Farben deines Scan-Aufbaus
 
 Korrigiert Farbfehler, die von Lichtquelle, Kamera und Film kommen.
@@ -406,7 +406,7 @@ Korrigiert Farbfehler, die von Lichtquelle, Kamera und Film kommen.
 
 *   **Matrix**: die Matrizen für diesen Filmtyp. Eine Matrix mit *(approx)* stammt aus einem Datenblatt. Eigene `.toml`-Dateien gehören in `<Documents>/NegPy/crosstalk/` (siehe CROSSTALK.md). Die Regler-Schaltfläche öffnet den Editor. **+** erstellt eine neue Matrix. NegPy enthält keine Dia-Matrix.
 *   **Stärke**: wie stark die Matrix wirkt.
-*   Die Farbfeld-Schaltfläche öffnet **Aus Testtafel messen** (Farbnegative): Sie misst eine Matrix aus einer Aufnahme eines ColorChecker 24 oder SpyderCheckr 24 auf dem Film. Ziehe die vier Punkte auf die Eckfelder.
+*   Die Farbfeld-Schaltfläche öffnet **Aus Testtafel messen** (Farbnegative): Sie misst eine Matrix aus einer Aufnahme eines ColorChecker 24, SpyderCheckr 24 oder DKC-Pro auf dem Film. Ziehe die vier Punkte auf die Eckfelder.
 
 **Farbton-Trimmung** (Kamera mit schmalbandigem Licht): dreht alle Farben auf dem Farbkreis, für ein Licht, das Gelb orange oder Grün oliv färbt. Lass den Wert bei weißem Licht auf 0. Sie wirkt auch bei Dias, wo das Sensor-Farbvermischungsprofil nicht wirkt.
 

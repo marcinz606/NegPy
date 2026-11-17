@@ -15,16 +15,27 @@ import numpy as np
 
 from negpy.kernel.image.logic import _WORKING_GAMMA, rgb_to_lab_working
 
-ROWS = 4
-COLS = 6
-
 
 @dataclass(frozen=True)
 class ChartSpec:
+    """A card whose patches sit on a grid: even columns, rows at `row_centers`. The side that
+    carries the columns is the longer one between the corner-patch centers."""
+
     name: str
     patch_names: tuple[str, ...]
-    lab_d50: tuple[tuple[float, float, float], ...]  # row-major, as printed on the card
+    lab_d50: tuple[tuple[float, float, float], ...]  # row-major, as the patches sit on the card
     exposure_patches: tuple[int, ...]  # mid grays that set the exposure match
+    cols: int = 6
+    # Each row's center, as a fraction of the way from the first row's center to the last's.
+    row_centers: tuple[float, ...] = (0.0, 1.0 / 3.0, 2.0 / 3.0, 1.0)
+
+    @property
+    def rows(self) -> int:
+        return len(self.row_centers)
+
+    @property
+    def patch_count(self) -> int:
+        return self.rows * self.cols
 
 
 # Datacolor's published values (D50) for columns E-H of the SpyderCheckr 48, which the 24 carries.
@@ -63,19 +74,36 @@ COLORCHECKER_24 = ChartSpec(
     ),
     (19, 20, 21, 22),
 )
+
+# DGK Color Tools' published values for the DKC-Pro, read as D50. The card has a row of tall grays
+# over a caption strip and two rows of colors.
+DKC_PRO = ChartSpec(
+    "DKC-Pro",
+    (
+        mark("White"), mark("Gray 73"), mark("Gray 62"), mark("Gray 50"), mark("Gray 38"), mark("Black"),
+        mark("Red"), mark("Yellow"), mark("Green"), mark("Cyan"), mark("Blue"), mark("Magenta"),
+        mark("CIE TSC 01"), mark("CIE TSC 02"), mark("CIE TSC 06"), mark("CIE TSC 08"), mark("CIE TSC 09"), mark("CIE TSC 10"),
+    ),
+    (
+        (97.0, 0.0, 1.0), (73.0, 0.0, 0.0), (62.0, 0.0, 0.0), (50.0, 0.0, 0.0), (38.0, 0.0, 0.0), (23.0, 0.0, 0.0),
+        (48.0, 59.0, 39.0), (92.0, 1.0, 95.0), (64.0, -40.0, 54.0), (57.0, -41.0, -42.0), (18.0, -3.0, -25.0), (49.0, 60.0, -3.0),
+        (41.0, 51.0, 26.0), (61.0, 29.0, 57.0), (52.0, -24.0, -24.0), (52.0, 47.0, -14.0), (69.0, 14.0, 17.0), (64.0, 12.0, 17.0),
+    ),
+    (1, 2, 3, 4),
+    row_centers=(0.0, 0.62, 1.0),
+)
 # fmt: on
 
-CHARTS: tuple[ChartSpec, ...] = (SPYDERCHECKR_24, COLORCHECKER_24)
+CHARTS: tuple[ChartSpec, ...] = (SPYDERCHECKR_24, COLORCHECKER_24, DKC_PRO)
 
 _D50 = np.array([0.96422, 1.0, 0.82521])
 _D65 = np.array([0.95047, 1.0, 1.08883])
 _BRADFORD = np.array([[0.8951, 0.2664, -0.1614], [-0.7502, 1.7135, 0.0367], [0.0389, -0.0685, 1.0296]])
 _D50_TO_D65 = np.linalg.inv(_BRADFORD) @ np.diag((_BRADFORD @ _D65) / (_BRADFORD @ _D50)) @ _BRADFORD
 
-# The four ways a 6x4 grid can be read from its corners: as printed, mirrored (a negative scanned
+# The four ways a grid can be read from its corners: as printed, mirrored (a negative scanned
 # through the base), upside down, and both.
-_GRID = np.arange(ROWS * COLS).reshape(ROWS, COLS)
-ORIENTATIONS: tuple[np.ndarray, ...] = tuple(g.ravel() for g in (_GRID, _GRID[:, ::-1], _GRID[::-1, :], _GRID[::-1, ::-1]))
+ORIENTATIONS = range(4)
 
 # A patch is read over this fraction of the grid pitch, clear of the card's frame and patch edges.
 _SAMPLE_FRACTION = 0.4
@@ -141,8 +169,19 @@ def delta_e_color(ref: np.ndarray, lab: np.ndarray) -> np.ndarray:
     return delta_e2000(ref, lab)
 
 
+def reading_order(chart: ChartSpec, orientation: int) -> np.ndarray:
+    """The card patch that each sample box holds, in the boxes' order, for one of ORIENTATIONS."""
+    grid = np.arange(chart.patch_count).reshape(chart.rows, chart.cols)
+    return grid[:: -1 if orientation & 2 else 1, :: -1 if orientation & 1 else 1].ravel()
+
+
+def _row_centers(chart: ChartSpec, orientation: int) -> np.ndarray:
+    rows = np.asarray(chart.row_centers, dtype=np.float64)
+    return 1.0 - rows[::-1] if orientation & 2 else rows
+
+
 def grid_corners(corners: np.ndarray) -> np.ndarray:
-    """The four corner-patch centers in any order, as clockwise from the end of a long (6-patch) side.
+    """The four corner-patch centers in any order, as clockwise from the end of a long (column) side.
 
     ORIENTATIONS then covers every way the chart can sit in the frame, sideways included."""
     c = np.asarray(corners, dtype=np.float64)
@@ -151,47 +190,49 @@ def grid_corners(corners: np.ndarray) -> np.ndarray:
     return np.roll(c, -1, axis=0) if np.linalg.norm(c[1] - c[0]) < np.linalg.norm(c[2] - c[1]) else c
 
 
-def patch_centers(corners: np.ndarray) -> np.ndarray:
-    """(24, 2) patch centers, row-major, from the four corner-patch centers, bilinear."""
+def patch_centers(corners: np.ndarray, chart: ChartSpec, orientation: int = 0) -> np.ndarray:
+    """(N, 2) sample box centers, row-major, from the four corner-patch centers, bilinear.
+
+    Uneven rows sit at other places on a card that is upside down, so the boxes take the orientation."""
     tl, tr, br, bl = grid_corners(corners)
-    u = np.linspace(0.0, 1.0, COLS)[None, :, None]
-    v = np.linspace(0.0, 1.0, ROWS)[:, None, None]
+    u = np.linspace(0.0, 1.0, chart.cols)[None, :, None]
+    v = _row_centers(chart, orientation)[:, None, None]
     top = tl + (tr - tl) * u
     bottom = bl + (br - bl) * u
     return (top + (bottom - top) * v).reshape(-1, 2)
 
 
-def sample_radius(corners: np.ndarray) -> float:
-    """Half-width of each patch's sample box, in the corners' units."""
+def sample_radius(corners: np.ndarray, chart: ChartSpec) -> float:
+    """Half-width of each patch's sample box, in the corners' units, from the tightest pitch."""
     tl, tr, br, bl = grid_corners(corners)
-    pitch_x = (np.linalg.norm(tr - tl) + np.linalg.norm(br - bl)) / (2.0 * (COLS - 1))
-    pitch_y = (np.linalg.norm(bl - tl) + np.linalg.norm(br - tr)) / (2.0 * (ROWS - 1))
+    pitch_x = (np.linalg.norm(tr - tl) + np.linalg.norm(br - bl)) / (2.0 * (chart.cols - 1))
+    pitch_y = (np.linalg.norm(bl - tl) + np.linalg.norm(br - tr)) / 2.0 * float(np.min(np.diff(chart.row_centers)))
     return float(0.5 * _SAMPLE_FRACTION * min(pitch_x, pitch_y))
 
 
-def _patch_medians(img: np.ndarray, corners_px: np.ndarray, gamma: Optional[float]) -> np.ndarray:
-    """(24, 3) median of each patch box; with `gamma`, of the clipped image decoded from the working encoding."""
+def _patch_medians(img: np.ndarray, corners_px: np.ndarray, chart: ChartSpec, orientation: int, gamma: Optional[float]) -> np.ndarray:
+    """(N, 3) median of each patch box; with `gamma`, of the clipped image decoded from the working encoding."""
     h, w = img.shape[:2]
-    r = max(1, int(round(sample_radius(corners_px))))
+    r = max(1, int(round(sample_radius(corners_px, chart))))
     boxes = []
-    for x, y in patch_centers(corners_px):
+    for x, y in patch_centers(corners_px, chart, orientation):
         cx, cy = int(round(x)), int(round(y))
         boxes.append((min(max(cx - r, 0), w - 1), min(max(cx + r + 1, 1), w), min(max(cy - r, 0), h - 1), min(max(cy + r + 1, 1), h)))
     return np.array(negpy_core.chart_patches(np.ascontiguousarray(img, dtype=np.float32), boxes, gamma), dtype=np.float64)
 
 
-def sample_patches(img: np.ndarray, corners_px: np.ndarray) -> np.ndarray:
-    """(24, 3) median of each patch box. Median, so dust on the card does not move it."""
-    return _patch_medians(img, corners_px, None)
+def sample_patches(img: np.ndarray, corners_px: np.ndarray, chart: ChartSpec, orientation: int = 0) -> np.ndarray:
+    """(N, 3) median of each patch box. Median, so dust on the card does not move it."""
+    return _patch_medians(img, corners_px, chart, orientation, None)
 
 
-def measure_lab(encoded: np.ndarray, corners_px: np.ndarray, chart: ChartSpec, order: np.ndarray) -> np.ndarray:
-    """The chart's patches in printed order, as Lab, after one exposure gain that matches its mid grays.
+def measure_lab(encoded: np.ndarray, corners_px: np.ndarray, chart: ChartSpec, orientation: int) -> np.ndarray:
+    """The chart's patches in card order, as Lab, after one exposure gain that matches its mid grays.
 
     Exposure is the user's choice and the matrix keeps grays gray, so the gain is not a fit term."""
-    linear = _patch_medians(encoded, corners_px, float(np.float32(_WORKING_GAMMA)))
+    linear = _patch_medians(encoded, corners_px, chart, orientation, float(np.float32(_WORKING_GAMMA)))
     rgb = np.empty_like(linear)
-    rgb[order] = linear
+    rgb[reading_order(chart, orientation)] = linear
     ref = reference_lab(chart)
     idx = list(chart.exposure_patches)
     y_ref = ((ref[idx, 0] + 16.0) / 116.0) ** 3
@@ -200,11 +241,11 @@ def measure_lab(encoded: np.ndarray, corners_px: np.ndarray, chart: ChartSpec, o
     return np.asarray(rgb_to_lab_working((rgb * gain).astype(np.float32)), dtype=np.float64)
 
 
-def detect_orientation(encoded: np.ndarray, corners_px: np.ndarray, chart: ChartSpec) -> np.ndarray:
+def detect_orientation(encoded: np.ndarray, corners_px: np.ndarray, chart: ChartSpec) -> int:
     """The reading of the grid whose colors are nearest the chart: corner order then does not matter."""
     ref = reference_lab(chart)
-    errors = [float(np.mean(delta_e2000(ref, measure_lab(encoded, corners_px, chart, order)))) for order in ORIENTATIONS]
-    return ORIENTATIONS[int(np.argmin(errors))]
+    errors = [float(np.mean(delta_e2000(ref, measure_lab(encoded, corners_px, chart, o)))) for o in ORIENTATIONS]
+    return int(np.argmin(errors))
 
 
 def matrix_from_offdiagonal(p: np.ndarray) -> np.ndarray:
@@ -217,9 +258,9 @@ def matrix_from_offdiagonal(p: np.ndarray) -> np.ndarray:
 @dataclass(frozen=True)
 class ChartFit:
     matrix: tuple[float, ...]  # row-major 3x3, unit diagonal
-    before: np.ndarray  # ΔE00 per patch, printed order, identity matrix
+    before: np.ndarray  # ΔE00 per patch, card order, identity matrix
     after: np.ndarray  # ΔE00 per patch with the fitted matrix
-    order: np.ndarray  # grid reading used
+    orientation: int  # grid reading used, one of ORIENTATIONS
     before_color: np.ndarray  # delta_e_color per patch, identity matrix
     after_color: np.ndarray  # delta_e_color per patch with the fitted matrix
 
@@ -242,18 +283,18 @@ def fit_chart_matrix(
     Removal re-meter the frame for every matrix."""
     ref = reference_lab(chart)
     identity = render(np.eye(3))
-    order = detect_orientation(identity, corners_px, chart)
+    orientation = detect_orientation(identity, corners_px, chart)
 
     def lab_for(p: np.ndarray) -> np.ndarray:
         if cancelled():
             raise FitCancelled()
-        return measure_lab(render(matrix_from_offdiagonal(p)), corners_px, chart, order)
+        return measure_lab(render(matrix_from_offdiagonal(p)), corners_px, chart, orientation)
 
     def residual(lab: np.ndarray, p: np.ndarray) -> np.ndarray:
         return np.concatenate([delta_e2000(ref, lab, _FIT_KL), _RIDGE * p])
 
     p = np.zeros(6)
-    lab0 = measure_lab(identity, corners_px, chart, order)
+    lab0 = measure_lab(identity, corners_px, chart, orientation)
     r = residual(lab0, p)
     mu = 1.0
     for it in range(_MAX_ITERATIONS):
@@ -280,7 +321,7 @@ def fit_chart_matrix(
         tuple(float(v) for v in matrix_from_offdiagonal(p).ravel()),
         delta_e2000(ref, lab0),
         delta_e2000(ref, lab1),
-        order,
+        orientation,
         delta_e_color(ref, lab0),
         delta_e_color(ref, lab1),
     )
