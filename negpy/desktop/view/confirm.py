@@ -162,6 +162,17 @@ def confirm_reset_frames(parent, count: int, *, roll: bool = False) -> bool:
     return confirm_action(parent, title, text, tr("Reset"), note)
 
 
+def confirm_reset_roll(parent, roll_name: str, count: int) -> bool:
+    """Ask before a roll and every frame in it go back to defaults."""
+    return confirm_action(
+        parent,
+        tr("Reset Roll"),
+        tr("Reset “{roll_name}” and its {value} to their default settings?", roll_name=roll_name, value=count_of(count, "frame")),
+        tr("Reset"),
+        tr("The roll loses its settings, baseline, film base, scenes and card locks. Undo Change to Several Frames puts them back."),
+    )
+
+
 def confirm_reset_tab(parent, tab: str, count: int) -> bool:
     """Ask before one tab's whole set of cards goes back to defaults. One card's reset
     button is a single undo step and asks nothing; a tab's is every card at once."""

@@ -35,7 +35,7 @@ from negpy.desktop.view.confirm import (
 )
 from negpy.desktop.view.widgets.file_dialogs import last_open_folder
 from negpy.desktop.view.widgets.rename_roll_dialog import RenameRollDialog
-from negpy.desktop.view.keyboard_shortcuts import _unload_all, remove_missing_frames, restore_removed_frames
+from negpy.desktop.view.keyboard_shortcuts import _unload_all, remove_missing_frames, reset_open_roll, restore_removed_frames
 from negpy.desktop.view.shortcut_registry import label_with_shortcut
 from negpy.desktop.view.styles.templates import TOOLBAR_BUTTON_HEIGHT, TOOLBAR_ICON_SIZE, hint_label, labeled_action, wrap_tooltip
 from negpy.desktop.view.widgets.flat_rows import ICON, more_press, more_rect, paint_fill, paint_more, paint_pill, two_line_rects
@@ -947,6 +947,14 @@ class LibraryTree(QWidget):
                     restore_action.setToolTip(tr("Bring back the frames that Remove from Roll took out of this roll"))
                     restore_action.setEnabled(bool(self.controller.removed_frame_count(roll_id)))
                     restore_action.triggered.connect(lambda: self._restore_removed(roll_id))
+                reset_action = menu.addAction(label_with_shortcut(tr("Reset Roll…"), "reset_open_roll"))
+                reset_action.setEnabled(is_active)
+                reset_action.setToolTip(
+                    tr("Reset the roll's settings, baseline and scenes, and every frame in it")
+                    if is_active
+                    else tr("Open this roll first, because Reset Roll resets the loaded frames.")
+                )
+                reset_action.triggered.connect(lambda: reset_open_roll(self, self.controller))
                 menu.addAction(tr("Delete…")).triggered.connect(lambda: self._delete_roll(roll_id, name))
             menu.addSeparator()
         menu.addAction(tr("Import Folder as a Roll…")).triggered.connect(self.prompt_import_folder)
