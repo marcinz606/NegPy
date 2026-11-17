@@ -12,7 +12,7 @@ from typing import Any, Callable, Collection, Dict, Iterable, Iterator, List, Op
 import numpy as np
 from PyQt6.QtCore import QAbstractListModel, QModelIndex, QObject, Qt, pyqtSignal
 
-from negpy.desktop.settings_catalog import GLOBAL_TIER_SECTIONS, ROLL_CARD_LABELS, apply_selected_fields
+from negpy.desktop.settings_catalog import BW_UNUSED_LAB_FIELDS, GLOBAL_TIER_SECTIONS, ROLL_CARD_LABELS, apply_selected_fields
 from negpy.features.retouch.models import HEAL_SIZE_MAX, HEAL_SIZE_MIN
 from negpy.services.capture.presets import PresetStore
 from negpy.desktop.sticky import (
@@ -33,6 +33,7 @@ from negpy.desktop.view.canvas.crop_guides import CropGuide
 from negpy.domain.models import PROOF_INTENT_LABELS, ExportPreset, ProofIntent, WorkspaceConfig
 from negpy.features.exposure.models import apply_targets
 from negpy.features.process.capture_color import is_source_profile
+from negpy.features.process.path import is_mono
 from negpy.features.geometry.logic import flip_geometry_and_analysis, has_manual_crop, rotate_geometry_and_analysis
 from negpy.features.process.models import (
     SCAN_SETUP_PAPERS,
@@ -1500,6 +1501,9 @@ class DesktopSessionManager(QObject):
             keep_stored(("crop_from_auto", "crop_rect", "crop_detect_key"))
         if self.film_scanner_file(self.state.current_file_path or ""):
             keep_stored(_CAMERA_ONLY_FIELDS)
+        if is_mono(config.process):
+            # The color controls a black-and-white frame hides: a value there was never seen.
+            keep_stored(BW_UNUSED_LAB_FIELDS)
         self.repo.save_global_settings(
             {
                 STICKY_CONFIG_KEY: snapshot,

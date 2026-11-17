@@ -187,12 +187,12 @@ Zeichne eine Form. Nur dieser Bereich wird dann heller (Abwedeln) oder dunkler (
 
 **Abzugsnotizen** (`Shift+N`) markieren die Masken mit ihren Nummern und Werten im Bild, wie Notizen eines Druckers im Labor.
 
-<!-- panel:lab src:e8e4a89c -->
+<!-- panel:lab src:461f7f11 -->
 ### 6.1 Lab: Farbe und Detail
 
 Die Anpassungen, die ein Lab-Scanner nach dem Abzug vornimmt.
 
-*   **Chroma**: Farbstärke. 1 ist unverändert, 0 ist Schwarzweiß.
+*   **Chroma**: Farbstärke. 1 ist unverändert, 0 ist Schwarzweiß. Ein Wechsel von S/W zu Farbe setzt 0 wieder auf 1.
 *   **Hautschutz**: verhindert, dass Hauttöne zu farbstark werden.
 *   **Chroma-Entrauschen**: entfernt farbige Punkte. Das Filmkorn bleibt. Bei Farbfilm ist es auf 2,5 eingeschaltet.
 *   **Schärfen**: schärft Details ohne farbige Kanten. Die Falte enthält **Methode** (Unsharp Mask macht Kanten klarer, Dekonvolution macht die Unschärfe des Scanners rückgängig), **Radius** (die Größe des Details in exportierten Pixeln; beurteile ihn in der **Exportgröße** oder mit der **Kornschärfe-Lupe**) und **Maskierung** (schärft nur Kanten, damit Himmel und Haut glatt bleiben).

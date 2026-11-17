@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Optional
 from negpy.domain.migrations import CROSSTALK_PROFILE_RENAMES
 from negpy.kernel.system.i18n import mark
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS, ExposureConfig
+from negpy.features.lab.models import LabConfig
 
 if TYPE_CHECKING:
     from negpy.domain.models import WorkspaceConfig
@@ -90,6 +91,17 @@ def auto_meter_for_mode(mode: str, current: bool) -> bool:
     if mode == ProcessMode.E6:
         return slide_default if current == negative_default else current
     return negative_default if current == slide_default else current
+
+
+def chroma_for_mono(was_mono: bool, now_mono: bool, saturation: float) -> float:
+    """The Chroma a frame carries after a switch between a black-and-white and a color render.
+
+    A black-and-white frame hides Chroma, so a 0 it holds is a value the user cannot see. Leaving
+    black and white turns that 0 into the default; any other value, or any other switch, is kept.
+    """
+    if was_mono and not now_mono and saturation == 0.0:
+        return float(LabConfig.saturation)
+    return saturation
 
 
 def mode_aware_exposure_reset(mode: str, base: ExposureConfig) -> ExposureConfig:
@@ -353,8 +365,8 @@ def invalidate_local_bounds(process: ProcessConfig) -> dict:
 
 
 def with_process_mode(config: "WorkspaceConfig", mode: str) -> "WorkspaceConfig":
-    """*config* switched to Film Mode *mode*: the Cast Removal and Auto Density/Auto Grade
-    defaults move with it, and leaving Slide drops Positive. Every path that sets a frame's mode
+    """*config* switched to Film Mode *mode*: the Cast Removal, Auto Density/Auto Grade and
+    Chroma defaults move with it, and leaving Slide drops Positive. Every path that sets a frame's mode
     goes through here. The same mode returns *config* unchanged, since the default rewrites
     would read a slide's deliberate negative-default value as untouched."""
     proc, exp = config.process, config.exposure
@@ -375,7 +387,7 @@ def with_process_mode(config: "WorkspaceConfig", mode: str) -> "WorkspaceConfig"
         slide_bw=proc.slide_bw and slide,
         **invalidate_local_bounds(proc),
     )
-    return replace(config, process=proc, exposure=exp)
+    return replace(config, process=proc, exposure=exp, lab=_lab_after(config, proc))
 
 
 def with_positive_source(config: "WorkspaceConfig", checked: bool) -> "WorkspaceConfig":
@@ -391,7 +403,17 @@ def with_slide_bw(config: "WorkspaceConfig", checked: bool) -> "WorkspaceConfig"
     proc = config.process
     if proc.process_mode != ProcessMode.E6 or proc.slide_bw == checked:
         return config
-    return replace(config, process=replace(proc, slide_bw=checked))
+    proc = replace(proc, slide_bw=checked)
+    return replace(config, process=proc, lab=_lab_after(config, proc))
+
+
+def _lab_after(config: "WorkspaceConfig", proc: ProcessConfig) -> LabConfig:
+    """*config*'s Lab section once its process becomes *proc* (chroma_for_mono)."""
+    from negpy.features.process.path import is_mono
+
+    lab = config.lab
+    saturation = chroma_for_mono(is_mono(config.process), is_mono(proc), lab.saturation)
+    return lab if saturation == lab.saturation else replace(lab, saturation=saturation)
 
 
 def with_film_fields(config: "WorkspaceConfig", fields: dict) -> "WorkspaceConfig":
