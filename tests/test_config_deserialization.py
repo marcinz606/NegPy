@@ -205,8 +205,25 @@ class TestConfigDeserialization(unittest.TestCase):
         data = {"toe": 0.3, "toe_width": 4.0, "shoulder_width": 1.0, "toe_width_trim_red": 0.5, "shoulder_width_trim_blue": -0.5}
         with self.assertNoLogs("negpy.domain.models", level=logging.WARNING):
             config = WorkspaceConfig.from_flat_dict(data)
-        self.assertEqual(config.exposure.toe, 0.3)
         self.assertNotIn("toe_width", config.to_dict())
+
+    def test_a_knee_width_becomes_the_knee_sharpness(self):
+        """A wide knee was a soft knee, which a positive Toe or Shoulder is now."""
+        config = WorkspaceConfig.from_flat_dict({"toe": 0.25, "toe_width": 5.0, "shoulder": 0.0, "shoulder_width": 1.25})
+        self.assertAlmostEqual(config.exposure.toe, 0.75)
+        self.assertAlmostEqual(config.exposure.shoulder, -1.0)
+        again = WorkspaceConfig.from_flat_dict(config.to_dict())
+        self.assertEqual(again.exposure.toe, config.exposure.toe)
+
+    def test_a_negative_shoulder_with_knee_widths_resets(self):
+        config = WorkspaceConfig.from_flat_dict({"shoulder": -0.6, "toe_width": 2.5, "shoulder_width": 2.5})
+        self.assertEqual(config.exposure.shoulder, 0.0)
+        self.assertEqual(WorkspaceConfig.from_flat_dict({"shoulder": -0.6}).exposure.shoulder, -0.6)
+
+    def test_a_slide_keeps_its_toe_and_shoulder(self):
+        data = {"process_mode": "E-6", "toe": 0.25, "toe_width": 5.0, "shoulder": -0.6, "shoulder_width": 1.0}
+        config = WorkspaceConfig.from_flat_dict(data)
+        self.assertEqual((config.exposure.toe, config.exposure.shoulder), (0.25, -0.6))
 
     def test_legacy_use_original_res_does_not_warn(self):
         data = {"use_original_res": False}

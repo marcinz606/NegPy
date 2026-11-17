@@ -17,6 +17,7 @@ there needs a done flag rather than a per-load equality check, since a load can'
 a legacy row from a value the user just saved.
 """
 
+import math
 from typing import Any, Dict
 
 # Old field name → new field name.
@@ -241,6 +242,19 @@ def migrate_flat_config(data: Dict[str, Any]) -> Dict[str, Any]:
         and data.get("paper_profile", "neutral") == "neutral"
     ):
         data["paper_profile"] = "pakon"
+
+    # A print edit with toe_width has the knee heights: Toe moved paper black, Shoulder moved
+    # paper white, and each width set the sharpness the slider sets now. Toe keeps its value
+    # and takes its width's sharpness. A positive Shoulder scales to the closest roll-off; a
+    # negative one changed nothing. The spans mirror KNEE_SPAN_TOE and KNEE_SPAN_SHOULDER.
+    if "toe_width" in data and str(data.get("process_mode", "")) not in ("Transparency", "E-6") and not data.get("positive_source"):
+
+        def _knee(value: float, width: Any, span: float) -> float:
+            sharpness = math.log(max(float(width or 2.5), 0.1) / 2.5, span)
+            return min(max(value + sharpness, -1.0), 1.0)
+
+        data["toe"] = _knee(float(data.get("toe", 0.0)), data["toe_width"], 4.0)
+        data["shoulder"] = _knee(1.4 * max(float(data.get("shoulder", 0.0)), 0.0), data.get("shoulder_width"), 1.9)
 
     if "export_fmt" in data:
         data["export_fmt"] = migrate_export_fmt(str(data["export_fmt"]))

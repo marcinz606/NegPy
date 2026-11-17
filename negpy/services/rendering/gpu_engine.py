@@ -2188,6 +2188,9 @@ class GPUEngine:
             (exp.shoulder_trim_red, exp.shoulder_trim_green, exp.shoulder_trim_blue),
             d_min=d_min,
             paper=paper,
+            midtone_gamma=per_channel_midtone_gamma(
+                paper, exp.midtone_gamma, (exp.midtone_gamma_trim_red, exp.midtone_gamma_trim_green, exp.midtone_gamma_trim_blue)
+            ),
         )
         _knee_pivots = [pivots[ch] - _hold3[ch] / slopes[ch] for ch in range(3)]
         _sg3, _hg3 = split_grade_deltas(
@@ -2219,7 +2222,7 @@ class GPUEngine:
         if lut is not None:
             lut_black = 0.0
             if not exp.paper_black:
-                lut_black = lut_black_luminance(lut, dmin_rgb, black_density_rgb(float(pc["d_max"]), _toe3, float(pc["toe_height"])))
+                lut_black = lut_black_luminance(lut, dmin_rgb, black_density_rgb(float(pc["d_max"]), paper))
             lut_row = (*(float(v) for v in lut.e_max), lut_black)
         # Density-space Dye Separation, composed into the same dye_mix slot as the paper's
         # real crosstalk. Mirrors apply_characteristic_curve exactly.

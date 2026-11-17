@@ -265,20 +265,16 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let sh_w3 = vec3<f32>(params.shoulder_width_r, params.shoulder_width_g, params.shoulder_width_b);
     // 2.5 mirrors toeshoulder_width_ref in models.py — change together.
     let a_hl = params.a_sh_base * 2.5 / max(sh_w3, vec3<f32>(eps));
-    let a_sh_base = params.a_toe_base * 2.5 / max(toe_w3, vec3<f32>(eps));
+    let a_sh = params.a_toe_base * 2.5 / max(toe_w3, vec3<f32>(eps));
     // Per-channel toe/shoulder, pre-scaled CPU-side (per_channel_toe_shoulder).
     // The uniform block is full at 256B, so the vec4 w-lanes carry them.
     let toe3 = vec3<f32>(params.pivots.w, params.slopes.w, params.curvatures.w);
     let sh3 = vec3<f32>(params.cmy_offsets.w, params.shadow_cmy.w, params.highlight_cmy.w);
     // Per-channel Snap rides the dye-row w-lanes; scalar midtone_gamma is layout-only.
     let mg3 = vec3<f32>(params.dye_r.w, params.dye_g.w, params.dye_b.w);
-    let toe_neg = toe3 < vec3<f32>(0.0);
-    // Negative toe: tighten shadow roll-off (sharper knee) rather than extending
-    // d_max_eff beyond paper black (perceptually near-zero effect above d_max).
-    let a_sh = select(a_sh_base, a_sh_base * (1.0 - toe3 * 4.0), toe_neg);
     let d_min_rgb = params.d_min_rgb.xyz;
     let d_min_eff = max(d_min_rgb + sh3 * params.sh_height, vec3<f32>(0.0));
-    let d_max_base = select(vec3<f32>(params.d_max) - toe3 * params.toe_height, vec3<f32>(params.d_max), toe_neg);
+    let d_max_base = vec3<f32>(params.d_max) - toe3 * params.toe_height;
     let d_max_eff = max(d_max_base, d_min_eff + vec3<f32>(0.1));
 
     // .r = dodge/burn stops (positive = burn), .g = flash fraction, .b = ISO-R deltas, turned into a
@@ -404,11 +400,10 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
             transmittance = (transmittance - vec3<f32>(params.lut.w)) / (1.0 - params.lut.w);
         }
     } else if (params.bpc != 0.0) {
-        // BPC: physical paper black -> display 0; mirrors the CPU kernel prologue
-        // (negative toe raises the clip point). oetf_encode clamps the tail to 0.
-        let db = vec3<f32>(params.d_max) + select(vec3<f32>(0.0), toe3 * params.toe_height, toe_neg);
-        let tb = pow(vec3<f32>(10.0), -db);
-        transmittance = (transmittance - tb) / (vec3<f32>(1.0) - tb);
+        // BPC: physical paper black -> display 0; mirrors the CPU kernel prologue.
+        // oetf_encode clamps the tail to 0.
+        let tb = pow(10.0, -params.d_max);
+        transmittance = (transmittance - vec3<f32>(tb)) / (1.0 - tb);
     }
 
     // B&W: re-collapse after the curve — per-channel trims must not tint a
