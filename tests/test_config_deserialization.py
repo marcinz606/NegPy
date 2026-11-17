@@ -1,5 +1,4 @@
 import json
-import math
 import logging
 import unittest
 from dataclasses import replace
@@ -210,8 +209,10 @@ class TestConfigDeserialization(unittest.TestCase):
 
     def test_a_knee_width_becomes_the_knee_sharpness(self):
         """A wide knee was a soft knee, which a positive Toe or Shoulder is now."""
-        config = WorkspaceConfig.from_flat_dict({"toe": 0.0, "toe_width": 5.0, "shoulder": 0.0, "shoulder_width": 1.25})
-        self.assertAlmostEqual(config.exposure.toe, math.log(2.0, 2.5))
+        config = WorkspaceConfig.from_flat_dict({"toe": 0.25, "toe_width": 5.0, "shoulder": 0.0, "shoulder_width": 1.25})
+        self.assertAlmostEqual(config.exposure.toe, 0.55)
+        narrow = WorkspaceConfig.from_flat_dict({"toe": 0.0, "toe_width": 0.5, "shoulder_width": 2.5})
+        self.assertAlmostEqual(narrow.exposure.toe, -0.24)
         self.assertAlmostEqual(config.exposure.shoulder, -1.0)
         again = WorkspaceConfig.from_flat_dict(config.to_dict())
         self.assertEqual(again.exposure.toe, config.exposure.toe)

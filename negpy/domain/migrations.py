@@ -244,17 +244,20 @@ def migrate_flat_config(data: Dict[str, Any]) -> Dict[str, Any]:
         data["paper_profile"] = "pakon"
 
     # A print edit with toe_width has the knee heights: Toe moved paper black, Shoulder moved
-    # paper white, and each width set the sharpness the slider sets now. Toe keeps its value
-    # and takes its width's sharpness. A positive Shoulder scales to the closest roll-off; a
-    # negative one changed nothing. The spans mirror KNEE_SPAN_TOE and KNEE_SPAN_SHOULDER.
+    # paper white, and each width set the knee softness the slider sets now. Each slider takes
+    # the value that prints closest to its width's knee: Toe 0.12 per unit of width, Shoulder
+    # the log of its width on KNEE_SPAN_SHOULDER. Toe keeps its own value. A positive Shoulder
+    # scales to the closest roll-off; a negative one changed nothing.
     if "toe_width" in data and str(data.get("process_mode", "")) not in ("Transparency", "E-6") and not data.get("positive_source"):
 
-        def _knee(value: float, width: Any, span: float) -> float:
-            sharpness = math.log(max(float(width or 2.5), 0.1) / 2.5, span)
-            return min(max(value + sharpness, -1.0), 1.0)
+        def _width(key: str) -> float:
+            return max(float(data.get(key) or 2.5), 0.1)
 
-        data["toe"] = _knee(float(data.get("toe", 0.0)), data["toe_width"], 2.5)
-        data["shoulder"] = _knee(1.4 * max(float(data.get("shoulder", 0.0)), 0.0), data.get("shoulder_width"), 1.9)
+        def _clamp(value: float) -> float:
+            return min(max(value, -1.0), 1.0)
+
+        data["toe"] = _clamp(float(data.get("toe", 0.0)) + 0.12 * (_width("toe_width") - 2.5))
+        data["shoulder"] = _clamp(1.4 * max(float(data.get("shoulder", 0.0)), 0.0) + math.log(_width("shoulder_width") / 2.5, 1.9))
 
     if "export_fmt" in data:
         data["export_fmt"] = migrate_export_fmt(str(data["export_fmt"]))
