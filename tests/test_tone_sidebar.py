@@ -5,6 +5,7 @@ import pytest
 
 from negpy.desktop.session import AppState
 from negpy.desktop.view.sidebar.tone import ToneSidebar
+from negpy.desktop.view.styles.theme import THEME
 from negpy.features.process.models import ProcessMode
 
 
@@ -312,18 +313,23 @@ def test_flat_negative_shows_the_softest_grade_hint(qapp):
     controller.state = AppState()
     controller.state.current_file_hash = "flat"
     sidebar = ToneSidebar(controller)
+
+    def warns() -> bool:
+        spin = sidebar.grade_slider.spin
+        return "Flat negative" in spin.toolTip() and THEME.warn_amber in spin.styleSheet()
+
     sidebar.sync_ui()
-    assert sidebar.grade_softest_hint.isHidden()
+    assert not warns()
 
     flat = {"metered_anchor": 0.507, "textural_range": 0.221, "norm_density_range": 0.509, "shadow_point": 1.062, "highlight_point": 0.15}
     controller.state.auto_meters["flat"] = flat
     sidebar.sync_ui()
-    assert sidebar.grade_softest_hint.isHidden()
+    assert not warns()
 
     cfg = controller.state.config
     controller.state.config = replace(cfg, exposure=replace(cfg.exposure, grade=170.0))
     sidebar.sync_ui()
-    assert not sidebar.grade_softest_hint.isHidden()
+    assert warns()
 
     sidebar.ch_btn.setCurrentIndex(1)
-    assert sidebar.grade_softest_hint.isHidden()
+    assert not warns()
