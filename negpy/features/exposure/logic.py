@@ -681,6 +681,8 @@ def grade_coupled_shape(slope_g: float, toe: float, shoulder: float) -> Tuple[fl
 # Softest and hardest knee as a factor of the paper's own sharpness, at slider +1 and -1.
 KNEE_SPAN_TOE = 4.0
 KNEE_SPAN_SHOULDER = 1.9
+# Softest toe the slider reaches. Below it the toe moves the reference tone, not only the shadows.
+TOE_SHARPNESS_FLOOR = 1.2
 
 
 def print_knees(
@@ -718,9 +720,11 @@ def print_knees(
     def _clamp(v: float) -> float:
         return min(max(v, -1.0), 1.0)
 
+    soft_span = min(max(a_sh0 / TOE_SHARPNESS_FLOOR, 1.0), KNEE_SPAN_TOE)
     tw, sw, hold = [], [], []
     for ch in range(3):
-        ft = KNEE_SPAN_TOE ** _clamp(toe + toe_trims[ch])
+        t = _clamp(toe + toe_trims[ch])
+        ft = (soft_span if t > 0.0 else KNEE_SPAN_TOE) ** t
         fs = KNEE_SPAN_SHOULDER ** _clamp(shoulder + shoulder_trims[ch])
         tw.append(wr * ft)
         sw.append(wr * fs)

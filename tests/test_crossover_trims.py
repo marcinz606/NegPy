@@ -18,9 +18,10 @@ from negpy.features.exposure.logic import (
     print_curve,
     print_knees,
     KNEE_SPAN_TOE,
+    TOE_SHARPNESS_FLOOR,
 )
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS, ExposureConfig
-from negpy.features.exposure.papers import PaperProfile
+from negpy.features.exposure.papers import PAPER_PROFILES, PaperProfile
 
 _ANCHOR = EXPOSURE_CONSTANTS["assumed_anchor"]
 _TARGET = EXPOSURE_CONSTANTS["reference_print_density"]
@@ -212,6 +213,16 @@ class TestPrintKnees(unittest.TestCase):
             x_ref = float(np.interp(_TARGET, np.asarray(self._curve(**base)(ramp)), ramp))
             for sliders in ({"toe": 1.0}, {"toe": -1.0}, {"shoulder": 1.0}, {"shoulder": -1.0}):
                 self.assertAlmostEqual(self._density(x_ref, **base, **sliders), _TARGET, delta=0.005, msg=str((base, sliders)))
+
+    def test_a_soft_paper_toe_stops_at_the_floor(self):
+        """Toe +1 is four times softer, or the sharpness floor on a paper that is soft already."""
+        ref = EXPOSURE_CONSTANTS["toeshoulder_width_ref"]
+        self.assertAlmostEqual(print_knees(self._SLOPE, 1.0, 0.0)[2][1], ref * KNEE_SPAN_TOE)
+        for key in ("kodak_portra_endura", "kodak_endura"):
+            paper = PAPER_PROFILES[key]
+            width = print_knees(self._SLOPE, 1.0, 0.0, paper=paper)[2][1]
+            self.assertAlmostEqual(paper.toe_sharpness_base * ref / width, TOE_SHARPNESS_FLOOR)
+            self.assertAlmostEqual(print_knees(self._SLOPE, -1.0, 0.0, paper=paper)[2][1], ref / KNEE_SPAN_TOE)
 
     def test_trim_acts_on_its_layer_only(self):
         _, _, base_tw, base_sw, _ = print_knees(self._SLOPE, 0.2, -0.2)
