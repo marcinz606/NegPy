@@ -4,6 +4,7 @@
 
 - New: **Digital (Nikon Scan) print stock** — the tone curve and colors of Nikon Scan 4 fitted as 3D LUT.
 - New: **Fade Restoration for a whole roll** — Estimate Roll pools one set of fade values from the roll's slides and can share one frame's crossover with the others; a hand Red Survival now stays under Restore Range. @thetalkingdrum
+- New: **DKC-Pro chart** — Measure from Chart fits a Crosstalk matrix from a DGK DKC-Pro frame.
 - New: **Drop a folder on the Library** — makes it a roll, like Import Folder as a Roll. @thetalkingdrum
 - New: **Italian translation** — the app, the in-app guide, the README and the docs, with more hard-coded UI text now translatable. @Spaccioclarinet99
 - Change: **Faster render and export** — the last pipeline steps run in Rust negpy_core.

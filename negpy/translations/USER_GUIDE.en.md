@@ -604,7 +604,7 @@ Corrects color errors that come from your light, camera and film.
 
 *   **Matrix**: the matrices for this film type. An *(approx)* matrix comes from a data sheet. Your own `.toml` files go in `<Documents>/NegPy/crosstalk/` (see CROSSTALK.md). The slider button opens the editor; **+** makes a new matrix. No slide matrix comes with NegPy.
 *   **Strength**: how strongly the matrix applies.
-*   The swatch button opens **Measure from Chart** (color negatives): it measures a matrix from a ColorChecker 24 or SpyderCheckr 24 shot on the film. Drag the four dots onto the corner patches.
+*   The swatch button opens **Measure from Chart** (color negatives): it measures a matrix from a ColorChecker 24, SpyderCheckr 24 or DKC-Pro shot on the film. Drag the four dots onto the corner patches.
 
 **Hue Trim** (camera with narrowband light): turns all hues, for a light that makes yellows orange or greens olive. Keep 0 for white light. Unlike the sensor profile, it also works on slides.
 
