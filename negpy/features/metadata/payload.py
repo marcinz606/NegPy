@@ -17,6 +17,7 @@ from negpy.features.metadata.capture import (
 )
 from negpy.features.metadata.exif_read import ScanExif, extract_scan_from_exif, source_xmp_rating
 from negpy.features.metadata.gear_models import GearLibrary
+from negpy.features.metadata.timezone import capture_zone
 from negpy.features.metadata.models import (
     MetadataConfig,
     PUSH_PULL_LABELS,
@@ -102,6 +103,9 @@ class MetadataPayload:
     location_city: str = ""
     location_state: str = ""
     location_country: str = ""
+    capture_timezone: str = ""
+    capture_time_source: str = ""
+    capture_anchor_ref: str = ""
 
     # Digitization rig (negpy:Scan* XMP only; source EXIF when capture gear not set)
     scan_camera_make: str = ""
@@ -352,6 +356,10 @@ def build_metadata_payload(
     push_pull = PUSH_PULL_LABELS.get(config.push_pull, "Normal")
     capture_exposure = config.exposure_override.strip()
     capture_date = parse_capture_date(config.capture_date)
+    zone = ""
+    if capture_date is not None:
+        zone = capture_zone(config.capture_timezone, config.gps_latitude, config.gps_longitude)
+        capture_date = capture_date.in_zone(zone)
 
     draft = MetadataPayload(
         camera_make=camera_make.strip(),
@@ -374,6 +382,9 @@ def build_metadata_payload(
         location_city=config.location_city.strip(),
         location_state=config.location_state.strip(),
         location_country=config.location_country.strip(),
+        capture_timezone=zone,
+        capture_time_source=config.capture_time_source.strip(),
+        capture_anchor_ref=config.capture_anchor_ref.strip(),
         scan_camera_make=scan.camera_make,
         scan_camera_model=scan.camera_model,
         scan_lens_make=scan.lens_make,
@@ -424,6 +435,9 @@ def build_metadata_payload(
         location_city=draft.location_city,
         location_state=draft.location_state,
         location_country=draft.location_country,
+        capture_timezone=draft.capture_timezone,
+        capture_time_source=draft.capture_time_source,
+        capture_anchor_ref=draft.capture_anchor_ref,
         scan_camera_make=draft.scan_camera_make,
         scan_camera_model=draft.scan_camera_model,
         scan_lens_make=draft.scan_lens_make,

@@ -23,6 +23,10 @@ dependencies = [
     "pyqt6==6.11.0",
     "pyqt6-charts==6.11.0",
     "piexif==1.1.3",
+    # Offline time zone of a capture place. The boundary data inside is ODbL (see NOTICE.md).
+    "tzfpy==2.1.2",
+    # zoneinfo needs it on Windows and in frozen builds without a system time zone database.
+    "tzdata==2026.6",
     "qtawesome==1.4.2",
     "wgpu==0.31.1",
     "pyserial>=3.5",

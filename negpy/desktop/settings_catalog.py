@@ -331,11 +331,12 @@ CATALOG: list[tuple[str, tuple[SettingRow, ...]]] = [
             "location_country",
             "gps_latitude",
             "gps_longitude",
+            "capture_timezone",
             fmt=lambda v: place_summary(v[0], v[1], v[2], v[3], v[4]) or "—",
         ),
         _row(mark("Process"), "metadata", *PROCESS_FIELDS, fmt=_fmt_process),
         _row(mark("Scanning"), "metadata", *SCANNING_FIELDS, fmt=lambda v: _fmt_scalar(v[0])),
-        # capture_frame is deliberately absent: a frame number is unique to one frame.
+        # capture_frame, capture_time_source and capture_anchor_ref are absent: each is unique to one frame.
         _row(mark("Roll"), "metadata", "capture_roll"),
         _row(mark("Exposure"), "metadata", "exposure_override"),
         _row(mark("Protect Original Metadata"), "metadata", "protect_original_metadata", sticky=True),

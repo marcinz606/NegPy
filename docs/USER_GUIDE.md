@@ -653,6 +653,7 @@ Details about how you took and developed the picture: camera, lens, film and pro
 
 *   **Date**: when you took the picture, as `1998`, `1998-07`, `1998-07-14` or `1998-07-14 16:30`.
 *   **Place**: the pin button opens a map. You can also paste coordinates or a map link. The map uses OpenStreetMap.
+*   **Time zone**: where the clock of the capture was set. Empty takes the zone of the place, shown in the field. Type a zone such as `Europe/Berlin` to choose another. The export writes the UTC offset for the capture date, so photo apps sort the frame with photos from a phone.
 
 <!-- panel:metadata_process -->
 ### Process

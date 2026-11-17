@@ -441,11 +441,12 @@ Høyreklikk en halvdel for **Juster delingen for dette bildet…** og **Tilbakes
 *   **Tøm**: tømmer alle tre.
 *   **Utled fra mappenavnet**: fyller ut tomme felt (kamera, film, ISO, dato) ut fra mappenavnet.
 
-<!-- panel:metadata_capture src:a84922a9 -->
+<!-- panel:metadata_capture src:37b47c55 -->
 ### Opptak
 
 *   **Dato**: når du tok bildet, som `1998`, `1998-07`, `1998-07-14` eller `1998-07-14 16:30`.
 *   **Sted**: nålknappen åpner et kart. Du kan også lime inn koordinater eller en kartlenke. Kartet bruker OpenStreetMap.
+*   **Tidssone**: sonen klokken var stilt på da bildet ble tatt. Tom bruker sonen til stedet, som feltet viser. Skriv inn en sone som `Europe/Berlin` for å velge en annen. Eksporten skriver UTC-forskyvningen for opptaksdatoen, slik at bildeapper sorterer bildet sammen med bilder fra telefonen.
 
 <!-- panel:metadata_process src:9dd71862 -->
 ### Prosess

@@ -58,6 +58,7 @@ from negpy.features.metadata.capture import (
     place_summary,
 )
 from negpy.features.metadata.exif_read import extract_scan_from_exif
+from negpy.features.metadata.timezone import capture_zone, is_zone, zone_names
 from negpy.features.metadata.gear_logic import (
     OTHER_ID,
     metadata_from_gear,
@@ -174,6 +175,13 @@ class MetadataSidebar(BaseSidebar):
         self.place_clear_btn = self._icon_action("fa5s.times", tr("Clear the capture place"))
         place_row.addWidget(self.place_clear_btn)
         cap.addLayout(place_row)
+
+        self.timezone_combo = SearchableGearCombo(placeholder=tr("Pick a place, or type a time zone"))
+        self.timezone_combo.set_labeled_items([(name, name) for name in zone_names()], _zone_or_empty(conf.capture_timezone))
+        self.timezone_combo.setToolTip(
+            tr("The time zone of the capture: empty takes the zone of the place, or type to choose another zone.")
+        )
+        cap.addLayout(field_row(tr("Time zone"), self.timezone_combo))
         self.capture_section = self._card(tr("Capture"), "capture", cap_body, "fa5s.clock")
 
         proc_body, proc = self._card_body()
@@ -570,6 +578,7 @@ class MetadataSidebar(BaseSidebar):
         self.place_edit.editingFinished.connect(self._on_place_edited)
         self.place_map_btn.clicked.connect(self._open_location_picker)
         self.place_clear_btn.clicked.connect(self._on_place_clear)
+        self.timezone_combo.selection_changed.connect(self._on_timezone_changed)
 
         self.format_combo.currentTextChanged.connect(self._on_format_changed)
         self.format_other_edit.textChanged.connect(self._mark_dirty)
@@ -901,7 +910,30 @@ class MetadataSidebar(BaseSidebar):
         self.controller.sync_metadata_card_locks(before)
         self._sync_scope_buttons()
         self._set_place_text_quiet()
+        self._refresh_zone_hint()
         self._schedule_preview()
+
+    def _on_timezone_changed(self, zone: str) -> None:
+        before = self.state.config
+        self.update_config_section("metadata", persist=True, render=False, readback_metrics=False, capture_timezone=zone)
+        self.controller.sync_metadata_card_locks(before)
+        self._sync_scope_buttons()
+        self._refresh_zone_hint()
+        self._schedule_preview()
+
+    def _refresh_zone_hint(self) -> None:
+        """The empty Time zone field shows the zone that the place gives."""
+        conf = self.state.config.metadata
+        zone = capture_zone("", conf.gps_latitude, conf.gps_longitude)
+        if not zone:
+            hint = tr("Pick a place, or type a time zone")
+        else:
+            captured = parse_capture_date(conf.capture_date)
+            offset = captured.in_zone(zone).tz_offset if captured is not None else ""
+            hint = (
+                tr("From the place: {zone}, UTC{offset}", zone=zone, offset=offset) if offset else tr("From the place: {zone}", zone=zone)
+            )
+        self.timezone_combo.line_edit().setPlaceholderText(hint)
 
     def _set_place_text_quiet(self) -> None:
         self.place_edit.blockSignals(True)
@@ -1023,6 +1055,8 @@ class MetadataSidebar(BaseSidebar):
             self.capture_date_edit.setText(conf.capture_date)
             self.capture_date_edit.setStyleSheet("")
             self.place_edit.setText(self._place_text())
+            self.timezone_combo.set_selected_id(_zone_or_empty(conf.capture_timezone))
+            self._refresh_zone_hint()
             self.developer_edit.setText(conf.developer)
             self.dilution_edit.setText(conf.process_dilution)
             idx = PUSH_PULL_VALUES.index(conf.push_pull) if conf.push_pull in PUSH_PULL_VALUES else 3
@@ -1189,3 +1223,7 @@ class MetadataSidebar(BaseSidebar):
         for w in self.findChildren(QWidget):
             if not any(w is section or section.isAncestorOf(w) for section in gear):
                 w.blockSignals(blocked)
+
+
+def _zone_or_empty(name: str) -> str:
+    return name if is_zone(name) else ""

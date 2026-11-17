@@ -224,6 +224,11 @@ def _build_custom_exif(payload: MetadataPayload) -> dict:
     gps: dict = {}
     if payload.gps_latitude is not None and payload.gps_longitude is not None:
         gps = exif_gps_rationals(payload.gps_latitude, payload.gps_longitude)
+        utc = payload.capture_date.utc() if payload.capture_date is not None else None
+        if utc is not None:
+            # The GPS time is UTC. Apps that compare it with the local time then find the same zone.
+            gps[piexif.GPSIFD.GPSDateStamp] = utc.strftime("%Y:%m:%d")
+            gps[piexif.GPSIFD.GPSTimeStamp] = ((utc.hour, 1), (utc.minute, 1), (utc.second, 1))
 
     return {"0th": zeroth, "Exif": exif, "GPS": gps, "Interop": {}, "1st": {}}
 

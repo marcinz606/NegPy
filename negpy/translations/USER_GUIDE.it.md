@@ -647,11 +647,12 @@ I dettagli su come hai scattato e sviluppato l'immagine: fotocamera, obiettivo, 
 *   **Cancella**: svuota tutti e tre.
 *   **Deduci dal nome della cartella**: compila i campi vuoti (fotocamera, pellicola, ISO, data) dal nome della cartella.
 
-<!-- panel:metadata_capture src:a84922a9 -->
+<!-- panel:metadata_capture src:37b47c55 -->
 ### Ripresa
 
 *   **Data**: quando hai scattato l'immagine, come `1998`, `1998-07`, `1998-07-14` o `1998-07-14 16:30`.
 *   **Luogo**: il pulsante del segnaposto apre una mappa. Puoi anche incollare coordinate o un link di mappa. La mappa usa OpenStreetMap.
+*   **Fuso orario**: il fuso dell'orologio al momento della ripresa. Vuoto usa il fuso del luogo, mostrato nel campo. Digita un fuso come `Europe/Berlin` per sceglierne un altro. L'esportazione scrive lo scostamento UTC per la data di ripresa, così le app di foto ordinano il fotogramma accanto alle foto del telefono.
 
 <!-- panel:metadata_process src:9dd71862 -->
 ### Processo

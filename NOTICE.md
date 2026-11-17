@@ -106,3 +106,14 @@ detector and descriptor (sift.dispatch.cpp, sift.simd.hpp), its RANSAC
 similarity estimate and Levenberg-Marquardt refinement (ptsetreg.cpp,
 levmarq.cpp). OpenCV, Apache License 2.0. SIFT is by David G. Lowe; its patent
 expired in March 2020.
+
+The capture time zone lookup uses [tzfpy](https://github.com/ringsaturn/tzfpy), Copyright (c)
+ringsaturn, MIT License. Its time zone boundaries come from timezone-boundary-builder via
+tzf-dist, © OpenStreetMap contributors, licensed under the Open Database License (ODbL) 1.0.
+NegPy ships that data unmodified inside the tzfpy package:
+
+  https://github.com/evansiroky/timezone-boundary-builder
+  https://www.openstreetmap.org/copyright
+
+The tzdata package (Apache License 2.0) provides the IANA time zone database, which is in
+the public domain, for platforms without a system copy.

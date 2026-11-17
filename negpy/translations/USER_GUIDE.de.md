@@ -441,11 +441,12 @@ Klicke mit der rechten Maustaste auf eine Hälfte für **Teilung für dieses Bil
 *   **Leeren**: leert alle drei.
 *   **Aus Ordnernamen ableiten**: füllt leere Felder (Kamera, Film, ISO, Datum) aus dem Ordnernamen.
 
-<!-- panel:metadata_capture src:a84922a9 -->
+<!-- panel:metadata_capture src:37b47c55 -->
 ### Aufnahme
 
 *   **Datum**: wann du das Bild aufgenommen hast, als `1998`, `1998-07`, `1998-07-14` oder `1998-07-14 16:30`.
 *   **Ort**: die Pin-Schaltfläche öffnet eine Karte. Du kannst auch Koordinaten oder einen Kartenlink einfügen. Die Karte nutzt OpenStreetMap.
+*   **Zeitzone**: auf welche Zone die Uhr bei der Aufnahme eingestellt war. Leer übernimmt die Zone des Orts, die das Feld anzeigt. Gib eine Zone wie `Europe/Berlin` ein, um eine andere zu wählen. Der Export schreibt den UTC-Versatz für das Aufnahmedatum, damit Foto-Apps das Bild neben Fotos vom Handy einordnen.
 
 <!-- panel:metadata_process src:9dd71862 -->
 ### Entwicklung
