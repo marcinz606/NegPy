@@ -2044,6 +2044,36 @@ class DesktopSessionManager(QObject):
                 self.frames_edited_offscreen.emit(changed_hashes)
         return count
 
+    @_records_batch(mark("Assign Capture Times"))
+    def assign_capture_times(self, changes: Dict[str, Dict[str, Any]]) -> int:
+        """Write Assign Capture Times results: metadata fields per frame, keyed by file hash.
+        The active frame goes through update_config. The others are saved without a render, each
+        with undo steps, and every frame locks the cards on which it now differs from the roll."""
+        count = 0
+        changed_hashes: list[str] = []
+        for idx, asset in enumerate(self.state.uploaded_files):
+            fields = changes.get(asset.get("hash", ""))
+            if not fields:
+                continue
+            if idx == self.state.selected_file_idx:
+                before = self.state.config
+                self.update_config(replace(before, metadata=replace(before.metadata, **fields)), persist=True, render=False)
+                self.relock_diverged_cards(before)
+            else:
+                old = self.config_for_asset(asset)
+                new = replace(old, metadata=replace(old.metadata, **fields))
+                self.push_external_history(asset["hash"], old, new)
+                self.repo.save_file_settings(asset["hash"], new, file_path=asset["path"])
+                self._lock_diverged_cards(asset, new, old)
+                changed_hashes.append(asset["hash"])
+            count += 1
+        if count:
+            self.settings_saved.emit()
+            self.settings_synced.emit(tr("Capture times assigned to {value}", value=count_of(count, "frame")))
+            if changed_hashes:
+                self.frames_edited_offscreen.emit(changed_hashes)
+        return count
+
     @_records_batch(mark("Reset Frames"))
     def reset_roll_settings(self, scope: str = "roll") -> int:
         """Reset every frame in scope to its own asset defaults, same as Reset Settings
