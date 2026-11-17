@@ -1053,14 +1053,28 @@ def auto_base_slope(
     midtone_gamma: Optional[float] = None,
 ) -> float:
     """Shared straight-line slope before the per-layer gammas: Grade on the effective range,
-    raised to Auto Grade's Shadow Reach floor."""
-    slope = grade_to_slope(grade, effective_grade_range(auto_normalize_contrast, lum_range, textural_range), slope_gain(paper))
+    raised to Auto Grade's Shadow Reach floor. The floor holds the meter's grade and a harder
+    one; a softer grade scales the floored meter slope by its ISO R ratio, so it prints softer."""
+    from negpy.features.exposure.models import ExposureConfig
+
+    grade_range, gain = effective_grade_range(auto_normalize_contrast, lum_range, textural_range), slope_gain(paper)
+    slope = grade_to_slope(grade, grade_range, gain)
     if auto_normalize_contrast and shadow_point is not None:
         c = effective_constants(paper)
         ref = float(c["assumed_anchor"]) if anchor is None else float(anchor)
-        slope = shadow_reach_slope(
-            slope, ref, shadow_point, d_min=d_min, paper=paper, midtone_gamma=midtone_gamma, metered=anchor is not None
-        )
+
+        def reach(k: float) -> float:
+            return shadow_reach_slope(
+                k, ref, shadow_point, d_min=d_min, paper=paper, midtone_gamma=midtone_gamma, metered=anchor is not None
+            )
+
+        neutral = float(ExposureConfig.grade)
+        if grade <= neutral:
+            return reach(slope)
+        metered = grade_to_slope(neutral, grade_range, gain)
+        floored = reach(metered)
+        if floored > metered:
+            return float(min(max(floored * _grade_trim_mult(neutral, grade - neutral, c), c["slope_min"]), c["slope_max"]))
     return slope
 
 

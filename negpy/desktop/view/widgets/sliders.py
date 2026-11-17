@@ -417,6 +417,7 @@ class CompactSlider(BaseSlider):
         self.spin.setButtonSymbols(QDoubleSpinBox.ButtonSymbols.NoButtons)
         self.spin.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         self.spin.setStyleSheet(slider_value_qss())
+        self._advisory = ""
 
         # Label-scrub: drag the label horizontally to change value
         self.label.setCursor(Qt.CursorShape.SizeHorCursor)
@@ -441,6 +442,15 @@ class CompactSlider(BaseSlider):
         wrapped string, so the reset footer is never appended twice."""
         super().setToolTip(text)
         self.label.setToolTip(self.toolTip())
+
+    def set_advisory(self, text: str) -> None:
+        """Paint the value amber and show text when the pointer is on it; "" clears both."""
+        if text == self._advisory:
+            return
+        self._advisory = text
+        self.spin.setStyleSheet(slider_value_qss(THEME.warn_amber if text else THEME.text_primary))
+        # Empty, the value shows the row's tooltip.
+        self.spin.setToolTip(wrap_tooltip(text) if text else "")
 
     def natural_column_widths(self) -> tuple[int, int]:
         self.label.ensurePolished()
