@@ -180,6 +180,10 @@ class LabSidebar(BaseSidebar):
             lambda v: self.update_config_section("vignette", persist=True, readback_metrics=True, roundness=v)
         )
 
+        # Adjusting any vignette control draws the affected band on the canvas until it is left 1s.
+        for slider in (self.vignette_strength_slider, self.vignette_feather_slider, self.vignette_roundness_slider):
+            slider.valueChanged.connect(self.controller.vignette_overlay_requested.emit)
+
     def _meters(self) -> dict:
         return self.state.auto_meters.get(self.state.current_file_hash or "", {})
 

@@ -100,6 +100,7 @@ _ROT_HANDLE_OFFSET_PX = 24.0  # gap between crop edge and handle center (outside
 _ROT_FINE_SENSITIVITY = 0.2  # Shift-drag sensitivity, like the crop-move fine drag
 _ROTATION_GRID_DIVISIONS = 10
 _GRID_ALPHA = 70
+_VIGNETTE_CURVE_STEPS = 180  # resolution of the vignette band's inner/outer curves
 _MASK_RASTER_MAX = 384  # px cap for feathered overlay rasters
 
 # The shape that each tool draws, and the tools that permit mask edits.
@@ -594,6 +595,11 @@ class CanvasOverlay(QWidget):
         self._crop_preview_timer.setSingleShot(True)
         self._crop_preview_timer.timeout.connect(self._hide_crop_preview)
 
+        self._vignette_overlay_visible: bool = False
+        self._vignette_overlay_timer = QTimer(self)
+        self._vignette_overlay_timer.setSingleShot(True)
+        self._vignette_overlay_timer.timeout.connect(self._hide_vignette_overlay)
+
         # Guide for the line tool. A trace is a slope search over the whole frame, too heavy
         # per mouse-move, so it runs on a debounce and the last result is painted.
         self._line_hover: Optional[tuple] = None
@@ -695,6 +701,16 @@ class CanvasOverlay(QWidget):
 
     def _hide_crop_preview(self) -> None:
         self._crop_preview_visible = False
+        self.update()
+
+    def show_vignette_overlay(self) -> None:
+        """Draws the vignette's affected band while its controls are adjusted; lingers 1s."""
+        self._vignette_overlay_visible = True
+        self._vignette_overlay_timer.start(1000)
+        self.update()
+
+    def _hide_vignette_overlay(self) -> None:
+        self._vignette_overlay_visible = False
         self.update()
 
     def set_tool_mode(self, mode: ToolMode) -> None:
@@ -1285,6 +1301,9 @@ class CanvasOverlay(QWidget):
             # The Zone Overlay draws the spotlight itself, in place of its map.
             if self.state.zone_highlight is not None and not self.state.zones_overlay:
                 self._draw_zone_spotlight(painter, int(self.state.zone_highlight))
+            # The vignette band is a content overlay, shown while its controls are adjusted.
+            if self._vignette_overlay_visible:
+                self._draw_vignette_overlay(painter)
 
         # Pins are content-anchored, so they hide with the strip (whose mosaic
         # replaces the frame) and in the uncropped tool views.
@@ -1369,6 +1388,68 @@ class CanvasOverlay(QWidget):
         painter.drawRect(QRectF(d.right(), d.top(), full.right() - d.right(), d.height()))
 
         _draw_dashed_frame(painter, d)
+
+    def _draw_vignette_overlay(self, painter: QPainter) -> None:
+        """The vignette's affected band: the inner curve (where the gain starts, dist = 1 -
+        feather) to the outer curve (where it is full, dist = 1.0). roundness morphs each
+        from a circle (0) to an ellipse following the crop aspect (1); a faint fill marks the
+        band, and the gain's direction picks the color, warm for a lighter edge, cool for a darker one."""
+        vig = self.state.config.vignette
+        if abs(vig.strength) < 1e-6:
+            return
+        if self._content_rect is None or self._current_size is None:
+            return
+        d = self._content_view_rect()
+        if d.isEmpty() or d.width() <= 0 or d.height() <= 0:
+            return
+        ox, oy, cw, ch = self._content_rect
+        if cw <= 0 or ch <= 0:
+            return
+        # The vignette's geometry, in the content's own pixel space, mirroring the Rust kernel.
+        cx, cy = cw * 0.5, ch * 0.5
+        max_dist = math.hypot(cx, cy) or 1.0
+        rx, ry = cx or 1.0, cy or 1.0
+        circle, ellipse = 1.0 - vig.roundness, vig.roundness
+        inner = 1.0 - vig.feather
+        sx, sy = d.width() / cw, d.height() / ch
+        cx_s, cy_s = d.center().x(), d.center().y()
+
+        def curve(c: float) -> QPolygonF:
+            pts: List[QPointF] = []
+            for i in range(_VIGNETTE_CURVE_STEPS + 1):
+                theta = 2.0 * math.pi * i / _VIGNETTE_CURVE_STEPS
+                ct, st = math.cos(theta), math.sin(theta)
+                denom = circle / max_dist + ellipse * math.sqrt((ct * ct) / (rx * rx) + (st * st) / (ry * ry))
+                r = c / denom if denom > 0 else 0.0
+                pts.append(QPointF(cx_s + r * ct * sx, cy_s + r * st * sy))
+            return QPolygonF(pts)
+
+        inner_curve = curve(inner)
+        outer_curve = curve(1.0)
+        dodge, burn = palette_for(self.state.color_vision).dodge_burn
+        color = dodge if vig.strength > 0 else burn
+
+        painter.save()
+        painter.setClipRect(d)
+        # Faint fill of the affected area: the content rect minus the inner-curve interior.
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(with_alpha(color, 45))
+        band = QPainterPath()
+        band.addRect(d)
+        band.addPolygon(inner_curve)
+        band.setFillRule(Qt.FillRule.OddEvenFill)
+        painter.drawPath(band)
+        # The two curves: inner = where the gain starts (the shape); outer = where it is full.
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        inner_pen = QPen(with_alpha(color, 210), 1.6, Qt.PenStyle.SolidLine)
+        inner_pen.setCosmetic(True)
+        painter.setPen(inner_pen)
+        painter.drawPolygon(inner_curve)
+        outer_pen = QPen(with_alpha(color, 170), 1.3, Qt.PenStyle.DashLine)
+        outer_pen.setCosmetic(True)
+        painter.setPen(outer_pen)
+        painter.drawPolygon(outer_curve)
+        painter.restore()
 
     def _draw_crop_guides(self, painter: QPainter, rect: QRectF) -> None:
         """Selected composition guide (thirds, phi, spiral, ...) inside the crop rect."""

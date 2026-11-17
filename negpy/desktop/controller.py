@@ -587,6 +587,7 @@ class AppController(QObject):
     analysis_buffer_preview_requested = pyqtSignal(float)
     analysis_buffer_drag_changed = pyqtSignal(bool)
     rotation_guide_requested = pyqtSignal()
+    vignette_overlay_requested = pyqtSignal()
     keystone_lines_cleared = pyqtSignal()
     crop_guide_changed = pyqtSignal()
     dust_overlay_changed = pyqtSignal()
