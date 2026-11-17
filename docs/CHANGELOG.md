@@ -8,7 +8,7 @@
 - New: **Drop a folder on the Library** — makes it a roll, like Import Folder as a Roll. @thetalkingdrum
 - New: **Italian translation** — the app, the in-app guide, the README and the docs, with more hard-coded UI text now translatable. @Spaccioclarinet99
 - Change: **Faster render and export** — the last pipeline steps run in Rust negpy_core.
-- Change: **Toe and Shoulder** — set the knee shape of the paper curve, keep paper black and white, and replace Toe Width and Shoulder Width; per-layer black for the Kodak RA4 stocks.
+- Change: **Toe and Shoulder** — Toe shapes only how the shadows reach black and Shoulder only how the highlights reach white; paper black, paper white and the mid tones stay. They replace Toe Width and Shoulder Width. Per-layer black for the Kodak RA4 stocks.
 - Change: **Heal/Scratch tools** — find defects with the optical detector instead of using separate algorithm.
 - Change: **Roll tab** — cards ordered by use (Setup, Roll Analysis, Metering, Fade Restoration first), a simpler Roll Analysis.
 - Change: **Smoother slider drags** — the preview updates in steady steps while you drag instead of waiting for slider settle. @thetalkingdrum
