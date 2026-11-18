@@ -515,12 +515,11 @@ Ekstra filer ved siden av kopien. Hver har en bryter til venstre og en engangsha
 *   **Autotetthet / -gradering**: **Bak inn ved eksport** fastsetter den automatiske lysheten og kontrasten for hvert eksporterte bilde, så de ikke endres senere. **Bak inn i rullen** gjør det for hvert synlig bilde nå.
 *   **Redigeringssidefiler**: **Lagre ved eksport** skriver en `.negpy`-fil med redigeringen ved siden av hver kilde. **Eksporter sidefiler** skriver dem for alle synlige bilder. Høyreklikk et bilde → **Last inn redigering fra sidefil…** leser en tilbake.
 
-<!-- panel:contact_sheet src:ddc8d6ef -->
+<!-- panel:contact_sheet src:cc84fd86 -->
 ### Kontaktark
 
-På fanen **Ved siden av eksportene**. Et kontaktark viser hele rullen som filmstriper på ett papirark, slik en kontaktkopi i mørkerommet gjør.
+På fanen **Fil**, ved siden av **Utdatahensikt**. Et kontaktark viser hele rullen som filmstriper på ett papirark, slik en kontaktkopi i mørkerommet gjør.
 
-*   **Bane**: mappen for arkene. Tom bruker eksportmappen.
 *   **Kontaktark…**: åpner arket. Dra en kant av papiret for å endre størrelsen.
 *   **Filmformat**: 35 mm, 35 mm halvformat eller 120 (med **Bildestørrelse** for 120).
 *   **Papir**, **Bredde**, **Høyde** og **DPI**: størrelsen og oppløsningen til arket. Standardpapiret har plass til en rull med 36 bilder.
@@ -531,6 +530,7 @@ På fanen **Ved siden av eksportene**. Et kontaktark viser hele rullen som films
 *   **Rulletikett**: rullnavnet, filmen, kameraet og datoen over stripene. Skriv din egen tekst i **Etikettekst** for å skrive den i stedet.
 *   **Hvitt papir**: kopierer på hvitt, noe som sparer blekk på en hjemmeskriver.
 *   **Filmkanter**: av kopierer bildene stående, hvert i sin egen form, i rader som på lysbordet. Arket har da ingen perforering og ingen **Kantpåskrift**.
+*   **Mappe**: mappen for arkene. Tom bruker eksportmappen.
 
 Arkene lagres som `contact_sheet.jpg` (`contact_sheet_1of2.jpg` og videre for en lang rull).
 

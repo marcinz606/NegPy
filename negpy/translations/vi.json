@@ -2557,7 +2557,6 @@
   "Saved sets of metadata values. Apply one to write its fields onto this frame.": "Các bộ giá trị siêu dữ liệu đã lưu. Áp dụng một bộ để ghi các trường của nó lên khung hình này.",
   "Saved setup": "Thiết lập đã lưu",
   "Saved shots of the bare light, used to even out the light.": "Các lần chụp nguồn sáng trống đã lưu, dùng để làm đều ánh sáng.",
-  "Saves to {_out_dir}": "Lưu vào {_out_dir}",
   "Save…": "Lưu…",
   "Scale the whole interface": "Thu phóng toàn bộ giao diện",
   "Scan": "Quét",
