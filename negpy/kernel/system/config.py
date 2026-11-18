@@ -64,9 +64,7 @@ DEFAULT_WORKSPACE_CONFIG = WorkspaceConfig(
         density=1.0,
         grade=115.0,
         toe=0.0,
-        toe_width=2.5,
         shoulder=0.0,
-        shoulder_width=2.5,
     ),
     geometry=GeometryConfig(
         rotation=0,

@@ -12,7 +12,7 @@ from typing import Any, Optional
 from negpy.domain.models import WorkspaceConfig
 
 # Bump in any change that alters rendered pixels for unchanged settings, a changed default included.
-THUMBNAIL_RENDER_VERSION = 39
+THUMBNAIL_RENDER_VERSION = 43
 
 # Marks a thumbnail made from the source preview, which runs none of the frame's settings.
 QUICK = "quick"
@@ -39,6 +39,7 @@ _UNHASHED_FIELDS: dict[str, frozenset[str]] = {
             "manual_dmin_at",
             "manual_dmax_at",
             "fade_auto_red",
+            "fade_red_trim",
             "fade_neutrals_mix",
         }
     ),

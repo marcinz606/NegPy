@@ -3,7 +3,7 @@ from enum import StrEnum
 from typing import TYPE_CHECKING, Optional
 
 from negpy.domain.migrations import CROSSTALK_PROFILE_RENAMES
-from negpy.kernel.system.i18n import mark
+from negpy.kernel.system.i18n import mark, tr
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS, ExposureConfig
 from negpy.features.lab.models import LabConfig
 
@@ -43,7 +43,7 @@ class SensorUnmix(StrEnum):
 
     @property
     def label(self) -> str:
-        return {"linear": "Linear", "two_scale": "Two-Scale", "density": "Density"}[self.value]
+        return tr({"linear": mark("Linear"), "two_scale": mark("Two-Scale"), "density": mark("Density")}[self.value])
 
 
 class DemosaicMode(StrEnum):
@@ -159,7 +159,7 @@ FADE_RENDER_FIELDS = (
 #: The fade fields a frame's bounds measurement reads: the crossover table is set from them.
 FADE_METER_FIELDS = tuple(f for f in FADE_RENDER_FIELDS if f not in ("fade_crossover_table", "fade_crossover_space"))
 #: Every field of the Fade Restoration card.
-FADE_CARD_FIELDS = FADE_RENDER_FIELDS + ("fade_auto_red", "fade_neutrals_mix")
+FADE_CARD_FIELDS = FADE_RENDER_FIELDS + ("fade_auto_red", "fade_red_trim", "fade_neutrals_mix")
 
 
 @dataclass(frozen=True)
@@ -271,6 +271,8 @@ class ProcessConfig:
     fade_crossover_space: str = ""
     # Restore Range: Red Survival and the shift come from `fade_auto_red.auto_red`.
     fade_auto_red: bool = False
+    # A hand Red Survival under Restore Range, as a factor on the Red it fits; each fit applies it again.
+    fade_red_trim: float = 1.0
     # Gray Mix: Estimate's grays from the gray finder (0) to the tone bands (1) (`fade.gray_refs`).
     fade_neutrals_mix: float = 0.0
 

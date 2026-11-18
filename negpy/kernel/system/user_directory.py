@@ -1,5 +1,6 @@
 """Persistent Windows data-directory selection."""
 
+from negpy.kernel.system.i18n import tr
 import json
 import os
 from pathlib import Path
@@ -13,7 +14,7 @@ _DIRECTORIES = ("presets", "cache", "icc", "crosstalk", "sensor", "flatfield", "
 def local_data_root() -> Path:
     base = Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local")
     if not base.is_absolute():
-        raise OSError("LOCALAPPDATA must be an absolute path.")
+        raise OSError(tr("LOCALAPPDATA must be an absolute path."))
     return base / "NegPy"
 
 
@@ -25,16 +26,16 @@ def saved_user_directory() -> Path | None:
     except FileNotFoundError:
         return None
     if not isinstance(record, dict) or not isinstance(record.get("directory"), str):
-        raise ValueError(f"Invalid NegPy data location in {record_path}.")
+        raise ValueError(tr("Invalid NegPy data location in {value}.", value=record_path))
     name = record["directory"]
     if record.get("version") == 1 and name.startswith("data-") and Path(name).name == name:
         target = root / name
     elif record.get("version") == 2 and Path(name).is_absolute():
         target = Path(name)
     else:
-        raise ValueError(f"Invalid NegPy data location in {record_path}.")
+        raise ValueError(tr("Invalid NegPy data location in {value}.", value=record_path))
     if not target.is_dir():
-        raise OSError(f"The saved NegPy data folder is missing: {target}")
+        raise OSError(tr("The saved NegPy data folder is missing: {value}", value=target))
     return target
 
 
@@ -60,7 +61,7 @@ def ensure_writable(path: Path) -> None:
 def select_user_directory(target: Path) -> None:
     """Validate and remember a folder without moving or copying user data."""
     if not target.is_absolute():
-        raise ValueError("Select an absolute data-folder path.")
+        raise ValueError(tr("Select an absolute data-folder path."))
     ensure_writable(target)
     root = local_data_root()
     _probe_directory(root)
@@ -79,7 +80,7 @@ def select_user_directory(target: Path) -> None:
         os.link(temporary_path, root / "data-location.json")
     except FileExistsError:
         if saved_user_directory() != target:
-            raise OSError("Another NegPy instance selected a data folder. Close NegPy and start it again.") from None
+            raise OSError(tr("Another NegPy instance selected a data folder. Close NegPy and start it again.")) from None
     finally:
         try:
             temporary_path.unlink()

@@ -199,3 +199,12 @@ class TestContactSheetRequest(unittest.TestCase):
         self.controller._on_contact_sheet_written("/out")
         self.controller._on_export_finished()
         self.assertIn("Contact sheet saved to /out", statuses)
+
+    def test_an_export_to_one_folder_reports_it(self):
+        finished = []
+        self.controller.export_finished.connect(lambda *args: finished.append(args[2]))
+        self.controller._on_export_batch_written(["/out"])
+        self.controller._on_export_finished()
+        self.controller._on_export_batch_written(["/a", "/b"])
+        self.controller._on_export_finished()
+        self.assertEqual(finished, ["/out", ""])

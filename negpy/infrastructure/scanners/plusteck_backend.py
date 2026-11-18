@@ -21,6 +21,7 @@ ScanWorker.run_batch expects, and says why the cache lives on the backend.
 
 from __future__ import annotations
 
+from negpy.kernel.system.i18n import tr
 import json
 import threading
 import time
@@ -97,22 +98,35 @@ def _http_json(method: str, base_url: str, path: str, body: dict[str, Any] | Non
             return json.loads(response.read().decode())
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode(errors="replace")
-        raise RuntimeError(f"plusteck API {method} {path} failed: HTTP {exc.code} {detail}") from exc
+        raise RuntimeError(
+            tr("plusteck API {value} {value1} failed: HTTP {value2} {value3}", value=method, value1=path, value2=exc.code, value3=detail)
+        ) from exc
     except urllib.error.URLError as exc:
         raise ScannerUnavailable(
-            f"plusteck backend not reachable at {base_url} ({exc.reason}). Start it with plusteck's backend/run_backend.sh, then retry."
+            tr(
+                "plusteck backend not reachable at {value} ({value1}). Start it with plusteck's backend/run_backend.sh, then retry.",
+                value=base_url,
+                value1=exc.reason,
+            )
         ) from exc
     except TimeoutError as exc:
         # urllib wraps a timeout as URLError only while sending, so a slow answer arrives
         # here instead: the process is up and its single device lock is held by another
         # scan or register access. That clears on its own, so it is worth a retry.
-        raise TransientScanError(f"plusteck API {method} {path} did not respond within {_HTTP_TIMEOUT_S:.0f}s (busy?)") from exc
+        raise TransientScanError(
+            tr(
+                "plusteck API {value} {value1} did not respond within {value2:.0f}s (busy?)",
+                value=method,
+                value1=path,
+                value2=_HTTP_TIMEOUT_S,
+            )
+        ) from exc
 
 
 def _resolve_dpi_tier(dpi: int) -> str:
     tier = _DPI_TO_TIER.get(int(dpi))
     if tier is None:
-        raise RuntimeError(f"Unsupported dpi={dpi}; plusteck's own tiers are {sorted(_DPI_TO_TIER)}")
+        raise RuntimeError(tr("Unsupported dpi={value}; plusteck's own tiers are {value1}", value=dpi, value1=sorted(_DPI_TO_TIER)))
     return tier
 
 
@@ -163,12 +177,12 @@ class PlusteckSession:
         cancel: threading.Event,
     ) -> ScanResult:
         if self._closed:
-            raise RuntimeError(f"Scanner session for {self.device_id} is closed")
+            raise RuntimeError(tr("Scanner session for {value} is closed", value=self.device_id))
         return self._backend.scan(DEVICE_ID, params, progress, cancel)
 
     def eject(self) -> bool:
         if self._closed:
-            raise RuntimeError(f"Scanner session for {self.device_id} is closed")
+            raise RuntimeError(tr("Scanner session for {value} is closed", value=self.device_id))
         self.close()
         return False  # see ScannerCapabilities.can_eject's own comment
 
@@ -199,13 +213,15 @@ def _wait_for_scan(base_url: str, session_id: str, progress: ProgressCb | None, 
     a coarse phase indicator instead of fractional progress.
     """
     start = time.monotonic()
-    _safe_progress(progress, 0.02, "Scanning")
+    _safe_progress(progress, 0.02, tr("Scanning"))
     while True:
         if cancel.is_set():
-            raise RuntimeError("Scan cancelled")
+            raise RuntimeError(tr("Scan cancelled"))
         elapsed = time.monotonic() - start
         if elapsed > _SCAN_MAX_WAIT_S:
-            raise TransientScanError(f"plusteck scan {session_id} did not finish within {_SCAN_MAX_WAIT_S:.0f}s")
+            raise TransientScanError(
+                tr("plusteck scan {value} did not finish within {value1:.0f}s", value=session_id, value1=_SCAN_MAX_WAIT_S)
+            )
         status = _http_json("GET", base_url, "/api/status")
         if status.get("scan_session_id") != session_id:
             time.sleep(_POLL_INTERVAL_S)
@@ -247,7 +263,7 @@ def _ensure_all_split(base_url: str, session_id: str) -> list[Path]:
 
 def _read_half_frame(path: Path) -> np.ndarray:
     if not path.exists():
-        raise RuntimeError(f"expected split output missing: {path}")
+        raise RuntimeError(tr("expected split output missing: {value}", value=path))
     return tifffile.imread(str(path))
 
 
@@ -304,13 +320,16 @@ class PlusteckBackend:
         self._ensure_known_device(device_id)
         if params.frame is None:
             raise RuntimeError(
-                "plusteck addresses frames by ScanParams.frame (1-based) -- "
-                "no free-standing window crop exists on a fixed tray-sweep transport."
+                tr(
+                    "plusteck addresses frames by ScanParams.frame (1-based) -- no free-standing window crop exists on a fixed tray-sweep transport."
+                )
             )
         frames = self._scan_via_cache(params, progress, cancel)
         index = params.frame - 1
         if not 0 <= index < len(frames):
-            raise RuntimeError(f"frame {params.frame} out of range -- this tray load has {len(frames)} half-frame slots")
+            raise RuntimeError(
+                tr("frame {value} out of range -- this tray load has {value1} half-frame slots", value=params.frame, value1=len(frames))
+            )
         rgb = _read_half_frame(frames[index])
         _safe_progress(progress, 1.0)
         return ScanResult(
@@ -377,7 +396,7 @@ class PlusteckBackend:
         fresh = self._cache_frames is not None and time.monotonic() - self._cache_at < _CACHE_TTL_S
         if self._cache_key == key and fresh:
             assert self._cache_frames is not None
-            _safe_progress(progress, 0.99, "Scanning")
+            _safe_progress(progress, 0.99, tr("Scanning"))
             return self._cache_frames
 
         tier = _resolve_dpi_tier(params.dpi)
@@ -397,7 +416,7 @@ class PlusteckBackend:
         _wait_for_scan(self._base_url, session_id, progress, cancel)
         frames = _ensure_all_split(self._base_url, session_id)
         if not frames:
-            raise RuntimeError("plusteck reported a completed scan with no slot images -- is film loaded?")
+            raise RuntimeError(tr("plusteck reported a completed scan with no slot images -- is film loaded?"))
         self._cache_key = key
         self._cache_frames = frames
         self._cache_at = time.monotonic()
@@ -405,4 +424,4 @@ class PlusteckBackend:
 
     def _ensure_known_device(self, device_id: str) -> None:
         if device_id != DEVICE_ID:
-            raise RuntimeError(f"Unknown or disconnected device: {device_id}")
+            raise RuntimeError(tr("Unknown or disconnected device: {value}", value=device_id))

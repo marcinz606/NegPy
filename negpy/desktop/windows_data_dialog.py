@@ -76,7 +76,7 @@ def _browse_directory(owner, initial: Path) -> Path | None:
     ole.CoInitializeEx.restype = ct.c_long
     status = ole.CoInitializeEx(None, 2)  # Apartment-threaded COM for the shell folder picker.
     if status < 0:
-        raise OSError(f"Cannot initialize the folder picker (0x{status & 0xFFFFFFFF:08X}).")
+        raise OSError(tr("Cannot initialize the folder picker (0x{value:08X}).", value=status & 0xFFFFFFFF))
     try:
 
         @_BrowseCallback
@@ -99,7 +99,7 @@ def _browse_directory(owner, initial: Path) -> Path | None:
             shell.SHGetPathFromIDListEx.argtypes = (ct.c_void_p, wt.LPWSTR, wt.DWORD, wt.DWORD)
             shell.SHGetPathFromIDListEx.restype = wt.BOOL
             if not shell.SHGetPathFromIDListEx(item, buffer, len(buffer), 0):
-                raise OSError("Select a filesystem folder for NegPy data.")
+                raise OSError(tr("Select a filesystem folder for NegPy data."))
             return Path(buffer.value)
         finally:
             ole.CoTaskMemFree.argtypes = (ct.c_void_p,)
@@ -114,13 +114,15 @@ def _display_path(path: Path) -> str:
 
 
 def _content(source: Path, selected: Path) -> str:
-    return (
-        f"NegPy cannot write to:\n{_display_path(source)}\n\n"
+    return tr(
+        "NegPy cannot write to:\n{source}\n\n"
         "Windows folder protection or access permissions may block this folder.\n\n"
-        f'Use this data folder (click the path to change it):\n<a href="folder">{_display_path(selected)}</a>\n\n'
+        'Use this data folder (click the path to change it):\n<a href="folder">{selected}</a>\n\n'
         "No files are copied or moved. A new folder starts with new settings and no saved edits. "
         "If you select an existing NegPy data folder, its data will be used. "
-        "Your original data stays in the old folder. NegPy remembers your choice."
+        "Your original data stays in the old folder. NegPy remembers your choice.",
+        source=_display_path(source),
+        selected=_display_path(selected),
     )
 
 
@@ -143,42 +145,39 @@ def choose_directory(source: Path, suggested: Path) -> Path | None:
                     _send(hwnd, 0x46C, 0, _content(source, selected))  # TDM_SET_ELEMENT_TEXT / TDE_CONTENT
             elif link == "help":
                 _message(
-                    "To keep using the original folder, allow the trusted NegPy.exe in Windows Security:\n\n"
-                    "Virus & threat protection > Manage ransomware protection > "
-                    "Allow an app through Controlled folder access > Add an allowed app.\n\n"
-                    "Select the NegPy.exe you run, then cancel this dialog and start NegPy again. "
-                    "Keep folder protection enabled. Do not add an antivirus exclusion. "
-                    "If Windows is managed by your organization, contact your administrator.",
+                    tr(
+                        "To keep using the original folder, allow the trusted NegPy.exe in Windows Security:\n\nVirus & threat protection > Manage ransomware protection > Allow an app through Controlled folder access > Add an allowed app.\n\nSelect the NegPy.exe you run, then cancel this dialog and start NegPy again. Keep folder protection enabled. Do not add an antivirus exclusion. If Windows is managed by your organization, contact your administrator."
+                    ),
                     0x40,
                 )
         except Exception as error:
             # Exceptions must not escape a ctypes callback into the native message loop.
-            _message(f"NegPy could not complete this action:\n\n{error}", 0x10)
+            _message(tr("NegPy could not complete this action:\n\n{value}", value=error), 0x10)
         return 0
 
-    buttons = (_Button * 1)(_Button(100, "Use This Folder"))
+    buttons = (_Button * 1)(_Button(100, tr("Use This Folder")))
     config = _TaskConfig(
         size=ct.sizeof(_TaskConfig),
         flags=0x9,
         common_buttons=0x8,
         title=tr("NegPy data folder"),
-        instruction="Choose a writable data folder",
+        instruction=tr("Choose a writable data folder"),
         content=_content(source, selected),
         button_count=1,
         buttons=buttons,
         default_button=2,
-        footer='<a href="help">Keep using the original folder: Windows protection help</a>',
+        footer='<a href="help">' + tr("Keep using the original folder: Windows protection help") + "</a>",
         callback=callback,
         width=360,
     )
     try:
         show = ct.windll.comctl32.TaskDialogIndirect
     except AttributeError as error:
-        raise OSError("Windows could not load the data-folder dialog. Set NEGPY_USER_DIR to a writable folder.") from error
+        raise OSError(tr("Windows could not load the data-folder dialog. Set NEGPY_USER_DIR to a writable folder.")) from error
     show.argtypes = (ct.POINTER(_TaskConfig), ct.POINTER(ct.c_int), ct.POINTER(ct.c_int), ct.POINTER(wt.BOOL))
     show.restype = ct.c_long
     button = ct.c_int()
     result = show(ct.byref(config), ct.byref(button), None, None)
     if result < 0:
-        raise OSError(f"Cannot show the data-folder dialog (0x{result & 0xFFFFFFFF:08X}).")
+        raise OSError(tr("Cannot show the data-folder dialog (0x{value:08X}).", value=result & 0xFFFFFFFF))
     return selected if button.value == 100 else None

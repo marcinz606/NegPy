@@ -78,7 +78,7 @@ def _groups(combo) -> dict:
 def test_print_stock_list_groups_digital_paper_and_print_film(qapp):
     controller, sidebar = _sidebar()
     groups = _groups(sidebar.paper_combo)
-    assert groups["neutral"] == groups["pakon"] == groups["frontier"] == "Digital"
+    assert groups["neutral"] == groups["pakon"] == groups["frontier"] == groups["nikon_scan"] == "Digital"
     assert groups["kodak_endura"] == groups["fuji_crystal"] == "Paper"
     assert groups["kodak_2383"] == groups["kodak_2393"] == "Print film"
 
@@ -98,8 +98,6 @@ def test_channel_selector_retargets_and_syncs(qapp):
         toe_trim_red=0.4,
         shoulder_trim_red=-0.2,
         midtone_gamma_trim_red=0.15,
-        toe_width_trim_red=1.2,
-        shoulder_width_trim_red=-0.6,
         paper_black=True,
         midtone_gamma=0.25,
         dye_separation=1.3,
@@ -107,8 +105,6 @@ def test_channel_selector_retargets_and_syncs(qapp):
     )
 
     assert sidebar._curve_field("toe") == "toe"
-    assert not sidebar.toe_w_slider.isHidden()
-    assert sidebar.toe_w_trim_slider.isHidden()
     assert not sidebar.dye_separation_slider.isHidden()
     assert sidebar.dye_separation_trim_slider.isHidden()
     assert abs(sidebar.dye_separation_slider.value() - 1.3) < 1e-9
@@ -118,10 +114,8 @@ def test_channel_selector_retargets_and_syncs(qapp):
 
     sidebar.ch_btn.setCurrentIndex(1)
 
-    for base in ("toe", "shoulder", "midtone_gamma", "toe_width", "shoulder_width", "dye_separation"):
+    for base in ("toe", "shoulder", "midtone_gamma", "dye_separation"):
         assert sidebar._curve_field(base) == f"{base}_trim_red"
-    assert sidebar.toe_w_slider.isHidden()
-    assert not sidebar.toe_w_trim_slider.isHidden()
     assert sidebar.dye_separation_slider.isHidden()
     assert not sidebar.dye_separation_trim_slider.isHidden()
     assert abs(sidebar.dye_separation_trim_slider.value() - 0.25) < 1e-9
@@ -129,12 +123,8 @@ def test_channel_selector_retargets_and_syncs(qapp):
     assert abs(sidebar.toe_slider.value() - 0.4) < 1e-9
     assert abs(sidebar.sh_slider.value() - (-0.2)) < 1e-9
     assert abs(sidebar.midtone_gamma_slider.value() - 0.15) < 1e-9
-    assert abs(sidebar.toe_w_trim_slider.value() - 1.2) < 1e-9
-    assert abs(sidebar.sh_w_trim_slider.value() - (-0.6)) < 1e-9
     assert sidebar.toe_slider.label.text() == "Toe R"
     assert sidebar.midtone_gamma_slider.label.text() == "Snap R"
-    assert sidebar.toe_w_trim_slider.label.text() == "Toe Width R"
-    assert sidebar.sh_w_trim_slider.label.text() == "Shoulder Width R"
     assert sidebar.midtone_gamma_slider.isEnabled()
     assert sidebar.ch_btn._edited[1]
     for w in sidebar._global_only:
@@ -143,7 +133,6 @@ def test_channel_selector_retargets_and_syncs(qapp):
     sidebar.ch_btn.setCurrentIndex(0)
     assert sidebar.toe_slider.value() == 0.0
     assert abs(sidebar.midtone_gamma_slider.value() - 0.25) < 1e-9
-    assert not sidebar.toe_w_slider.isHidden()
     for w in sidebar._global_only:
         assert w.isEnabled()
 

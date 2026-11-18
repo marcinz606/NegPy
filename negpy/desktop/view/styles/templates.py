@@ -42,6 +42,7 @@ _CHOICE_LABELS = {
     "Original": mark("Original"),
     "Same as Source": mark("Same as Source"),
     "Free": mark("Free"),
+    "Greyscale": mark("Grayscale"),
 }
 
 
@@ -719,9 +720,9 @@ def slider_label_qss(color: str) -> str:
     return f"font-size: {THEME.font_size_base}px; color: {color};"
 
 
-def slider_value_qss() -> str:
+def slider_value_qss(color: str = THEME.text_primary) -> str:
     return (
-        f"QDoubleSpinBox {{font-size: {THEME.font_size_base}px; color: {THEME.text_primary}; background: transparent;"
+        f"QDoubleSpinBox {{font-size: {THEME.font_size_base}px; color: {color}; background: transparent;"
         " border: none; border-bottom: 1px solid transparent; padding: 0px;}"
         f"QDoubleSpinBox:hover {{border-bottom: 1px solid {THEME.border_hover};}}"
         f"QDoubleSpinBox:focus {{border-bottom: 1px solid {THEME.border_focus};}}"

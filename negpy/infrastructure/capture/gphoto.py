@@ -27,6 +27,7 @@ bodies have been tested.
 
 from __future__ import annotations
 
+from negpy.kernel.system.i18n import tr
 import json
 import os
 import re
@@ -148,7 +149,7 @@ def _require_raw(name: str) -> None:
     suffix = os.path.splitext(name)[1]
     if suffix.lower() not in _CAMERA_RAW_EXTENSIONS:
         shown = suffix or "(no extension)"
-        raise GphotoError(f"camera returned {shown}, not a RAW file; set the camera to RAW-only image quality and retry")
+        raise GphotoError(tr("camera returned {value}, not a RAW file; set the camera to RAW-only image quality and retry", value=shown))
 
 
 def _write_raw(out_path: str, camera_name: str, data: bytes) -> str:
@@ -243,8 +244,9 @@ def _gp() -> Any:
         import gphoto2  # noqa: PLC0415 — optional dependency, imported on demand
     except ImportError as exc:  # pragma: no cover — depends on the install
         raise CameraUnavailable(
-            "Camera scanning needs python-gphoto2. Install it with `pip install gphoto2` "
-            "(macOS and Linux only — libgphoto2 has no Windows build)."
+            tr(
+                "Camera scanning needs python-gphoto2. Install it with `pip install gphoto2` (macOS and Linux only: libgphoto2 has no Windows build)."
+            )
         ) from exc
     return gphoto2
 
@@ -412,12 +414,13 @@ class GphotoCamera:
                     # connection poll can pin an "in use by another app" state on the camera dot,
                     # which enumeration alone cannot see.
                     raise CameraClaimedError(
-                        f"could not open the camera: {exc}. Another program holds it. On macOS that is usually "
-                        "the system's own camera daemon rather than a window you can see; it releases the camera "
-                        "after a few minutes, and unplugging the cable frees it at once."
+                        tr(
+                            "could not open the camera: {value}. Another program holds it. On macOS that is usually the system's own camera daemon rather than a window you can see; it releases the camera after a few minutes, and unplugging the cable frees it at once.",
+                            value=exc,
+                        )
                     ) from exc
                 if delay is None:
-                    raise GphotoError(f"could not open the camera: {exc}") from exc
+                    raise GphotoError(tr("could not open the camera: {value}", value=exc)) from exc
                 time.sleep(delay)
         self._camera = camera
         self._model = _model_name(camera)
@@ -727,7 +730,7 @@ class GphotoCamera:
             logger.warning("gphoto2: could not set magnifier %r to %r: %s", spec.ratio, value, exc)
 
     def _magnifier_refusal(self) -> str:
-        return f"{self._model or 'This camera'} cannot stream its magnified view. Use the focus meter under the image."
+        return tr("{model} cannot stream its magnified view. Use the focus meter under the image.", model=self._model or tr("This camera"))
 
     def _release_stalled_magnifier(self) -> bool:
         """Switch off a magnifier that stopped the stream and retire it for this session.
@@ -811,7 +814,7 @@ class GphotoCamera:
                 if shutter:
                     name = self._property("shutter")
                     if name is None or not self._set_verified(name, shutter):
-                        raise GphotoError(f"could not set shutter to {shutter!r}: camera rejected it or it did not settle")
+                        raise GphotoError(tr("could not set shutter to {value!r}: camera rejected it or it did not settle", value=shutter))
                 for prop, value in (("iso", iso), ("aperture", aperture)):
                     # Not fatal like the shutter: a warning plus the current setting beats
                     # aborting a scan, and the preset's value was settable at calibration.
@@ -832,7 +835,7 @@ class GphotoCamera:
                     self._drain_events()
                     raise
         except self._gp.GPhoto2Error as exc:
-            raise GphotoError(f"capture failed: {exc}") from exc
+            raise GphotoError(tr("capture failed: {value}", value=exc)) from exc
         else:
             self._drain_owed.set()  # the preview must clear this shot's stragglers before resuming
             self._finish_shot_async()
@@ -886,10 +889,10 @@ class GphotoCamera:
                     before = _safe_value(self._gp, camera.get_single_config(name)) if name is not None else None
                     bulb = self._bulb_choice(camera, name)
                 if bulb is None and usb_release:
-                    raise GphotoError("this camera offers no Bulb shutter over USB; set Bulb on the camera and use a release cable")
+                    raise GphotoError(tr("this camera offers no Bulb shutter over USB; set Bulb on the camera and use a release cable"))
                 release = self._bulb_release(camera) if usb_release else None
                 if usb_release and release is None:
-                    raise GphotoError("this camera has no bulb release over USB; use a release cable on the Scanlight")
+                    raise GphotoError(tr("this camera has no bulb release over USB; use a release cable on the Scanlight"))
                 for prop, value in (("iso", iso), ("aperture", aperture)):
                     if value:
                         prop_name = self._property(prop)
@@ -900,7 +903,10 @@ class GphotoCamera:
                 elif held is None and not self._set_verified(name, bulb):
                     # A body in a continuous drive mode refuses Bulb (a Sony one does), which no write can change.
                     raise GphotoError(
-                        f"the camera did not go to {bulb!r}; set its drive mode to single shooting and its mode dial to M, then scan again"
+                        tr(
+                            "the camera did not go to {value!r}; set its drive mode to single shooting and its mode dial to M, then scan again",
+                            value=bulb,
+                        )
                     )
                 kept = False
                 try:
@@ -924,7 +930,7 @@ class GphotoCamera:
                     if not kept:
                         self._restore_shutter(name, bulb, before)
         except self._gp.GPhoto2Error as exc:
-            raise GphotoError(f"bulb capture failed: {exc}") from exc
+            raise GphotoError(tr("bulb capture failed: {value}", value=exc)) from exc
         else:
             self._drain_owed.set()
             self._finish_shot_async()
@@ -986,8 +992,9 @@ class GphotoCamera:
             except self._gp.GPhoto2Error as exc:
                 logger.debug("gphoto2: could not delete %s off the camera: %s", data.name, exc)
         raise GphotoError(
-            "the camera sent no RAW file after the Bulb exposure; check that it is in Bulb, set to RAW, "
-            "and that the release cable reaches it"
+            tr(
+                "the camera sent no RAW file after the Bulb exposure; check that it is in Bulb, set to RAW, and that the release cable reaches it"
+            )
         )
 
     def _download(self, camera: Any, path: Any) -> bytes:
@@ -1065,16 +1072,20 @@ class GphotoCamera:
         if self._preview_broken:
             # The body advertised the capability, then failed to deliver it. Say so plainly
             # instead of blaming the connection, and make clear that scanning still works.
-            return (
-                f"{self._model or 'this camera'} accepted the connection but its live view does not work "
-                "(a gap in libgphoto2's support for this body). Scanning still works, just without a preview."
+            return tr(
+                "{model} accepted the connection but its live view does not work "
+                "(a gap in libgphoto2's support for this body). Scanning still works, just without a preview.",
+                model=self._model or tr("this camera"),
             )
         if self._capabilities.mtp_mode:
-            return (
-                f"{self._model or 'this camera'} is connected in MTP mode, which has no live view. "
-                "Switch the camera's USB setting to PC Remote (or Tether/Control) and reconnect."
+            return tr(
+                "{model} is connected in MTP mode, which has no live view. "
+                "Switch the camera's USB setting to PC Remote (or Tether/Control) and reconnect.",
+                model=self._model or tr("this camera"),
             )
-        return f"{self._model or 'this camera'} does not support live view. Scanning still works, just without a preview."
+        return tr(
+            "{model} does not support live view. Scanning still works, just without a preview.", model=self._model or tr("this camera")
+        )
 
     def is_running(self) -> bool:
         return self._preview is not None and self._preview.is_alive()

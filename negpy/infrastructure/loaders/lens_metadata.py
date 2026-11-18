@@ -15,6 +15,7 @@ import numpy as np
 import tifffile
 
 from negpy.features.lens.models import LensMetadata
+from negpy.kernel.system.i18n import mark
 from negpy.features.lens.warps import IDENTITY, PanasonicWarp, RectilinearWarp, SonyWarp
 
 _MAX_OPCODE_BYTES = 4 * 1024 * 1024
@@ -89,13 +90,13 @@ def _read_sony(page: Any) -> LensMetadata:
     warp = SonyWarp(distortion, ca[: len(ca) // 2], ca[len(ca) // 2 :])
     if any(1 + v / 16384 <= 0 for v in distortion):
         raise ValueError("Invalid Sony distortion coefficients.")
-    return LensMetadata("Sony ARW", (warp,), "No nonzero Sony lens correction coefficients.")
+    return LensMetadata("Sony ARW", (warp,), mark("No nonzero Sony lens correction coefficients."))
 
 
 def _read_dng(page: Any) -> LensMetadata:
     opcode = page.tags.get(51022)
     if opcode is None:
-        return LensMetadata(reason="No embedded DNG lens warp (OpcodeList3).")
+        return LensMetadata(reason=mark("No embedded DNG lens warp (OpcodeList3)."))
     if opcode.count > _MAX_OPCODE_BYTES or int(opcode.dtype) not in (1, 7):
         raise ValueError("Invalid DNG correction data size or type.")
     # Non-square source pixels need a separate coordinate transform.
@@ -154,10 +155,10 @@ def _read_panasonic(file_path: str) -> LensMetadata:
         value = data[off : off + 32]
         break
     if value is None:
-        return LensMetadata(reason="Panasonic RW2 carries no embedded distortion correction.")
+        return LensMetadata(reason=mark("Panasonic RW2 carries no embedded distortion correction."))
     words = struct.unpack("<16h", value)
     if (words[7] & 0x0F) != 1:
-        return LensMetadata(reason="Panasonic distortion correction is off in this file.")
+        return LensMetadata(reason=mark("Panasonic distortion correction is off in this file."))
     denom = 1.0 + words[5] / 32768.0
     if denom <= 0.0:
         raise ValueError("Panasonic distortion scale folds the image.")
@@ -182,7 +183,7 @@ def _read_tiff(file_path: str, parse_page: Callable[[Any], LensMetadata]) -> Len
                 pages.extend(islice(parent.pages, 16))
         raw_pages = [p for p in pages if int(p.photometric) in (32803, 34892) and p.samplesperpixel in (1, 3)]
         if not raw_pages:
-            return LensMetadata(reason="No supported RAW image plane; rendered images are not corrected again.")
+            return LensMetadata(reason=mark("No supported RAW image plane; rendered images are not corrected again."))
         page = max(raw_pages, key=lambda p: p.imagewidth * p.imagelength)
         return parse_page(page)
 
@@ -197,25 +198,23 @@ _READERS: dict[str, Callable[[str], LensMetadata]] = {
 def read_lens_metadata(file_path: str | None) -> LensMetadata:
     """Inspect source metadata without decoding pixels; cache against the file revision."""
     if not file_path:
-        return LensMetadata(reason="Load a source file to check for embedded lens correction data.")
+        return LensMetadata(reason=mark("Load a source file to check for embedded lens correction data."))
     reader = _READERS.get(os.path.splitext(file_path)[1].lower())
     if reader is None:
-        return LensMetadata(reason="Embedded lens correction is not supported for this file type.")
+        return LensMetadata(reason=mark("Embedded lens correction is not supported for this file type."))
     try:
         stat = os.stat(file_path)
         return _read_cached(os.path.abspath(file_path), stat.st_mtime_ns, stat.st_size, reader)
     except OSError:
-        return LensMetadata(reason="Cannot read source lens metadata.")
+        return LensMetadata(reason=mark("Cannot read source lens metadata."))
 
 
 @lru_cache(maxsize=128)
 def _read_cached(file_path: str, mtime_ns: int, size: int, reader: Callable[[str], LensMetadata]) -> LensMetadata:
     try:
         return reader(file_path)
-    except ValueError as exc:
-        return LensMetadata(reason=str(exc))
-    except (OSError, TypeError, struct.error, IndexError, OverflowError, ZeroDivisionError):
-        return LensMetadata(reason="Cannot read embedded lens correction data.")
+    except (ValueError, OSError, TypeError, struct.error, IndexError, OverflowError, ZeroDivisionError):
+        return LensMetadata(reason=mark("Cannot read embedded lens correction data."))
 
 
 def bind_decode(lens: LensMetadata, raw: Any, fallback: bool = False) -> LensMetadata:
@@ -226,10 +225,10 @@ def bind_decode(lens: LensMetadata, raw: Any, fallback: bool = False) -> LensMet
     if fallback:
         area = lens.buffer_area or lens.active_area
         if (sizes.raw_height, sizes.raw_width) != (area[2] - area[0], area[3] - area[1]):
-            return LensMetadata(reason="DNG fallback crop does not match the lens correction area.")
+            return LensMetadata(reason=mark("DNG fallback crop does not match the lens correction area."))
         return replace(lens, buffer_area=area)
     area = (sizes.top_margin, sizes.left_margin, sizes.top_margin + sizes.height, sizes.left_margin + sizes.width)
     t, left, b, r = lens.active_area
     if not (t <= area[0] < area[2] <= b and left <= area[1] < area[3] <= r):
-        return LensMetadata(reason="Decoded DNG area does not match the lens correction area.")
+        return LensMetadata(reason=mark("Decoded DNG area does not match the lens correction area."))
     return replace(lens, buffer_area=area)

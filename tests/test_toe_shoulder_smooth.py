@@ -6,7 +6,7 @@ import numpy as np
 
 from negpy.domain.interfaces import PipelineContext
 from negpy.domain.models import WorkspaceConfig
-from negpy.features.exposure.logic import CharacteristicCurve, apply_characteristic_curve
+from negpy.features.exposure.logic import CharacteristicCurve, apply_characteristic_curve, print_knees
 from negpy.features.exposure.processor import PhotometricProcessor
 from negpy.features.process.models import ProcessMode
 
@@ -16,73 +16,60 @@ def _ramp_image(n: int = 256) -> np.ndarray:
     return np.repeat(ramp, 3, axis=2)
 
 
+_SLOPE = 5.375
+
+
+def _knees(toe: float = 0.0, shoulder: float = 0.0):
+    return print_knees(_SLOPE, toe, shoulder)[2:4]
+
+
 class TestToeShoulderSmoothness(unittest.TestCase):
     def test_monotonic_over_full_slider_range(self):
         """
         The transfer must be non-increasing (input = density, output = brightness)
-        for every toe/shoulder/width/pivot combination — no tone reversal.
+        for every toe/shoulder/pivot combination, with no tone reversal.
         """
         img = _ramp_image()
-        for toe, shoulder, width, pivot in itertools.product((-1.0, 1.0), (-1.0, 1.0), (0.1, 2.5, 5.0), (0.5, 0.79, 0.95)):
-            params = (pivot, 5.375)
-            res = apply_characteristic_curve(
-                img,
-                params,
-                params,
-                params,
-                toe=toe,
-                toe_width=width,
-                shoulder=shoulder,
-                shoulder_width=width,
-            )
+        for toe, shoulder, pivot in itertools.product((-1.0, 1.0), (-1.0, 1.0), (0.5, 0.79, 0.95)):
+            params = (pivot, _SLOPE)
+            res = apply_characteristic_curve(img, params, params, params, knee_stretch=_knees(toe, shoulder))
             row = res[0, :, 0]
-            self.assertTrue(
-                np.all(np.diff(row) <= 1e-5),
-                f"tone reversal at toe={toe} shoulder={shoulder} width={width} pivot={pivot}",
-            )
+            self.assertTrue(np.all(np.diff(row) <= 1e-5), f"tone reversal at toe={toe} shoulder={shoulder} pivot={pivot}")
 
     def test_toe_has_useful_strength(self):
-        """Full toe must visibly lift the deep shadows (blacks raised toward grey)."""
-        img = np.full((4, 4, 3), 1.0, dtype=np.float32)  # deepest measured shadow
-        params = (0.5, 5.375)  # pivot pushes the pixel deep into paper black
+        """A full soft toe visibly opens the deep shadows."""
+        img = np.full((4, 4, 3), 1.1, dtype=np.float32)
+        params = (0.79, _SLOPE)
         base = float(apply_characteristic_curve(img, params, params, params)[0, 0, 0])
-        lifted = float(apply_characteristic_curve(img, params, params, params, toe=1.0, toe_width=2.5)[0, 0, 0])
-        # Linear: paper black ~0.005, toe lift ~0.0048 (was 0.03 in sRGB).
-        self.assertGreater(lifted, base + 0.004)
+        soft = float(apply_characteristic_curve(img, params, params, params, knee_stretch=_knees(toe=1.0))[0, 0, 0])
+        self.assertGreater(soft, base * 1.1)
 
     def test_toe_leaves_highlights_invariant(self):
-        """Toe shapes the shadow end: bright highlights stay put at any width."""
         img = np.full((4, 4, 3), 0.0, dtype=np.float32)  # far highlight side
-        params = (0.79, 5.375)
+        params = (0.79, _SLOPE)
         base = float(apply_characteristic_curve(img, params, params, params)[0, 0, 0])
-        for toe, width in itertools.product((-1.0, 1.0), (0.1, 2.5, 5.0)):
-            res = float(apply_characteristic_curve(img, params, params, params, toe=toe, toe_width=width)[0, 0, 0])
-            self.assertAlmostEqual(res, base, delta=0.015, msg=f"toe={toe} width={width}")
+        for toe in (-1.0, 1.0):
+            res = float(apply_characteristic_curve(img, params, params, params, knee_stretch=_knees(toe=toe))[0, 0, 0])
+            self.assertAlmostEqual(res, base, delta=1e-6, msg=f"toe={toe}")
 
     def test_shoulder_leaves_shadows_invariant(self):
-        """Shoulder shapes the highlight end: deep shadows stay put (sharp/default
-        width; a very gentle shoulder is a global curvature control and may bleed)."""
         img = np.full((4, 4, 3), 1.0, dtype=np.float32)  # deep shadow side
-        params = (0.79, 5.375)
+        params = (0.79, _SLOPE)
         base = float(apply_characteristic_curve(img, params, params, params)[0, 0, 0])
-        for shoulder, width in itertools.product((-1.0, 1.0), (0.1, 2.5)):
-            res = float(apply_characteristic_curve(img, params, params, params, shoulder=shoulder, shoulder_width=width)[0, 0, 0])
-            self.assertAlmostEqual(res, base, delta=0.015, msg=f"shoulder={shoulder} width={width}")
+        for shoulder in (-1.0, 1.0):
+            res = float(apply_characteristic_curve(img, params, params, params, knee_stretch=_knees(shoulder=shoulder))[0, 0, 0])
+            self.assertAlmostEqual(res, base, delta=1e-6, msg=f"shoulder={shoulder}")
 
     def test_chart_matches_kernel(self):
         """CharacteristicCurve (H&D chart) must match the pipeline kernel."""
         img = _ramp_image()
-        pivot, slope = 0.79, 5.375
-        for toe, toe_width, shoulder, shoulder_width in ((0.0, 2.5, 0.0, 2.5), (0.6, 3.0, -0.4, 1.5)):
-            params = (pivot, slope)
-            res_kernel = apply_characteristic_curve(
-                img, params, params, params, toe=toe, toe_width=toe_width, shoulder=shoulder, shoulder_width=shoulder_width
-            )
-            curve = CharacteristicCurve(
-                contrast=slope, pivot=pivot, toe=toe, toe_width=toe_width, shoulder=shoulder, shoulder_width=shoulder_width
-            )
+        pivot = 0.79
+        for toe, shoulder in ((0.0, 0.0), (0.6, -0.4), (-1.0, 1.0)):
+            params = (pivot, _SLOPE)
+            tw3, sw3 = _knees(toe, shoulder)
+            res_kernel = apply_characteristic_curve(img, params, params, params, knee_stretch=(tw3, sw3))
+            curve = CharacteristicCurve(contrast=_SLOPE, pivot=pivot, toe_stretch=tw3[0], shoulder_stretch=sw3[0])
             density = np.asarray(curve(img[0, :, 0].astype(np.float32)))
-            # Kernel outputs linear reflectance (transmittance) now.
             expected = np.clip(10.0 ** (-density), 0.0, 1.0)
             np.testing.assert_allclose(res_kernel[0, :, 0], expected, atol=1e-4)
 

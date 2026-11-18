@@ -1,3 +1,4 @@
+from negpy.kernel.system.i18n import tr
 import os
 import plistlib
 import re
@@ -169,7 +170,7 @@ class FffLoader(IImageLoader):
         with tifffile.TiffFile(file_path) as tif:
             page = _find_full_res_ifd(tif)
             if page is None:
-                raise ValueError(f"No full-res image IFD in {file_path}")
+                raise ValueError(tr("No full-res image IFD in {value}", value=file_path))
 
             page_tags = getattr(page, "tags", None)
             comp_tag = page_tags.get("Compression") if page_tags else None
@@ -224,7 +225,7 @@ class FffLoader(IImageLoader):
         should_cancel: Optional[Callable[[], bool]] = None,
     ) -> Optional[Image.Image]:
         if should_cancel is not None and should_cancel():
-            raise InterruptedError("preview cancelled")
+            raise InterruptedError(tr("preview cancelled"))
         orientation = read_orientation(file_path)
         quick = _tiff_preview_page(file_path)
         if quick is not None:

@@ -50,34 +50,21 @@ _DETECT_HAIR_FILL_GAIN = 2.0  # cap on that σ, × the σ with hairs filled, so 
 # Below this normalized density the film is clear base or holder; noise there is not dust.
 _DETECT_PROXY_MIN = 0.15
 
-# Manual heal gate. A painted stroke marks a *search area*, not a stamp: only pixels that
-# stand out from the film around them are repaired, so clean grain under a generous brush
-# stays byte-identical. The gate is two-sided because dust is a bright outlier in density
-# and a scratch a dark one (#791).
-#
-# The excess is measured on a 3x3 mean of the local high-pass, against the MAD σ of that
-# same quantity over the stroke's neighbourhood. Averaging drops uncorrelated grain by 3
-# while a defect of 2 px or more keeps its full excess, and measuring σ keeps the bars
-# valid on any film and scanner. An absolute density threshold cannot separate the two.
-_MANUAL_Z_HI = 8.0
-# Grow bar for the hysteresis below: the floor a connected pixel must clear to join a
-# defect already found. Absolute, or a fraction of the core's strength for a defect whose
-# skirt is proportionally deep.
-_MANUAL_Z_GROW = 2.0
-_MANUAL_Z_GROW_FRAC = 0.25
-# Backstop bar: a stroke whose strongest pixel never reaches _MANUAL_Z_HI is rescaled
-# against its own maximum, so a faint but real defect still repairs. Under this bar the
-# stroke stays a no-op: the brush found clean film.
-_MANUAL_Z_MIN = 5.0
-# Local-statistics window, as a multiple of the brush radius. Wide enough that a defect
-# filling the brush cannot set its own baseline.
-_MANUAL_WIN_FACTOR = 3.0
+# Paint gate. A painted stroke marks a search area, not a stamp: only the marks the optical
+# detector finds under it are repaired, so clean grain under a generous brush stays
+# byte-identical. Dust is dense and a scratch thin (#791), so the detector runs on the
+# density and on its negative. One seed bar, no texture ramp: the paint says the mark is a
+# defect, so only clean grain has to stay under the bar.
+_PAINT_Z = 5.0
 # Soft edge on the search area, so a defect crossing the brush rim does not repair to a
 # hard line.
 _MANUAL_RIM_PX = 1.5
+# Cap on the detector size under paint, px at HEAL_SIZE_REF. The size follows the brush so a
+# mark that fills it is not its own background; the cap bounds the windows of a wide brush.
+_PAINT_SIZE_MAX = 16.0
 
 # Transport scratches (#788): a nearly straight mark a few px wide running the length of
-# the film. Per pixel it sits under the manual-heal seed bar, so no per-pixel gate can
+# the film. Per pixel it sits under the paint gate's seed bar, so no per-pixel gate can
 # reach it. Only integrating along the line finds it.
 #
 # Cross-section band-pass: film grain is finer, image structure broader.
@@ -242,8 +229,20 @@ def split_hairs(mask: np.ndarray) -> Tuple[np.ndarray, Optional[np.ndarray]]:
     return negpy_core.split_hairs(np.ascontiguousarray(mask, dtype=np.uint8), (_HAIR_MIN_AREA, _HAIR_MIN_ELONG))
 
 
-def _texture_win(shape: Tuple[int, ...], dust_size: int) -> int:
-    return int(max(7, max(1.0, float(dust_size)) * film_scale(shape) * 4.0)) * 2 + 1
+def _texture_win(base_size: float) -> int:
+    return int(max(7, base_size * 4.0)) * 2 + 1
+
+
+def _dust_stats_px(dens: np.ndarray, base_size: float) -> Tuple[np.ndarray, ...]:
+    """``compute_dust_stats`` from a density plane, with the largest defect in plane px. A crop
+    passes the size of its frame: its own shape says nothing about the film footprint."""
+    v_win = int(max(3, base_size * 3.0)) * 2 + 1
+    # Median: the level of the film around a defect narrower than half the window. Opening:
+    # identity on the soft ramp of a tonal edge and on anything wider than a speck, both of
+    # which the median alone calls dense. Whichever is higher is the background.
+    disk = negpy_core.ellipse_kernel((2 * int(round(base_size)) + 1,) * 2)
+    constants = (_PROXY_MIN_SPREAD, _DETECT_AVG_PX, _DETECT_MAD_GAIN, _DETECT_SIGMA_MIN)
+    return negpy_core.dust_stats(dens, v_win, _texture_win(base_size), disk, constants)
 
 
 def compute_dust_stats(img: ImageBuffer, dust_size: int) -> Tuple[np.ndarray, ...]:
@@ -251,16 +250,8 @@ def compute_dust_stats(img: ImageBuffer, dust_size: int) -> Tuple[np.ndarray, ..
     expensive part of a detection pass, cacheable across threshold changes. ``z`` is the
     3x3-averaged density excess over the median background in units of its own local MAD σ;
     ``texture`` the wide-window σ of the density."""
-    shape = img.shape[:2]
     # Size is film footprint at _IR_DETECT_REF; the windows follow the plane (see _ir_win).
-    base_size = max(1.0, float(dust_size)) * film_scale(shape)
-    v_win = int(max(3, base_size * 3.0)) * 2 + 1
-    # Median: the level of the film around a defect narrower than half the window. Opening:
-    # identity on the soft ramp of a tonal edge and on anything wider than a speck, both of
-    # which the median alone calls dense. Whichever is higher is the background.
-    disk = negpy_core.ellipse_kernel((2 * int(round(base_size)) + 1,) * 2)
-    constants = (_PROXY_MIN_SPREAD, _DETECT_AVG_PX, _DETECT_MAD_GAIN, _DETECT_SIGMA_MIN)
-    return negpy_core.dust_stats(_density(img), v_win, _texture_win(shape, dust_size), disk, constants)
+    return _dust_stats_px(_density(img), max(1.0, float(dust_size)) * film_scale(img.shape[:2]))
 
 
 def detect_bar(slider: float) -> float:
@@ -272,6 +263,34 @@ def detect_bar(slider: float) -> float:
         return _DETECT_Z_LOOSE + (_DETECT_Z_DEFAULT - _DETECT_Z_LOOSE) * s / _DETECT_DEFAULT_POS
     t = (s - _DETECT_DEFAULT_POS) / (1.0 - _DETECT_DEFAULT_POS)
     return _DETECT_Z_DEFAULT * (_DETECT_Z_TIGHT / _DETECT_Z_DEFAULT) ** t
+
+
+def _detect_from_stats(
+    stats: Tuple[np.ndarray, ...],
+    hi: float,
+    hi_hair: float,
+    base_size: float,
+    scale: float,
+    *,
+    texture: bool = True,
+    proxy_min: float = _DETECT_PROXY_MIN,
+) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
+    """The detector on its stats planes, with the largest defect and the film scale in plane px.
+    ``texture=False`` turns both texture ramps off."""
+    lo = max(_DETECT_Z_GROW, min(hi, hi_hair) * _DETECT_Z_GROW_FRAC)
+    reach = int(round(_DETECT_GROW_REACH * base_size))
+    disk = negpy_core.ellipse_kernel((2 * reach + 1,) * 2)
+    planes = tuple(np.ascontiguousarray(a, dtype=np.float32) for a in stats[:4])
+    return negpy_core.detect_luma_score(
+        planes,
+        (hi, hi_hair, lo),
+        disk,
+        (proxy_min, _DETECT_TEXTURE_KNEE, _DETECT_TEXTURE_GAIN if texture else 0.0),
+        (_HAIR_MIN_AREA, _HAIR_MIN_ELONG),
+        (_DETECT_HAIR_TEXTURE_KNEE, _DETECT_HAIR_TEXTURE_GAIN if texture else 0.0, _DETECT_HAIR_FILL_GAIN),
+        _texture_win(base_size),
+        (_DETECT_PAD_PX * scale, _IR_SCORE_FLOOR),
+    )
 
 
 def detect_luma_score(
@@ -286,24 +305,10 @@ def detect_luma_score(
     ``hair_threshold``'s (default: the same), each raised by its own texture ramp."""
     if stats is None:
         stats = compute_dust_stats(img, dust_size)
-    proxy, background, z, texture = stats[:4]
     hi = detect_bar(dust_threshold)
     hi_hair = hi if hair_threshold is None else detect_bar(hair_threshold)
-    scale = film_scale(proxy.shape)
-    lo = max(_DETECT_Z_GROW, min(hi, hi_hair) * _DETECT_Z_GROW_FRAC)
-    reach = int(round(_DETECT_GROW_REACH * max(1, dust_size) * scale))
-    disk = negpy_core.ellipse_kernel((2 * reach + 1,) * 2)
-    planes = tuple(np.ascontiguousarray(a, dtype=np.float32) for a in (proxy, background, z, texture))
-    return negpy_core.detect_luma_score(
-        planes,
-        (hi, hi_hair, lo),
-        disk,
-        (_DETECT_PROXY_MIN, _DETECT_TEXTURE_KNEE, _DETECT_TEXTURE_GAIN),
-        (_HAIR_MIN_AREA, _HAIR_MIN_ELONG),
-        (_DETECT_HAIR_TEXTURE_KNEE, _DETECT_HAIR_TEXTURE_GAIN, _DETECT_HAIR_FILL_GAIN),
-        _texture_win(proxy.shape, dust_size),
-        (_DETECT_PAD_PX * scale, _IR_SCORE_FLOOR),
-    )
+    scale = film_scale(stats[0].shape)
+    return _detect_from_stats(stats, hi, hi_hair, max(1.0, float(dust_size)) * scale, scale)
 
 
 def exclusion_cover(strokes: List[Tuple], shape: Tuple[int, int]) -> np.ndarray:
@@ -360,34 +365,33 @@ def exclusion_token(retouch) -> str:
     return "|ex" + hashlib.sha1(repr(retouch.dust_exclusion_strokes).encode()).hexdigest()[:12]
 
 
-def strokes_to_score(
-    img: ImageBuffer,
+def paint_to_score(
+    plane: ImageBuffer,
     strokes: List[Tuple],
     legacy_spots: List[Tuple[float, float, float]],
-) -> Optional[np.ndarray]:
-    """Painted heal/scratch strokes → a defect score for the shared repair.
+    averaged: Optional[ImageBuffer] = None,
+) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
+    """Painted heal strokes on the detection plane → ``(score, hair_mask)`` at its shape, each
+    None when empty. ``averaged`` is the same frame at the same shape without the min-pooling,
+    which erases a thin bright mark: the scratch pass reads it.
 
-    The capsule a stroke paints is a **search area**, not a stamp: inside it, a pixel is
-    repaired by how far it stands out from the film around it (a two-sided local z-score
-    on density), so clean grain under a generous brush comes back untouched and only the
-    defect is rewritten. Two-sided because dust is a bright outlier in density while a
-    scratch, having lost emulsion, is a dark one — the direction a bright-only gate could
-    never repair.
-
-    Strokes carry raw-frame normalized coordinates, so this runs before geometry and needs
-    no mapping. Returns ``None`` when no stroke found anything worth repairing.
+    A stroke is a search area: the optical detector runs under it, on density for dust and on
+    negated density for a scratch, and clean film under the paint stays at 1. A click that
+    finds nothing takes its own footprint, so a click always repairs. Strokes carry raw-frame
+    normalized coordinates, so this runs before geometry.
     """
     entries: List[Tuple[List, float]] = [(list(s[0]), float(s[1])) for s in strokes]
     entries += [([[nx, ny]], float(size)) for nx, ny, size in legacy_spots]
     if not entries:
-        return None
+        return None, None
 
-    h, w = img.shape[:2]
+    h, w = plane.shape[:2]
     score = np.ones((h, w), dtype=np.float32)
-    # Brush size is a DIAMETER at HEAL_SIZE_REF scale, so the painted footprint matches the
-    # cursor at any render resolution (overlay._brush_screen_radius draws size/(2*REF)).
+    hair = np.zeros((h, w), dtype=np.uint8)
+    # Brush size is a diameter at HEAL_SIZE_REF, so the footprint matches the cursor at any
+    # resolution (overlay._brush_screen_radius draws size/(2*REF)).
     scale = max(w, h) / HEAL_SIZE_REF
-    touched = False
+    film = film_scale((h, w))
 
     for points, size in entries:
         radius = max(1.0, size * scale * 0.5)
@@ -396,8 +400,8 @@ def strokes_to_score(
             chain = smooth_polyline(chain, closed=False)
         pts = np.array(chain, dtype=np.float32)
 
-        win = int(max(3.0, radius * _MANUAL_WIN_FACTOR)) * 2 + 1
-        pad = int(radius) + win
+        base = max(1.0, min(2.0 * radius, _PAINT_SIZE_MAX * film))
+        pad = int(radius) + _texture_win(base) // 2 + 1
         x0 = max(0, int(pts[:, 0].min()) - pad)
         y0 = max(0, int(pts[:, 1].min()) - pad)
         x1 = min(w, int(pts[:, 0].max()) + pad + 1)
@@ -406,27 +410,41 @@ def strokes_to_score(
             continue
 
         local = np.ascontiguousarray(np.round(pts - (x0, y0)).astype(np.int32))
-        brush = (max(1, int(round(radius))), max(1, int(round(2.0 * radius))))
-        # Inside the brush a pixel repairs by how far it stands out from the film around it:
-        # MAD about zero over the whole crop, so the defect stays a minority in its own noise
-        # estimate, then hysteresis from the core, because grain is isolated and never joins.
-        constants = (
-            win,
-            _MANUAL_Z_MIN,
-            _MANUAL_Z_HI,
-            _MANUAL_Z_GROW,
-            _MANUAL_Z_GROW_FRAC,
-            _DETECT_PAD_PX * film_scale((h, w)),
-            _IR_SCORE_FLOOR,
-            _MANUAL_RIM_PX,
-        )
-        region = negpy_core.heal_region(_density(img[y0:y1, x0:x1]), local, brush, constants)
-        if region is None:
+        r = max(1, int(round(radius)))
+        cover = negpy_core.stroke_cover((y1 - y0, x1 - x0), [(local, r, max(1, int(round(2.0 * radius))))])
+        if not cover.any():
             continue
-        np.minimum(score[y0:y1, x0:x1], region, out=score[y0:y1, x0:x1])
-        touched = True
 
-    return score if touched else None
+        thin = plane if averaged is None else averaged
+        dust = np.ascontiguousarray(_density(plane[y0:y1, x0:x1]), dtype=np.float32)
+        scratch = np.ascontiguousarray(-_density(thin[y0:y1, x0:x1]), dtype=np.float32)
+        marks = np.zeros(cover.shape, dtype=bool)
+        for side in (dust, scratch):
+            s, hm = _detect_from_stats(_dust_stats_px(side, base), _PAINT_Z, _PAINT_Z, base, film, texture=False, proxy_min=-1.0)
+            if s is not None:
+                marks |= s <= _IR_SCORE_FLOOR + 1e-6
+            if hm is not None:
+                marks |= hm > 0
+        # Shape is read after the cut: the span of a long mark under a small brush is a speck.
+        marks &= cover > 0
+        compact, hm = split_hairs(marks.astype(np.uint8))
+        # Feather the rim inside the footprint: a mark that crosses it must not repair to a step.
+        rim = np.clip(negpy_core.distance_transform(cover, 2, 3) / _MANUAL_RIM_PX, 0.0, 1.0)
+        # The inpaint dilates its mask, so a hair stops short of the rim.
+        hairs = (hm > 0) & (rim >= 1.0) if hm is not None else np.zeros(cover.shape, dtype=bool)
+        if not compact.any() and not hairs.any():
+            # A click whose pointer moved arrives as a short stroke; past the radius it is a drag.
+            if float(np.ptp(pts, axis=0).max()) > radius:
+                continue
+            compact = cover
+        found = None
+        if compact.any():
+            found = (1.0 - rim * (1.0 - _mask_to_score(compact, _DETECT_PAD_PX * film))).astype(np.float32)
+        if found is not None:
+            np.minimum(score[y0:y1, x0:x1], found, out=score[y0:y1, x0:x1])
+        hair[y0:y1, x0:x1][hairs] = 1
+
+    return (score if (score < 1.0).any() else None), (hair if hair.any() else None)
 
 
 def manual_bake_token(retouch) -> str:

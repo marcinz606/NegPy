@@ -15,6 +15,8 @@ use crate::mathf::{exp_f64, exp10_f64, log1p_f64, log10_f64, pow_f64, tanh_f64};
 const LUMA_R: f64 = 0.2974;
 const LUMA_G: f64 = 0.6273;
 const LUMA_B: f64 = 0.0753;
+/// `KNEE_REACH` in negpy/features/exposure/logic.py.
+const KNEE_REACH: f64 = 0.7;
 
 /// An HxW (or HxWxK) float32 plane.
 #[derive(Clone, Copy)]
@@ -64,8 +66,9 @@ pub struct PrintCurve<'a> {
     pub curvatures: [f32; 3],
     pub toe: [f64; 3],
     pub shoulder: [f64; 3],
-    pub toe_width: [f64; 3],
-    pub shoulder_width: [f64; 3],
+    /// Toe and Shoulder: the stretch of the tone scale past each knee, 1 = the paper's own.
+    pub toe_stretch: [f64; 3],
+    pub shoulder_stretch: [f64; 3],
     pub cmy_offsets: [f32; 3],
     pub shadow_cmy: [f32; 3],
     pub highlight_cmy: [f32; 3],
@@ -73,7 +76,6 @@ pub struct PrintCurve<'a> {
     pub d_max: f64,
     pub a_toe_base: f64,
     pub a_sh_base: f64,
-    pub width_ref: f64,
     pub toe_height: f64,
     pub sh_height: f64,
     pub zone_center: f64,
@@ -119,7 +121,6 @@ struct Bounds {
 }
 
 fn bounds(p: &PrintCurve) -> Bounds {
-    let eps = 1e-6;
     let mut b = Bounds {
         a_hl: [0.0; 3],
         a_sh: [0.0; 3],
@@ -133,17 +134,9 @@ fn bounds(p: &PrintCurve) -> Bounds {
             .any(|&g| g != 0.0),
     };
     for ch in 0..3 {
-        b.a_hl[ch] = p.a_sh_base * p.width_ref / p.shoulder_width[ch].max(eps);
-        let a_sh_w = p.a_toe_base * p.width_ref / p.toe_width[ch].max(eps);
-        let t = p.toe[ch];
-        // A negative toe tightens the shadow roll-off instead of moving d_max_eff past paper black.
-        let d_max_base = if t >= 0.0 {
-            b.a_sh[ch] = a_sh_w;
-            p.d_max - t * p.toe_height
-        } else {
-            b.a_sh[ch] = a_sh_w * (1.0 - t * 4.0);
-            p.d_max
-        };
+        b.a_hl[ch] = p.a_sh_base;
+        b.a_sh[ch] = p.a_toe_base;
+        let d_max_base = p.d_max - p.toe[ch] * p.toe_height;
         let dmn = (p.d_min_rgb[ch] + p.shoulder[ch] * p.sh_height).max(0.0);
         b.d_min_eff[ch] = dmn;
         b.d_max_eff[ch] = if d_max_base < dmn + 0.1 {
@@ -151,13 +144,8 @@ fn bounds(p: &PrintCurve) -> Bounds {
         } else {
             d_max_base
         };
-        // BPC references the physical d_max, so toe lifts survive; a negative toe raises the clip.
-        let db = if t < 0.0 {
-            p.d_max + t * p.toe_height
-        } else {
-            p.d_max
-        };
-        b.bpc_black[ch] = exp10_f64(-db);
+        // BPC references the physical d_max, so a lowered d_max_eff stays lifted.
+        b.bpc_black[ch] = exp10_f64(-p.d_max);
     }
     b
 }
@@ -413,6 +401,23 @@ fn run(
             }
         }
         let (dmn, dmx, a_hl, a_sh) = (b.d_min_eff[ch], b.d_max_eff[ch], b.a_hl[ch], b.a_sh[ch]);
+        let (inv_hl, inv_sh) = (1.0 / p.shoulder_stretch[ch], 1.0 / p.toe_stretch[ch]);
+        if inv_hl != 1.0 || inv_sh != 1.0 {
+            // `knee_warp`: the identity at v_star, each side's stretch only on its own side.
+            let vs = p.v_star;
+            let r_hl = (KNEE_REACH * (vs - dmn)).max(1e-6);
+            let r_sh = (KNEE_REACH * (dmx - vs)).max(1e-6);
+            for x in v[..n].iter_mut() {
+                let d = *x - vs;
+                let (r, inv) = if d < 0.0 {
+                    (r_hl, inv_hl)
+                } else {
+                    (r_sh, inv_sh)
+                };
+                let u = d / r;
+                *x = vs + d * (inv + (1.0 - inv) / (1.0 + u * u).sqrt());
+            }
+        }
         for x in v[..n].iter_mut() {
             let v1 = dmn + softplus(a_hl * (*x - dmn)) / a_hl;
             *x = dmx - softplus(a_sh * (dmx - v1)) / a_sh;

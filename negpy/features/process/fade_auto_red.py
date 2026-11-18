@@ -51,6 +51,23 @@ def fade_range_points(log_grid: ImageBuffer, process: Any) -> Optional[tuple[flo
     return range_points(np.asarray(normalize_log_image(log_grid, bounds)) * TRANSFER_DENSITY_RANGE)
 
 
+#: (grid, white) of the last `grid_white`: a Red Survival drag fits Restore Range on one grid many times.
+_white_memo: Optional[tuple[ImageBuffer, Any]] = None
+
+
+def grid_white(grid: ImageBuffer) -> Any:
+    """`fade.measure_white` of *grid*, read once per grid."""
+    from negpy.features.process.fade import measure_white
+
+    global _white_memo
+    # One read: the Estimate Roll worker writes the memo on its own thread.
+    memo = _white_memo
+    if memo is None or memo[0] is not grid:
+        memo = (grid, measure_white(grid))
+        _white_memo = memo
+    return memo[1]
+
+
 def survival_points(
     grid: ImageBuffer,
     process: Any,
@@ -62,28 +79,48 @@ def survival_points(
 ) -> Optional[tuple[float, ...]]:
     """`fade_range_points` of the Estimate *grid* after *survivals* and *shift*, as a render with them
     reads it. The crossover table keeps each cell's mean density, so it does not move the points."""
-    from negpy.features.process.fade import measure_white, survival_density, through_density
+    from negpy.features.process.fade import survival_density, through_density
 
-    density = survival_density(*survivals, measure_white(grid), white_anchor, camera_raw or bool(white_space), white_space, shift)
+    density = survival_density(*survivals, grid_white(grid), white_anchor, camera_raw or bool(white_space), white_space, shift)
     return fade_range_points(through_density(grid, density), process)
 
 
 def auto_red(
-    points_at: Callable[[float], Optional[Sequence[float]]], red: float, shift: float = 0.0
+    points_at: Callable[[float], Optional[Sequence[float]]],
+    red: float,
+    shift: float = 0.0,
+    trim: float = 1.0,
+    target: Optional[float] = None,
 ) -> tuple[Optional[dict[str, float]], str]:
     """(changes, reason): the Red Survival that maps the frame's 0.5 to 99.5 % density span onto
-    AUTO_RED_SPAN, held to AUTO_RED_MIN and 1.0, and the density shift that keeps the median where it
-    printed, cut so the 0.5 % point prints no lighter than AUTO_RED_LIGHT or than before. *points_at* gives
-    the points at a red with *shift*. Every density scales by red / new red, so one reading finds it."""
+    AUTO_RED_SPAN, held to AUTO_RED_MIN and 1.0, times *trim*, and the density shift that keeps the median
+    where it printed, cut so the 0.5 % point prints no lighter than AUTO_RED_LIGHT or than before. A *target*
+    Red sets the trim instead. *points_at* gives the points at a red with *shift*. Every density scales by
+    red / new red, so one reading finds it."""
     from negpy.features.process.fade import RED_SURVIVAL_BOUNDS
 
     points = points_at(red)
     if points is None or float(points[-1] - points[0]) < RANGE_MIN_SPAN:
         return None, tr("No range to read on this frame.")
     span = float(points[-1] - points[0])
-    new = round(min(max(float(red) * span / AUTO_RED_SPAN, AUTO_RED_MIN, RED_SURVIVAL_BOUNDS[0]), RED_SURVIVAL_BOUNDS[1]), 2)
-    after = points_at(new)
+    lo, hi = RED_SURVIVAL_BOUNDS
+    fit = round(min(max(float(red) * span / AUTO_RED_SPAN, AUTO_RED_MIN, lo), hi), 2)
+    if target is not None:
+        new = min(max(float(target), lo), hi)
+        trim = new / fit
+    else:
+        new = round(min(max(fit * float(trim), lo), hi), 3)
+    return {
+        "fade_ratio_r": new,
+        "fade_density_shift": range_shift(points, points_at(new), shift),
+        "fade_red_trim": round(float(trim), 4),
+    }, ""
+
+
+def range_shift(points: Sequence[float], after: Optional[Sequence[float]], shift: float = 0.0) -> float:
+    """The density shift that keeps the median of *points* where it printed once a new red gives *after*,
+    cut so the 0.5 % point prints no lighter than AUTO_RED_LIGHT or than before; *shift* with no *after*."""
     gain = 0.0
     if after is not None:
         gain = min(float(np.median(after)) - float(np.median(points)), float(after[0]) - min(AUTO_RED_LIGHT, float(points[0])))
-    return {"fade_ratio_r": new, "fade_density_shift": round(float(shift) - gain, 4)}, ""
+    return round(float(shift) - gain, 4)

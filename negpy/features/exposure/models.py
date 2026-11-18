@@ -79,9 +79,7 @@ class ExposureConfig:
     highlight_grade_trim_green: float = 0.0
     highlight_grade_trim_blue: float = 0.0
     toe: float = 0.0
-    toe_width: float = 2.5
     shoulder: float = 0.0
-    shoulder_width: float = 2.5
     # Per-layer knee trims on top of the global toe/shoulder (endpoint crossover).
     toe_trim_red: float = 0.0
     toe_trim_green: float = 0.0
@@ -89,13 +87,6 @@ class ExposureConfig:
     shoulder_trim_red: float = 0.0
     shoulder_trim_green: float = 0.0
     shoulder_trim_blue: float = 0.0
-    # Per-layer knee width trims (roll-off extent, sharpness crossover).
-    toe_width_trim_red: float = 0.0
-    toe_width_trim_green: float = 0.0
-    toe_width_trim_blue: float = 0.0
-    shoulder_width_trim_red: float = 0.0
-    shoulder_width_trim_green: float = 0.0
-    shoulder_width_trim_blue: float = 0.0
     paper_dmin: bool = False
     # On shows the paper's natural Dmax as a lifted black. Consumed inverted as
     # bpc (= not paper_black), so the default keeps black point compensation on.
@@ -171,13 +162,9 @@ EXPOSURE_CONSTANTS: Dict[str, Any] = {
     "toe_shoulder_strength": 0.85,
     # Asymmetric H&D print curve: a straight midtone of slope k between a toe
     # (shadow roll-off to d_max) and a shoulder (highlight roll-off to d_min),
-    # each a smooth softplus bound. The sliders set roll-off *height*; the
-    # *_sharpness_base / width set sharpness.
-    # a_sh = toe_sharpness_base * width_ref / toe_width (shoulder is the same).
+    # each a smooth softplus bound of sharpness *_sharpness_base.
     "toe_sharpness_base": 6.0,
     "shoulder_sharpness_base": 3.0,
-    # Reference width that normalises both sharpness coefficients.
-    "toeshoulder_width_ref": 2.5,
     # Density moved per slider unit: d_max_eff = d_max - toe*this,
     # d_min_eff = d_min + shoulder*this. toe_height is larger because density is
     # log10, so a ΔD near d_max reads smaller in L* than the same ΔD near d_min.

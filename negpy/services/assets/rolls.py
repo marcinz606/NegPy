@@ -621,9 +621,14 @@ def rename_folder_roll_disk(repo: Any, roll_id: str, new_name: str) -> Optional[
 def rehome_paths(repo: Any, move: Callable[[str], str]) -> None:
     """Pass every folder and member path of every roll through *move*."""
     store = _read(repo)
-    for entry in store.values():
+    owned = {_folder_key(e["folder_path"]): rid for rid, e in store.items() if e.get("kind") == "folder" and e.get("folder_path")}
+    for roll_id, entry in store.items():
         if entry.get("folder_path"):
-            entry["folder_path"] = move(entry["folder_path"])
+            moved = move(entry["folder_path"])
+            # A folder roll never moves onto a folder that another folder roll holds; its removed frames stay with it.
+            if owned.get(_folder_key(moved), roll_id) != roll_id:
+                continue
+            entry["folder_path"] = moved
         for key in ("member_paths", "excluded_paths"):
             if key in entry:
                 entry[key] = [move(p) for p in entry[key]]
@@ -642,6 +647,43 @@ def delete_roll(repo: Any, roll_id: str) -> None:
         dismissed = _dismissed_folders(repo)
         if _folder_key(path) not in {_folder_key(p) for p in dismissed}:
             repo.save_global_setting(DISMISSED_FOLDERS_KEY, [*dismissed, path])
+
+
+_ROLL_SETTINGS_KEYS = (
+    "defaults",
+    "frame_seed",
+    "frame_overrides",
+    "frame_baselines",
+    "normalization",
+    "scenes",
+    "film_base",
+    "fade_crossover_source",
+)
+
+
+def reset_roll_settings(repo: Any, roll_id: str) -> Dict[str, Any]:
+    """Drop the roll's own values, card locks, baseline, film base and scenes. The name, the
+    frames and the forks stay. Returns what it dropped, for restore_roll_settings."""
+    store = _read(repo)
+    entry = store.get(roll_id)
+    if entry is None:
+        return {}
+    dropped = {key: entry.pop(key) for key in _ROLL_SETTINGS_KEYS if key in entry}
+    if dropped:
+        _write(repo, store)
+    return dropped
+
+
+def restore_roll_settings(repo: Any, roll_id: str, dropped: Dict[str, Any]) -> None:
+    """Put back what reset_roll_settings dropped, over whatever the roll holds for those keys now."""
+    store = _read(repo)
+    entry = store.get(roll_id)
+    if entry is None:
+        return
+    for key in _ROLL_SETTINGS_KEYS:
+        entry.pop(key, None)
+    entry.update(copy.deepcopy(dropped))
+    _write(repo, store)
 
 
 def all_rolls_sorted(repo: Any) -> List[tuple]:
@@ -772,7 +814,11 @@ def roll_defaults(repo: Any, roll_id: str) -> Dict[str, Any]:
     here has no roll default yet -- the frame's own saved value is what is used,
     exactly as before roll defaults existed."""
     entry = roll_for_id(repo, roll_id)
-    return _without_decode_white(dict(entry["defaults"])) if entry and entry.get("defaults") else {}
+    defaults = _without_decode_white(dict(entry["defaults"])) if entry and entry.get("defaults") else {}
+    # A roll Red stored before the Red trim existed has no trim, so a frame's own trim would sit on it.
+    if "fade_ratio_r" in defaults:
+        defaults.setdefault("fade_red_trim", 1.0)
+    return defaults
 
 
 def set_roll_defaults(repo: Any, roll_id: str, **fields: Any) -> None:
@@ -788,6 +834,24 @@ def set_roll_defaults(repo: Any, roll_id: str, **fields: Any) -> None:
     defaults.update(_without_decode_white(fields))
     entry["defaults"] = defaults
     _write(repo, store)
+
+
+def set_roll_crossover_source(repo: Any, roll_id: str, name: str, table: Any) -> None:
+    """Records the frame *name* whose crossover *table* Share Crossover gave the roll. No-op for an unknown id."""
+    store = _read(repo)
+    entry = store.get(roll_id)
+    if entry is None:
+        return
+    entry["fade_crossover_source"] = {"name": name, "table": list(table)}
+    _write(repo, store)
+
+
+def roll_crossover_source(repo: Any, roll_id: str, table: Any) -> str:
+    """The frame Share Crossover took *table* from, "" when the roll's table came from elsewhere since."""
+    source = (roll_for_id(repo, roll_id) or {}).get("fade_crossover_source")
+    if not isinstance(source, dict) or table is None or not same_value(tuple(source.get("table") or ()), tuple(table)):
+        return ""
+    return str(source.get("name", ""))
 
 
 # A snapshot value for a field the roll had no default for.

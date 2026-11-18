@@ -33,6 +33,14 @@ spektrafilm by Andrea Volpato, licensed CC BY-SA 4.0:
   https://github.com/andreavolpato/spektrafilm
   https://github.com/andreavolpato/spektrafilm/blob/main/SPEKTRAFILM_LICENSE.txt
 
+The Status A characteristic curves in scripts/print_curves/ (Kodak E-4021 for
+Portra Endura and Supra Endura, E-4070 for Endura Premier) and the Status A
+responsivities in scripts/print_dyes/status_a.csv are derived from spektrafilm's
+traces under the same license, resampled to a shared grid; d_max_drop in papers.py
+is solved from them (scripts/fit_d_max_drop.py). The curves for Ultra Endura and
+Ektacolor Edge are read by NegPy from Kodak's own sheets (E-4020, 2008, and
+E-7020, 2019; scripts/digitize_datasheet_curves.py).
+
 Modified by NegPy: the CSVs keep each profile's channel_density on its 5 nm grid
 where all three dyes are defined; print_luts/kodak_e4021.npz and kodak_2393.npz
 are baked from them, and papers.py holds the tone constants fitted to that data. NegPy distributes them under the GPL v3, which
@@ -47,6 +55,13 @@ NegPy.
 The print LUT negpy/features/exposure/print_luts/frontier.npz is derived from the
 color reproduction tables (ColorData.dat) of the Fujifilm Frontier
 350/370 A1 system software v7.6. The tables are not distributed with NegPy.
+
+The print LUT negpy/features/exposure/print_luts/nikon_scan.npz and the curve of
+the Digital (Nikon Scan) stock in papers.py are derived from the color
+management tables (CML4) and the LS-5000 tone curve of Nikon Scan 4, as
+documented by the cool-colors project (Rohan Pandula,
+https://github.com/rohanpandula/cool-colors). The tables are not distributed
+with NegPy.
 
 scripts/crosstalk_dyes/kodak_vision3_dyes.csv is the mean of spektrafilm's
 traces of the Kodak VISION3 50D, 200T, 250D and 500T dye curves (H-1-5203,

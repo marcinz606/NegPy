@@ -34,7 +34,6 @@ from negpy.features.transparency.logic import (
     transfer_highlight_hold_density,
     transfer_shadow_hold_start,
     transfer_shadow_reach_density,
-    transfer_widths,
 )
 from negpy.features.process.capture_color import apply_camera_matrix, camera_to_working_matrix
 from negpy.features.process.models import ProcessConfig, ProcessMode, auto_meter_for_mode, cast_removal_for_mode
@@ -148,17 +147,12 @@ class TestIdentityAtDefaults(unittest.TestCase):
             places=6,
         )
 
-    def test_knee_width_reference_matches_the_shipped_widths(self):
-        self.assertAlmostEqual(float(TRANSFER_CONSTANTS["transfer_width_ref"]), DEFAULT_WORKSPACE_CONFIG.exposure.toe_width)
-        self.assertAlmostEqual(float(TRANSFER_CONSTANTS["transfer_width_ref"]), DEFAULT_WORKSPACE_CONFIG.exposure.shoulder_width)
-
     def test_curve_inverts_the_normalization_exactly(self):
         img = _ramp()
         norm = normalize_log_image(np.log10(np.clip(img, 1e-6, None)).astype(np.float32), LogNegativeBounds(*transfer_bounds()))
         cfg = DEFAULT_WORKSPACE_CONFIG
         offset, contrast, toe3, sh3 = transfer_curve_params(cfg.exposure)
-        tw3, sw3 = transfer_widths(cfg.exposure)
-        out = np.asarray(apply_transfer_curve(norm, offset, contrast, toe3, sh3, (0.0, 0.0, 0.0), tw3, sw3))
+        out = np.asarray(apply_transfer_curve(norm, offset, contrast, toe3, sh3, (0.0, 0.0, 0.0)))
         expected = _rendered(img)
         rel = np.abs(out - expected) / np.maximum(expected, 1e-9)
         self.assertLess(float(rel.max()), 1e-4)
@@ -231,15 +225,14 @@ class TestPositiveSourceSkipsDisplayRendering(unittest.TestCase):
         norm = normalize_log_image(np.log10(np.clip(img, 1e-6, None)).astype(np.float32), LogNegativeBounds(*transfer_bounds()))
         cfg = _e6_config(positive_source=True)
         offset, contrast, toe3, sh3 = transfer_curve_params(cfg.exposure)
-        tw3, sw3 = transfer_widths(cfg.exposure)
-        out = np.asarray(apply_transfer_curve(norm, offset, contrast, toe3, sh3, (0.0, 0.0, 0.0), tw3, sw3, positive_source=True))
+        out = np.asarray(apply_transfer_curve(norm, offset, contrast, toe3, sh3, (0.0, 0.0, 0.0), positive_source=True))
         rel = np.abs(out - img) / np.maximum(img, 1e-9)
         self.assertLess(float(rel.max()), 1e-4)
 
         # Guard the guard: without the flag, the same inputs still take the baseline +
         # filmic path (this is TestIdentityAtDefaults' own assertion, restated so a
         # regression here fails loudly next to the fix it is guarding).
-        rendered = np.asarray(apply_transfer_curve(norm, offset, contrast, toe3, sh3, (0.0, 0.0, 0.0), tw3, sw3, positive_source=False))
+        rendered = np.asarray(apply_transfer_curve(norm, offset, contrast, toe3, sh3, (0.0, 0.0, 0.0), positive_source=False))
         self.assertGreater(float(np.abs(rendered - img).max()), 0.01)
 
     def test_pipeline_level_matches_a_bare_ODT_free_encode(self):
@@ -401,11 +394,6 @@ class TestControlsStayLive(unittest.TestCase):
         mid_rel = float((np.abs(lifted - base)[mid] / np.maximum(base[mid], 1e-4)).mean())
         self.assertGreater(deep_rel, 0.15, "a shadow lift did nothing to the shadows")
         self.assertGreater(deep_rel / max(mid_rel, 1e-6), 5.0, "the lift was not mid-sparing")
-
-    def test_knee_widths_are_wired_to_the_width_sliders(self):
-        narrow = self._rendered(toe=0.8, toe_width=0.5)
-        wide = self._rendered(toe=0.8, toe_width=5.0)
-        self.assertGreater(float(np.abs(wide - narrow).max()), 1e-4)
 
     def test_white_balance_still_shifts_channels(self):
         warmed = self._rendered(wb_cyan=0.5)
@@ -1012,12 +1000,8 @@ class TestGpuTransferParity(unittest.TestCase):
             grade=75.0,
             toe=0.6,
             shoulder=-0.5,
-            toe_width=4.0,
-            shoulder_width=1.2,
             toe_trim_red=0.3,
             shoulder_trim_blue=-0.25,
-            toe_width_trim_green=1.0,
-            shoulder_width_trim_red=-0.5,
             wb_cyan=0.3,
             wb_yellow=-0.2,
             shadow_density=-0.5,

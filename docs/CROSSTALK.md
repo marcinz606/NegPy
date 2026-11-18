@@ -43,7 +43,7 @@ rigs.
 
 Two related controls in the same panel do a different job. The **sensor** matrix corrects
 the camera in the linear capture. **Hue Trim** rotates hue for an odd light spectrum. See
-[USER_GUIDE.md](USER_GUIDE.md) §10.4.
+[USER_GUIDE.md](USER_GUIDE.md) §10.7.
 
 > ### What the bundled matrices actually are
 >
@@ -185,8 +185,8 @@ The **sliders icon** beside the dropdown opens the **matrix editor**:
 
 ### Measuring from a chart
 
-A chart shot on the film is the one reference that settles a matrix. Shoot a SpyderCheckr 24 or
-a ColorChecker 24 in daylight on a frame of the roll, scan it on your rig, and open it. The
+A chart shot on the film is the one reference that settles a matrix. Shoot a SpyderCheckr 24, a
+ColorChecker 24 or a DKC-Pro in daylight on a frame of the roll, scan it on your rig, and open it. The
 **swatch button** beside the dropdown opens **Measure from Chart** (Color Negative only).
 
 1. Drag the four dots onto the centers of the chart's four corner patches. The dot order and the

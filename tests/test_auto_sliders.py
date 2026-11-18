@@ -192,3 +192,41 @@ def test_masking_off_or_unmetered_shows_the_stored_value() -> None:
     assert shown_masking(_masking_config(False, 0.19), {"auto_masking": 0.31}) == 0.19
     assert shown_masking(_masking_config(True, 0.19), {}) == 0.19
     assert stored_masking(_masking_config(False), {"auto_masking": 0.31}, 0.4) == 0.4
+
+
+# A short shadow tail: Shadow Reach floors the meter's slope.
+_SHORT = dict(shadow_point=0.7)
+
+
+def _slope(exposure, metrics):
+    return curve_params_from_metrics(exposure, MODE, metrics)[0][1]
+
+
+def test_softer_hand_grade_prints_under_the_shadow_reach_floor():
+    metrics = _metrics(**_SHORT)
+    meter = _slope(ExposureConfig(), metrics)
+    assert meter > _slope(ExposureConfig(), _metrics(shadow_point=None))
+    softer = _slope(ExposureConfig(grade=140.0), metrics)
+    assert softer == pytest.approx(meter * 115.0 / 140.0)
+    assert _slope(ExposureConfig(grade=160.0), metrics) < softer
+
+
+def test_shadow_reach_floor_holds_a_harder_grade():
+    metrics = _metrics(**_SHORT)
+    assert _slope(ExposureConfig(grade=110.0), metrics) == _slope(ExposureConfig(), metrics)
+
+
+@pytest.mark.parametrize("grade", [100.0, 115.0, 130.0, 160.0])
+def test_grade_is_continuous_across_the_meter_with_no_floor(grade):
+    metrics = _metrics(shadow_point=None)
+    unfloored = _slope(ExposureConfig(grade=grade), metrics)
+    assert _slope(ExposureConfig(grade=grade), _metrics(shadow_point=0.99)) == pytest.approx(unfloored)
+
+
+@pytest.mark.parametrize("stored", [130.0, 160.0])
+def test_stored_grade_inverts_shown_under_the_shadow_reach_floor(stored):
+    metrics = _metrics(**_SHORT)
+    exposure = ExposureConfig(grade=stored)
+    shown = print_shown_values(exposure, MODE, metrics)["grade"]
+    assert shown > print_shown_values(ExposureConfig(), MODE, metrics)["grade"]
+    assert print_stored_value(exposure, MODE, metrics, "grade", shown) == pytest.approx(stored, abs=1e-6)

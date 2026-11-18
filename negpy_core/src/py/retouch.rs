@@ -688,36 +688,6 @@ fn release_score(
     }))
 }
 
-/// One stroke of `strokes_to_score`: the density crop, the smoothed path in crop pixels, (cap
-/// radius, line thickness), then (window, z min, z hi, z grow, grow fraction, pad, floor, rim).
-#[pyfunction]
-fn heal_region<'py>(
-    py: Python<'py>,
-    dens: PyReadonlyArrayDyn<'py, f32>,
-    path: numpy::PyReadonlyArrayDyn<'py, i32>,
-    brush: (i64, i64),
-    constants: (usize, f64, f64, f64, f64, f64, f64, f32),
-) -> PyResult<Option<Plane<'py>>> {
-    let (d, dims) = plane2(&dens)?;
-    let path = path_points(&path)?;
-    let (win, z_min, z_hi, z_grow, z_grow_frac, pad_px, score_floor, rim) = constants;
-    let c = retouch::HealSearch {
-        win,
-        z_min,
-        z_hi,
-        z_grow,
-        z_grow_frac,
-        pad_px,
-        score_floor,
-        rim,
-    };
-    super::detach(py, d.len(), || {
-        retouch::heal_region(d, dims, &path, brush, &c)
-    })
-    .map(|r| plane_array(py, r, dims))
-    .transpose()
-}
-
 /// `ir_ratio_and_gain`'s visible logs of an HxWx3 image, with the base window in pixels.
 #[pyfunction]
 fn ir_vis_log<'py>(
@@ -819,7 +789,6 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(ir_vis_log, m)?)?;
     m.add_function(wrap_pyfunction!(ir_gain, m)?)?;
     m.add_function(wrap_pyfunction!(release_score, m)?)?;
-    m.add_function(wrap_pyfunction!(heal_region, m)?)?;
     m.add_function(wrap_pyfunction!(clone_stroke, m)?)?;
     m.add_function(wrap_pyfunction!(scratch_ridge, m)?)?;
     m.add_function(wrap_pyfunction!(scratch_slope_search, m)?)?;

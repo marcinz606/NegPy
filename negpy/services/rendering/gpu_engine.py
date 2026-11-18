@@ -96,7 +96,6 @@ from negpy.features.transparency.logic import (
     transfer_cast_affine,
     transfer_point_offsets,
     transfer_curve_params,
-    transfer_widths,
     wb_split_geometry,
     zone_geometry,
 )
@@ -2013,8 +2012,7 @@ class GPUEngine:
             contrast_mask_coeffs,
             filtration_offsets,
             per_channel_dye_separation,
-            per_channel_toe_shoulder,
-            grade_coupled_shape,
+            print_knees,
             black_hold_taper,
             channel_density_ranges,
             local_ev_scale,
@@ -2024,7 +2022,6 @@ class GPUEngine:
             per_channel_curve_params,
             effective_midtone_gamma,
             per_channel_midtone_gamma,
-            per_channel_widths,
             preflash_params,
             split_grade_deltas,
         )
@@ -2040,7 +2037,7 @@ class GPUEngine:
         t_exp, t_contrast, t_hl_auto, t_sh_auto = transfer_auto_terms(
             t_e, t_exp0, t_contrast0, textural_range, metered_anchor, shadow_point, highlight_point
         )
-        t_tw3, t_sw3 = transfer_widths(t_e)
+        t_tw3 = t_sw3 = (float(TRANSFER_CONSTANTS["transfer_knee_width"]),) * 3
         t_cmy = contrast_free_cmy(
             filtration_offsets(
                 (t_e.wb_cyan, t_e.wb_magenta, t_e.wb_yellow),
@@ -2183,7 +2180,14 @@ class GPUEngine:
             else 0.0
         )
         cmy_m = EXPOSURE_CONSTANTS["cmy_max_density"]
-        _toe_eff, _shoulder_eff = grade_coupled_shape(slopes[1], exp.toe, exp.shoulder)
+        _toe3, _sh3, _tw3, _sw3 = print_knees(
+            slopes[1],
+            exp.toe,
+            exp.shoulder,
+            (exp.toe_trim_red, exp.toe_trim_green, exp.toe_trim_blue),
+            (exp.shoulder_trim_red, exp.shoulder_trim_green, exp.shoulder_trim_blue),
+            paper=paper,
+        )
         _sg3, _hg3 = split_grade_deltas(
             exp.grade,
             exp.shadow_grade,
@@ -2194,24 +2198,12 @@ class GPUEngine:
         # Per-channel effective toe/shoulder, pre-scaled. The uniform block is full at
         # 256B, so these ride the vec4 w-lanes.
         _ts_k = float(EXPOSURE_CONSTANTS["toe_shoulder_strength"])
-        _toe3, _sh3 = per_channel_toe_shoulder(
-            _toe_eff,
-            _shoulder_eff,
-            (exp.toe_trim_red, exp.toe_trim_green, exp.toe_trim_blue),
-            (exp.shoulder_trim_red, exp.shoulder_trim_green, exp.shoulder_trim_blue),
-        )
         _toe3 = tuple(t * _ts_k for t in _toe3)
         _sh3 = tuple(s * _ts_k for s in _sh3)
         _mg3 = per_channel_midtone_gamma(
             paper,
             exp.midtone_gamma,
             (exp.midtone_gamma_trim_red, exp.midtone_gamma_trim_green, exp.midtone_gamma_trim_blue),
-        )
-        _tw3, _sw3 = per_channel_widths(
-            exp.toe_width,
-            exp.shoulder_width,
-            (exp.toe_width_trim_red, exp.toe_width_trim_green, exp.toe_width_trim_blue),
-            (exp.shoulder_width_trim_red, exp.shoulder_width_trim_green, exp.shoulder_width_trim_blue),
         )
         # Mirrors apply_characteristic_curve (absolute CC, paper base, dye mix).
         wb_offsets = filtration_offsets(
@@ -2225,7 +2217,7 @@ class GPUEngine:
         if lut is not None:
             lut_black = 0.0
             if not exp.paper_black:
-                lut_black = lut_black_luminance(lut, dmin_rgb, black_density_rgb(float(pc["d_max"]), _toe3, float(pc["toe_height"])))
+                lut_black = lut_black_luminance(lut, dmin_rgb, black_density_rgb(float(pc["d_max"]), paper))
             lut_row = (*(float(v) for v in lut.e_max), lut_black)
         # Density-space Dye Separation, composed into the same dye_mix slot as the paper's
         # real crosstalk. Mirrors apply_characteristic_curve exactly.
@@ -2298,7 +2290,7 @@ class GPUEngine:
                 _sh3[2],
             )
             # Asymmetric H&D print-curve scalars; mirrors negpy_core print_curve.rs.
-            # Per-channel knee widths occupy the dead scalar toe/shoulder/
+            # Per-channel knee stretches occupy the dead scalar toe/shoulder/
             # midtone_gamma slots and the former flare pad (see exposure.wgsl).
             + struct.pack(
                 "14fI3fIf",
@@ -2312,7 +2304,7 @@ class GPUEngine:
                 pc["d_max"],
                 pc["toe_sharpness_base"],
                 pc["shoulder_sharpness_base"],
-                # Separation Damping (toeshoulder_width_ref is a WGSL literal).
+                # Separation Damping.
                 sep_damping,
                 pc["toe_height"],
                 pc["shoulder_height"],

@@ -134,13 +134,15 @@ def fade_estimate_grid(source: ChartSource) -> Optional[np.ndarray]:
         fade_crossover=0.0,
     )
     config = replace(source.config, process=process)
-    # The key leaves out what Estimate writes but this grid never reads: Gray Mix, the white, the table
-    # and the frame's own bounds.
+    # The key leaves out what Estimate writes but this grid never reads: Gray Mix, Restore Range, the white,
+    # the table and the frame's own bounds.
     keyed = replace(
         config,
         process=replace(
             process,
             fade_neutrals_mix=0.0,
+            fade_auto_red=False,
+            fade_red_trim=1.0,
             fade_white_r=0.0,
             fade_white_g=0.0,
             fade_white_b=0.0,
@@ -152,8 +154,10 @@ def fade_estimate_grid(source: ChartSource) -> Optional[np.ndarray]:
         ),
     )
     key = json.dumps([source.source_hash, source.gain_slices, source.orientation, keyed.to_dict()], default=str, sort_keys=True)
-    if _grid_memo is not None and _grid_memo[0] is source.buffer and _grid_memo[1] == key:
-        return _grid_memo[2]
+    # One read: the roll worker replaces the memo from its own thread.
+    memo = _grid_memo
+    if memo is not None and memo[0] is source.buffer and memo[1] == key:
+        return memo[2]
     grid = _render_estimate_grid(source, config)
     _grid_memo = (source.buffer, key, grid)
     return grid

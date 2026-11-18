@@ -82,7 +82,7 @@ _SENSOR_FIELDS = (
     "crosstalk_process",
     "hue_trim",
 )
-_FADE_FIELDS = (*FADE_METER_FIELDS, "fade_auto_red", "fade_neutrals_mix")
+_FADE_FIELDS = (*FADE_METER_FIELDS, "fade_auto_red", "fade_red_trim", "fade_neutrals_mix")
 # ProcessConfig is split across five cards. Each tuple is both the card's reset scope and
 # its modified count, so a field is resettable from the one card that counts it.
 # Linear RAW and the two demosaic choices are in none: they come from the scanning
@@ -250,15 +250,16 @@ class ControlsPanel(QWidget):
             icon_name="mdi.view-split-vertical",
         )
 
-        # Where this frame's bounds come from: the roll and scene baselines, then the Use
-        # Luma/Color Average switches that read them.
+        # Where this frame's bounds come from: the Use Luma/Color Average switches, then the
+        # roll and scene baselines they read.
         self.roll_sidebar = RollAnalysisSidebar(self.controller)
         baseline_body = QWidget()
         baseline_layout = QVBoxLayout(baseline_body)
         baseline_layout.setContentsMargins(0, 0, 0, 0)
         baseline_layout.setSpacing(THEME.space_sm)
-        baseline_layout.addWidget(self.roll_sidebar)
+        baseline_layout.addWidget(self.roll_sidebar.no_roll_hint)
         baseline_layout.addWidget(self.process_sidebar.baseline_bar)
+        baseline_layout.addWidget(self.roll_sidebar)
         self.baseline_section = self._make_section(
             tr("Roll Analysis"),
             "baseline",
@@ -702,26 +703,14 @@ class ControlsPanel(QWidget):
         )
         paper.toe_slider.setToolTip(
             tooltip_with_shortcut(
-                tr("Shapes the shadows: positive lifts them, and negative makes them deeper."),
+                tr("Shapes how the shadows reach black: positive makes the change softer, and negative makes it harder."),
                 ["toe_inc", "toe_dec"],
-            )
-        )
-        paper.toe_w_slider.setToolTip(
-            tooltip_with_shortcut(
-                tr("How far the Toe change reaches into the midtones."),
-                ["toe_width_inc", "toe_width_dec"],
             )
         )
         paper.sh_slider.setToolTip(
             tooltip_with_shortcut(
-                tr("Shapes the highlights: positive softens them, and negative brightens them and can lose detail."),
+                tr("Shapes how the highlights reach white: positive makes the change softer, and negative makes it harder."),
                 ["shoulder_inc", "shoulder_dec"],
-            )
-        )
-        paper.sh_w_slider.setToolTip(
-            tooltip_with_shortcut(
-                tr("How far the Shoulder change reaches into the midtones."),
-                ["shoulder_width_inc", "shoulder_width_dec"],
             )
         )
         paper.midtone_gamma_slider.setToolTip(
@@ -801,7 +790,7 @@ class ControlsPanel(QWidget):
 
         proc.slide_bw_btn.setToolTip(
             tooltip_with_shortcut(
-                tr("B&W, slides only: render the slide in black and white, for B&W reversal film or a color slide."),
+                tr("B&W Slide: render the slide in black and white, for B&W reversal film or a color slide."),
                 "toggle_slide_bw",
             )
         )

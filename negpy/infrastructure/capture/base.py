@@ -113,7 +113,7 @@ class CaptureSettings:
     settle_s: float = 0.4
     inter_exposure_delay_s: float = 0.0
     min_raw_bytes: int = 8 * 1024 * 1024
-    max_raw_bytes: int = 200 * 1024 * 1024
+    max_raw_bytes: int = 256 * 1024 * 1024
     shutters: Optional[tuple[Optional[str], Optional[str], Optional[str]]] = None
     # ISO and aperture the preset was calibrated at. The scan forces them so a drifted body
     # cannot falsify it, and like `shutters`, None means "leave the camera as set". An RGB

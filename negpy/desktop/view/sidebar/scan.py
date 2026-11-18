@@ -174,7 +174,7 @@ def estimated_frame_bytes(
 class ScanSidebar(QWidget):
     """Scanner control panel — replaces the originally planned modal ScanDialog."""
 
-    _INDETERMINATE_SCAN_PHASES = frozenset({tr("Preparing long exposure"), "Merging exposures"})
+    _INDETERMINATE_SCAN_PHASES = frozenset({tr("Preparing long exposure"), tr("Merging exposures")})
     # How often the panel asks whether film is loaded. A unit that ejects without a command needs it.
     _MEDIA_POLL_MS = 1500
 
@@ -287,7 +287,7 @@ class ScanSidebar(QWidget):
         device.addLayout(field_row(tr("Device"), self.device_combo, self.refresh_btn, self.eject_btn))
 
         self.debug_log_btn = StepCombo.of(
-            [level.title() for level in nkscan_log.LEVELS],
+            [tr("Off") if level == "off" else level.title() for level in nkscan_log.LEVELS],
             tr("Write a diagnostics log (nkscan.log) in the NegPy folder, with Trace for a bug report."),
         )
         level = self._settings.nkscan_log_level
@@ -876,7 +876,7 @@ class ScanSidebar(QWidget):
 
         self._caps_film_types = tuple(caps.film_types)
         self.film_type_btn.blockSignals(True)
-        self.film_type_btn.set_choices([FILM_TYPES[t][0] for t in self._caps_film_types], list(self._caps_film_types))
+        self.film_type_btn.set_choices([tr(FILM_TYPES[t][0]) for t in self._caps_film_types], list(self._caps_film_types))
         self.film_type_btn.setCurrentIndex(max(self.film_type_btn.findData(self._settings.film_type), 0))
         self.film_type_widget.setVisible(bool(self._caps_film_types))
         self.film_type_btn.blockSignals(False)
@@ -986,7 +986,7 @@ class ScanSidebar(QWidget):
             self.dust_btn.setCurrentIndex(self.dust_btn.findData("off"))
             self.dust_btn.blockSignals(False)
         if not passes and (self._device_ir or self._caps_clean):
-            reason = tr("{value} blocks infrared", value=FILM_TYPES[self._film_type()][0])
+            reason = tr("{value} blocks infrared", value=tr(FILM_TYPES[self._film_type()][0]))
             self.ir_btn.setToolTip(reason)
             self.dust_btn.setToolTip(reason)
 
@@ -1439,7 +1439,9 @@ class ScanSidebar(QWidget):
             strong.format(size),
         ]
         if self._locked_exposures(device) is not None:
-            parts.append(f'<span style="color: {THEME.warn_amber}">Exposure locked (frame {self._settings.exposure_lock_frame})</span>')
+            parts.append(
+                f'<span style="color: {THEME.warn_amber}">{tr("Exposure locked (frame {frame})", frame=self._settings.exposure_lock_frame)}</span>'
+            )
         self.status_strip.set_summary("  ·  ".join(parts))
 
     def _on_scan(self) -> None:
@@ -1559,6 +1561,7 @@ class ScanSidebar(QWidget):
 
     @pyqtSlot(float, str)
     def _on_scan_progress(self, progress: float, phase_name: str = "Scanning") -> None:
+        phase_name = tr(phase_name)
         if phase_name in self._INDETERMINATE_SCAN_PHASES:
             self.status_strip.set_progress_indeterminate(f"{phase_name}…")
         else:

@@ -68,7 +68,7 @@ class StitchWorker(QObject):
                 )
                 f32, _, _ = self._processor._decode_oriented_f32(f["path"], params)
                 parts.append(f32)
-            self.progress.emit(len(task.files), total, "Registering frames")
+            self.progress.emit(len(task.files), total, tr("Registering frames"))
             transforms, canvas = register_parts(parts, is_cancelled=self._cancel.is_set)
             self.registered.emit(
                 {

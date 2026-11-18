@@ -20,7 +20,10 @@ def test_sequential_preview_uses_language_count_forms(qapp, locale: str, noun: s
         i18n.configure(previous)
 
 
-@pytest.mark.parametrize("locale,count,noun", [("de", 1, "Bild"), ("de", 2, "Bilder"), ("nb", 1, "bilde"), ("nb", 2, "bilder")])
+@pytest.mark.parametrize(
+    "locale,count,noun",
+    [("de", 1, "Bild"), ("de", 2, "Bilder"), ("nb", 1, "bilde"), ("nb", 2, "bilder"), ("it", 1, "fotogramma"), ("it", 2, "fotogrammi")],
+)
 def test_sequential_preview_uses_singular_and_plural_count_forms(qapp, locale: str, count: int, noun: str) -> None:
     from negpy.desktop.view.widgets.granular_settings_dialog import SequentialFrameDialog
     from negpy.kernel.system import i18n

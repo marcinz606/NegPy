@@ -1,3 +1,4 @@
+from negpy.kernel.system.i18n import tr
 import sys
 from pathlib import Path
 from typing import Callable
@@ -17,9 +18,9 @@ def _make_plustek() -> ScannerBackend:
         from negpy.infrastructure.scanners.plustek_backend import PlustekBackend
     except ImportError as exc:
         raise ScannerUnavailable(
-            "Plustek USB backend failed to import. Install with: uv sync --group plustek. "
-            "On Windows, bind the scanner's USB id to WinUSB with Zadig (see docs/PLUSTEK_WINDOWS.md) — "
-            "e.g. 07b3:1825 (8200i SE), 07b3:1824 (8100 V2), 07b3:181f (8300i SE), or 07b3:0c3b (7600i v1)."
+            tr(
+                "Plustek USB backend failed to import. Install with: uv sync --group plustek. On Windows, bind the scanner's USB id to WinUSB with Zadig (see docs/PLUSTEK_WINDOWS.md), for example 07b3:1825 (8200i SE), 07b3:1824 (8100 V2), 07b3:181f (8300i SE), or 07b3:0c3b (7600i v1)."
+            )
         ) from exc
 
     from negpy.kernel.system.paths import get_default_user_dir

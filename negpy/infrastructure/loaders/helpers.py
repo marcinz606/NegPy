@@ -1,3 +1,4 @@
+from negpy.kernel.system.i18n import tr
 import functools
 import os
 import io
@@ -916,7 +917,7 @@ def unsupported_raw_reason(file_path: str) -> Optional[str]:
                 with open(file_path, "rb") as f:
                     f.seek(int(offset))
                     if _TICORAW_MARKER in f.read(64):
-                        return (
+                        return tr(
                             "Nikon High Efficiency (HE) raw — NegPy cannot decode this format. "
                             "Re-shoot as Lossless Compressed, or convert to DNG."
                         )

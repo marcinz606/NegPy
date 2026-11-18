@@ -22,6 +22,7 @@ Opening the port resets the dock, which then prints a BOOT line.
 
 from __future__ import annotations
 
+from negpy.kernel.system.i18n import tr
 import queue
 import re
 import threading
@@ -72,7 +73,7 @@ def parse_kv(line: str) -> dict[str, str]:
 def to_duty(level: int) -> int:
     """A 0-255 Scanlight level as the dock's 0-1000 duty."""
     if not 0 <= level <= SCANLIGHT_FULL_SCALE:
-        raise ValueError(f"light level out of range 0-{SCANLIGHT_FULL_SCALE}: {level}")
+        raise ValueError(tr("light level out of range 0-{value}: {value1}", value=SCANLIGHT_FULL_SCALE, value1=level))
     return round(level * DOCK_FULL_SCALE / SCANLIGHT_FULL_SCALE)
 
 
@@ -126,7 +127,7 @@ def connect(port: Optional[str] = None, *, opener=None) -> "LentoDock":
         if dock is not None:
             dock.close()
         _not_a_dock.add(device)
-    raise RuntimeError("No Lento Dock found. Is it plugged in and is Dock Connect closed?")
+    raise RuntimeError(tr("No Lento Dock found. Is it plugged in and is Dock Connect closed?"))
 
 
 class LentoDock:
@@ -152,7 +153,7 @@ class LentoDock:
             import serial
 
             if not port:
-                raise ValueError("LentoDock needs a port; use connect() to find one")
+                raise ValueError(tr("LentoDock needs a port; use connect() to find one"))
             self._port = port
             self._serial = serial.Serial(port, baudrate=baudrate, timeout=read_timeout_s)
 
@@ -212,16 +213,16 @@ class LentoDock:
         R, G and B lit together (see `set_color`), so the white-light presets work on the dock."""
         info = self.info or self._identify()
         if info is None:
-            raise ConnectionError("Lento Dock does not answer IDENT")
+            raise ConnectionError(tr("Lento Dock does not answer IDENT"))
         return f"{info.name} (fw {info.firmware})", True, False
 
     def set_color(self, r: int = 0, g: int = 0, b: int = 0, w: int = 0, ir: int = 0, save: bool = False) -> None:
         """Hold the panel at R, G, B. The continuous light has no white or infrared channel:
         white alone lights R, G and B together at its level, and infrared is refused."""
         if ir:
-            raise ValueError("The Lento Dock has no infrared light")
+            raise ValueError(tr("The Lento Dock has no infrared light"))
         if w and (r or g or b):
-            raise ValueError("White and narrowband cannot be lit together")
+            raise ValueError(tr("White and narrowband cannot be lit together"))
         if w:
             r = g = b = w
         duties = [to_duty(v) for v in (r, g, b)]
@@ -298,7 +299,7 @@ class LentoDock:
         self._enter_continuous()
         line = self._command("INSERT", r"^(OK|ERR)", then=((r"^(FRAMEAT|INSERT ERR)\b", ADVANCE_TIMEOUT_S),))
         if not line.startswith("FRAMEAT") or line.startswith("FRAMEAT ERR"):
-            raise RuntimeError(f"the dock reported {line!r}")
+            raise RuntimeError(tr("the dock reported {value!r}", value=line))
         deadline = time.monotonic() + REPLY_TIMEOUT_S
         while self._state.get("st") != "READY" and time.monotonic() < deadline:
             time.sleep(0.05)
@@ -403,9 +404,9 @@ class LentoDock:
         timeout)` in `then` waits for a later line in turn, and the last line matched is returned.
         The dock answers BUSY during its own exposure; the command goes again until that ends."""
         if self._reader_error is not None:
-            raise ConnectionError(f"Lento Dock reader stopped: {self._reader_error}")
+            raise ConnectionError(tr("Lento Dock reader stopped: {value}", value=self._reader_error))
         if self._link_error is not None:
-            raise ConnectionError(f"Lento Dock link lost: {self._link_error}")
+            raise ConnectionError(tr("Lento Dock link lost: {value}", value=self._link_error))
         first = rf"(?:{expect})|^BUSY\b"
         with self._command_lock:
             self._in_command = True
@@ -422,7 +423,7 @@ class LentoDock:
                     if not line.startswith("BUSY"):
                         break
                     if time.monotonic() > busy_until:
-                        raise TimeoutError(f"The dock stayed busy after {cmd!r}")
+                        raise TimeoutError(tr("The dock stayed busy after {value!r}", value=cmd))
                     time.sleep(BUSY_RETRY_S)
                 for pattern, wait in then:
                     line = self._await(cmd, pattern, wait)
@@ -441,17 +442,19 @@ class LentoDock:
                 if time.monotonic() - self._last_rx >= timeout:
                     self._silent = True
                     logger.warning("Lento Dock went silent; NegPy opens its port again on the next use")
-                raise TimeoutError(f"No reply to {cmd!r} within {timeout}s (the dock sent: {heard})")
+                raise TimeoutError(
+                    tr("No reply to {value!r} within {value1}s (the dock sent: {value2})", value=cmd, value1=timeout, value2=heard)
+                )
             try:
                 line = self._replies.get(timeout=left)
             except queue.Empty:
                 continue
             if line == _READER_DIED:
-                raise ConnectionError(f"Lento Dock reader stopped before replying to {cmd!r}")
+                raise ConnectionError(tr("Lento Dock reader stopped before replying to {value!r}", value=cmd))
             seen.append(line)
             if rx.search(line):
                 if re.match(r"^ERR\b", line):
-                    raise ValueError(f"Lento Dock refused {cmd!r}: {line}")
+                    raise ValueError(tr("Lento Dock refused {value!r}: {value1}", value=cmd, value1=line))
                 return line
 
     def _button_loop(self) -> None:

@@ -191,6 +191,33 @@ def test_frontier_lut_turns_skin_hues_without_corners():
     assert np.hypot(*np.gradient(rate, s, s)).max() < 1500.0
 
 
+def test_nikon_scan_lut_rebuilds():
+    import build_print_luts as b
+
+    if not (b.NIKON_DIR / "cml4-stage1-clut0.bin").exists():
+        pytest.skip("Nikon Scan CML4 tables not present")
+    table, e_max, _, _ = b.nikon_scan_lut(b.NIKON_DIR, b.NIKON["nikon_scan"])
+    np.testing.assert_allclose(table, load_print_lut("nikon_scan").table, atol=1e-5)
+    np.testing.assert_allclose(e_max, load_print_lut("nikon_scan").e_max)
+
+
+def test_nikon_scan_lut_keeps_grays_neutral_and_mutes_red_and_cyan():
+    # CML4 reads the scanner's wide primaries: red and cyan lose chroma, and a sky blue turns toward violet.
+    lut = load_print_lut("nikon_scan")
+    grays = np.array([tetra_lookup(lut.table, lut.e_max, e, e, e) for e in np.linspace(0.0, 2.3, 12)])
+    assert np.hypot(*rgb_to_lab_working(grays)[:, 1:].T).max() < 0.5
+
+    def chroma_and_hue(e):
+        lab = rgb_to_lab_working(np.stack([10.0 ** -np.array(e), tetra_lookup(lut.table, lut.e_max, *e)]))
+        return np.hypot(lab[:, 1], lab[:, 2]), np.degrees(np.arctan2(lab[:, 2], lab[:, 1]))
+
+    for dyes in ((0.2, 1.0, 1.0), (1.0, 0.2, 0.2)):
+        chroma, _ = chroma_and_hue(dyes)
+        assert chroma[1] < 0.85 * chroma[0]
+    _, hue = chroma_and_hue((1.0, 0.6, 0.2))
+    assert 5.0 < hue[1] - hue[0] < 30.0
+
+
 def test_blur_nodes_keeps_a_flat_grid_and_spreads_a_spike():
     import build_print_luts as b
 

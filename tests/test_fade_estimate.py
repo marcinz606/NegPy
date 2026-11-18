@@ -65,3 +65,41 @@ def test_a_short_range_suggests_restore_range_while_it_is_off(grid):
     with patch.object(fade_estimate, "short_range", return_value=True):
         out = run_estimate(_conf(), grid, None, None, GrayMemo(), white_anchor=False)
     assert out.suggest_red and "Restore Range" in (out.red_hint or "")
+
+
+def test_estimate_keeps_a_hand_trim_and_fits_the_shift_for_the_red_it_sets(grid):
+    plain = run_estimate(_conf(fade_auto_red=True), grid, None, None, GrayMemo(), white_anchor=False)
+    trimmed = run_estimate(_conf(fade_auto_red=True, fade_red_trim=0.8), grid, None, None, GrayMemo(), white_anchor=False)
+
+    assert plain.changes["fade_red_trim"] == 1.0 and trimmed.changes["fade_red_trim"] == 0.8
+    assert trimmed.changes["fade_ratio_r"] == pytest.approx(round(plain.changes["fade_ratio_r"] * 0.8, 3), abs=1e-9)
+    assert trimmed.changes["fade_density_shift"] != plain.changes["fade_density_shift"]
+
+
+def test_the_points_at_the_conf_s_own_red_are_read_once_per_grid_and_conf(grid):
+    from negpy.features.process import fade_auto_red
+
+    conf = _conf(fade_ratio_r=0.9)
+    other = grid.copy()
+    with patch.object(fade_estimate, "survival_points", wraps=fade_auto_red.survival_points) as read:
+        fade_estimate.auto_red_changes(conf, None, None, grid, 0.7)
+        first = read.call_count
+        fade_estimate.auto_red_changes(replace(conf, fade_red_trim=0.9), None, None, grid, 0.6)
+        assert read.call_count == first + 1
+        fade_estimate.auto_red_changes(conf, None, None, other, 0.7)
+        assert read.call_count == first * 2 + 1
+        fade_estimate.auto_red_changes(replace(conf, fade_ratio_g=0.8), None, None, other, 0.7)
+        assert read.call_count == first * 3 + 1
+
+
+def test_the_estimate_grid_ignores_restore_range_and_the_trim():
+    from negpy.desktop.workers import chart_fit
+    from negpy.domain.models import WorkspaceConfig
+
+    img = np.full((16, 16, 3), 0.4, np.float32)
+    cfg = WorkspaceConfig()
+    rendered = np.zeros((4, 4, 3), np.float32)
+    with patch.object(chart_fit, "_render_estimate_grid", return_value=rendered) as render:
+        for process in (cfg.process, replace(cfg.process, fade_auto_red=True, fade_red_trim=0.7)):
+            chart_fit.fade_estimate_grid(chart_fit.ChartSource(img, replace(cfg, process=process), "h", None, None, (), 1))
+    assert render.call_count == 1

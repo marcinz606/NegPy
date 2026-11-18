@@ -1005,7 +1005,7 @@ class ActionToolbar(QWidget):
 
     def _sync_paper_row(self) -> None:
         combo = self.paper_strip_combo
-        labels = [resolve_paper(key).label for key in self.controller.paper_strip_keys()]
+        labels = [tr(resolve_paper(key).label) for key in self.controller.paper_strip_keys()]
         state = self.session.state
         shown = state.test_strip_expanded
         self.paper_layout.blockSignals(True)

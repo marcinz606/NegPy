@@ -11,6 +11,7 @@ session. An error closes it, and the next operation opens it again.
 
 from __future__ import annotations
 
+from negpy.kernel.system.i18n import mark, tr
 import threading
 import time
 import weakref
@@ -41,7 +42,7 @@ from negpy.kernel.system.logging import get_logger
 
 logger = get_logger(__name__)
 
-_INSTALL_HINT = (
+_INSTALL_HINT = mark(
     "nkscan is not installed. Install it with: uv sync --group nkscan. On Linux a Coolscan on "
     "USB needs a udev rule for Nikon (04b0); on FireWire/SCSI it needs the sg kernel module."
 )
@@ -55,7 +56,7 @@ _MAX_SAMPLES = 16  # the protocol's own ceiling; a unit's own limit comes from i
 # window mm readout use it, and no adapter reports its opening through the bindings.
 _DEFAULT_AREA_MM = (24.0, 36.0)
 
-_PHASES = {"discover": "Detecting frames", "meter": "Metering", "scan": "Scanning"}
+_PHASES = {"discover": mark("Detecting frames"), "meter": mark("Metering"), "scan": mark("Scanning")}
 
 # Idle time after which a unit returns a loaded strip without notice; a strip put back in reads as loaded.
 # Set under the unit's own timeout: a false return costs only a re-measure.
@@ -134,7 +135,7 @@ def _progress_bridge(progress: Callable[..., None] | None, cancel: threading.Eve
     """
 
     def report(phase: str, _pass: int, done: int, total: int) -> bool:
-        _safe_progress(progress, (done / total) if total else 0.0, _PHASES.get(phase, "Scanning"))
+        _safe_progress(progress, (done / total) if total else 0.0, tr(_PHASES.get(phase, "Scanning")))
         return not cancel.is_set()
 
     return report
@@ -143,22 +144,26 @@ def _progress_bridge(progress: Callable[..., None] | None, cancel: threading.Eve
 def _validate_params(params: ScanParams) -> None:
     samples = int(params.samples)
     if not 1 <= samples <= _MAX_SAMPLES:
-        raise RuntimeError(f"Samples must be 1..{_MAX_SAMPLES}, not {samples}")
+        raise RuntimeError(tr("Samples must be 1..{value}, not {value1}", value=_MAX_SAMPLES, value1=samples))
     if params.auto_exposure:
-        raise RuntimeError("Auto-exposure requested but nkscan meters every frame itself")
+        raise RuntimeError(tr("Auto-exposure requested but nkscan meters every frame itself"))
     if params.film_format is not None and params.film_format not in FILM_FORMATS:
-        raise RuntimeError(f"Unknown film format {params.film_format!r}; expected one of {', '.join(FILM_FORMATS)}")
+        raise RuntimeError(
+            tr("Unknown film format {value!r}; expected one of {value1}", value=params.film_format, value1=", ".join(FILM_FORMATS))
+        )
     if params.film_type not in FILM_TYPES:
-        raise RuntimeError(f"Unknown film type {params.film_type!r}; expected one of {', '.join(FILM_TYPES)}")
+        raise RuntimeError(
+            tr("Unknown film type {value!r}; expected one of {value1}", value=params.film_type, value1=", ".join(FILM_TYPES))
+        )
     if params.capture_ir and params.clean:
         # ICE changes the image with the infrared plane, thus an IR file next to it has no use.
-        raise RuntimeError("IR and ICE cannot be used together: ICE changes the image that the IR file is for")
+        raise RuntimeError(tr("IR and ICE cannot be used together: ICE changes the image that the IR file is for"))
     if (params.capture_ir or params.clean) and not film_passes_infrared(params.film_type):
-        label = FILM_TYPES[params.film_type][0]
-        raise RuntimeError(f"{label} blocks infrared, so IR and ICE have nothing to read on it")
+        label = tr(FILM_TYPES[params.film_type][0])
+        raise RuntimeError(tr("{value} blocks infrared, so IR and ICE have nothing to read on it", value=label))
     lo, hi = ANALOG_GAIN_EV_RANGE
     if not all(lo <= ev <= hi for ev in (params.analog_gain_ev, *params.channel_gain_ev)):
-        raise RuntimeError(f"Analog Gain must be {lo:+.1f}..{hi:+.1f} EV")
+        raise RuntimeError(tr("Analog Gain must be {value:+.1f}..{value1:+.1f} EV", value=lo, value1=hi))
     # `depth` and `autofocus` carry no request here: every scan comes back 16-bit and focuses
     # itself, so honouring the defaults silently is the truth, not a skipped option.
 
@@ -214,7 +219,7 @@ def _stack_rgb(colors: dict[str, np.ndarray]) -> np.ndarray:
     planes = [colors[name] for name in ("red", "green", "blue") if name in colors]
     if len(planes) != 3:
         if not colors:
-            raise RuntimeError("The scan returned no image planes")
+            raise RuntimeError(tr("The scan returned no image planes"))
         planes = [next(iter(colors.values()))] * 3
     return np.stack(planes, axis=-1)
 
@@ -256,7 +261,7 @@ class NkscanSession:
 
     def _require_open(self) -> None:
         if self._closed:
-            raise RuntimeError(f"Scanner session for {self.device_id} is closed")
+            raise RuntimeError(tr("Scanner session for {value} is closed", value=self.device_id))
 
     def __enter__(self) -> NkscanSession:
         return self
@@ -272,7 +277,7 @@ class NkscanBackend:
         try:
             import nkscan
         except ImportError as exc:
-            raise ScannerUnavailable(_INSTALL_HINT) from exc
+            raise ScannerUnavailable(tr(_INSTALL_HINT)) from exc
         self._nk = nkscan
         self._devices_cache: list[ScannerDevice] | None = None
         self._sessions: dict[str, NkscanSession] = {}
@@ -357,7 +362,7 @@ class NkscanBackend:
     def open_session(self, device_id: str) -> ScannerSession:
         with self._lock:
             if device_id in self._sessions:
-                raise RuntimeError(f"Device already held in a session: {device_id}")
+                raise RuntimeError(tr("Device already held in a session: {value}", value=device_id))
         session, model = self._open(device_id)
         held = NkscanSession(self, device_id, session, model)
         with self._lock:
@@ -456,7 +461,7 @@ class NkscanBackend:
     ) -> ScanResult:
         with self._lock:
             if device_id in self._sessions:
-                raise RuntimeError(f"Device {device_id} is held by an open session; use session.scan()")
+                raise RuntimeError(tr("Device {value} is held by an open session; use session.scan()", value=device_id))
         # Validate before opening: a refused option must never leave the unit staged.
         _validate_params(params)
         with self._using(device_id) as (session, model):
@@ -475,7 +480,7 @@ class NkscanBackend:
     ) -> ScanResult:
         _validate_params(params)
         if cancel.is_set():
-            raise RuntimeError("Scan cancelled before start")
+            raise RuntimeError(tr("Scan cancelled before start"))
         report = _progress_bridge(progress, cancel)
         rect = self._resolve_frame(session, device_id, params, report)
         optical = int(session.capabilities.optical_dpi)
@@ -505,7 +510,7 @@ class NkscanBackend:
                 **metering,
             )
         if cancel.is_set():
-            raise RuntimeError("Scan cancelled")
+            raise RuntimeError(tr("Scan cancelled"))
         if result.cleaned:
             logger.info("Dust removal rebuilt %d pixels", result.cleaned)
         # ICE reads the infrared plane to clean the frame. Keep it only when the scan asks for IR.
@@ -526,7 +531,7 @@ class NkscanBackend:
         """
         with self._lock:
             if device_id in self._sessions:
-                raise RuntimeError(f"Device {device_id} is held by an open session")
+                raise RuntimeError(tr("Device {value} is held by an open session", value=device_id))
         _validate_params(params)
         with self._using(device_id) as (session, _model):
             report = _progress_bridge(progress, cancel)
@@ -536,7 +541,7 @@ class NkscanBackend:
             with self._mapped_errors():
                 exposures = session.meter_frame(rect, infrared=True, progress=report, **metering)
         if cancel.is_set():
-            raise RuntimeError("Metering cancelled")
+            raise RuntimeError(tr("Metering cancelled"))
         return {str(k): int(v) for k, v in exposures.items()}
 
     def scan_frame(
@@ -555,7 +560,7 @@ class NkscanBackend:
         want = bool(superfine) or not bool(session.capabilities.multi_line)
         result = session.scan_frame(rect, superfine=want, **options)
         if not result.complete:
-            raise TransientScanError(f"The pass ended early: {result.blocks} blocks arrived")
+            raise TransientScanError(tr("The pass ended early: {value} blocks arrived", value=result.blocks))
         return result
 
     def metering(self, device_id: str, film_type: str, film_format: str | None) -> dict[str, Any]:
@@ -602,7 +607,7 @@ class NkscanBackend:
             discovery = session.discover_frames(format=film_format, film=film_type, progress=progress)
         # A short thumbnail pass reads as film ending early, so its fit miscounts the frames.
         if discovery.thumbnail_complete is False:
-            raise TransientScanError(f"The thumbnail pass ended early: {discovery.thumbnail_blocks} blocks arrived")
+            raise TransientScanError(tr("The thumbnail pass ended early: {value} blocks arrived", value=discovery.thumbnail_blocks))
         self.forget_frames(device_id)
         self._frames[device_id] = [tuple(int(v) for v in rect) for rect in discovery.frames]
         self._optical[device_id] = int(session.capabilities.optical_dpi)
@@ -711,12 +716,12 @@ class NkscanBackend:
             )
             frames = self._frames.get(device_id)
         if not frames:
-            raise RuntimeError("No frames were detected on the loaded film")
+            raise RuntimeError(tr("No frames were detected on the loaded film"))
         # No frame requested means the first one on the strip, never whatever the stage happens
         # to be over.
         index = 1 if params.frame is None else int(params.frame)
         if not 1 <= index <= len(frames):
-            raise RuntimeError(f"Frame {index} was not detected on this strip ({len(frames)} found)")
+            raise RuntimeError(tr("Frame {value} was not detected on this strip ({value1} found)", value=index, value1=len(frames)))
         return frames[index - 1]
 
     # ── strip preview ─────────────────────────────────────────────────
@@ -774,7 +779,7 @@ class NkscanBackend:
         try:
             yield
         except nk.ScanCancelled as exc:
-            raise RuntimeError("Scan cancelled") from exc
+            raise RuntimeError(tr("Scan cancelled")) from exc
         except nk.TransientError as exc:
             raise TransientScanError(str(exc)) from exc
         except nk.UnsupportedError as exc:

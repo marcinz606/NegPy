@@ -17,6 +17,7 @@ there needs a done flag rather than a per-load equality check, since a load can'
 a legacy row from a value the user just saved.
 """
 
+import math
 from typing import Any, Dict
 
 # Old field name → new field name.
@@ -48,6 +49,14 @@ KEY_RENAMES: Dict[str, str] = {
 DROPPED_KEYS: frozenset[str] = frozenset(
     {
         "flare",  # veiling-glare floor
+        "toe_width",  # Toe and Shoulder set the knee shape
+        "shoulder_width",
+        "toe_width_trim_red",
+        "toe_width_trim_green",
+        "toe_width_trim_blue",
+        "shoulder_width_trim_red",
+        "shoulder_width_trim_green",
+        "shoulder_width_trim_blue",
         "ir_inpaint_radius",  # IR stroke synthesis, replaced by score-weighted fill
         "ir_method",  # one IR reconstruction method left
         "auto_cast_removal",  # cast removal became always-on
@@ -233,6 +242,22 @@ def migrate_flat_config(data: Dict[str, Any]) -> Dict[str, Any]:
         and data.get("paper_profile", "neutral") == "neutral"
     ):
         data["paper_profile"] = "pakon"
+
+    # A print edit with toe_width has the knee heights: Toe moved paper black, Shoulder moved
+    # paper white, and each width set the knee softness the slider sets now. Each slider takes
+    # the value that prints closest to its width's knee: Toe 0.12 per unit of width, Shoulder
+    # the log of its width on KNEE_SPAN_SHOULDER. Toe keeps its own value. A positive Shoulder
+    # scales to the closest roll-off; a negative one changed nothing.
+    if "toe_width" in data and str(data.get("process_mode", "")) not in ("Transparency", "E-6") and not data.get("positive_source"):
+
+        def _width(key: str) -> float:
+            return max(float(data.get(key) or 2.5), 0.1)
+
+        def _clamp(value: float) -> float:
+            return min(max(value, -1.0), 1.0)
+
+        data["toe"] = _clamp(float(data.get("toe", 0.0)) + 0.12 * (_width("toe_width") - 2.5))
+        data["shoulder"] = _clamp(1.4 * max(float(data.get("shoulder", 0.0)), 0.0) + math.log(_width("shoulder_width") / 2.5, 1.9))
 
     if "export_fmt" in data:
         data["export_fmt"] = migrate_export_fmt(str(data["export_fmt"]))

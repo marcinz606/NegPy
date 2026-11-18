@@ -3,6 +3,7 @@
 Output format is TIFF (zlib-compressed) or lossless JPEG XL.
 """
 
+from negpy.kernel.system.i18n import mark, tr
 import io
 import os
 from dataclasses import dataclass, replace
@@ -226,11 +227,11 @@ def _apply_user_geometry(f32: np.ndarray, geometry: GeometryConfig) -> np.ndarra
 
 
 TIFF_GAMMA_OPTIONS: list[tuple[str, str]] = [
-    ("linear", "Linear (1.0)"),
-    ("1.8", "Gamma 1.8"),
-    ("2.2", "Gamma 2.2"),
-    ("2.4", "Gamma 2.4"),
-    ("2.6", "Gamma 2.6"),
+    ("linear", mark("Linear (1.0)")),
+    ("1.8", mark("Gamma 1.8")),
+    ("2.2", mark("Gamma 2.2")),
+    ("2.4", mark("Gamma 2.4")),
+    ("2.6", mark("Gamma 2.6")),
     ("srgb", "sRGB"),
     ("lstar", "L*"),
     ("rec709", "Rec.709"),
@@ -444,7 +445,7 @@ def _decode_source(
         meta = _read_source_meta_tiff(file_path)
         rgb, ir = _decode_tiff(file_path, gamma_key=gamma_key, expansion=expansion)
         return rgb, ir, None, meta
-    raise ValueError(f"Linear Output is not supported for this file type: {file_path}")
+    raise ValueError(tr("Linear Output is not supported for this file type: {value}", value=file_path))
 
 
 PAKON_EXPANSION = 4.0
@@ -530,7 +531,7 @@ def _decode_pakon(file_path: str, expansion: Optional[float] = None) -> tuple[np
     ctx_mgr, metadata = loader.load(file_path)
     with ctx_mgr as wrapper:
         if not isinstance(wrapper, NonStandardFileWrapper):
-            raise TypeError("Expected NonStandardFileWrapper from PakonLoader")
+            raise TypeError(tr("Expected NonStandardFileWrapper from PakonLoader"))
         f32 = wrapper.data
     factor = expansion if expansion is not None else _default_pakon_expansion(file_path)
     if factor > 1.0:
@@ -585,7 +586,7 @@ def _decode_noritsu(
     """Read a headerless Noritsu EZController RAW. Returns (rgb, None)."""
     dims = detect_noritsu_dims(file_path)
     if dims is None:
-        raise ValueError(f"Unknown Noritsu dimensions for {file_path}")
+        raise ValueError(tr("Unknown Noritsu dimensions for {value}", value=file_path))
     w, h = dims
     with open(file_path, "rb") as f:
         data = np.fromfile(f, dtype="<u2", count=w * h * 3)
@@ -614,9 +615,9 @@ def _decode_dng(file_path: str, expansion: Optional[float] = None) -> tuple[np.n
     try:
         peeked_3ch = _peek_linear_dng_rgb(file_path)
     except Exception as e:
-        raise ValueError(f"Failed to read LinearRaw data from {file_path}: {e}") from e
+        raise ValueError(tr("Failed to read LinearRaw data from {value}: {value1}", value=file_path, value1=e)) from e
     if peeked_3ch is None:
-        raise ValueError(f"No LinearRaw IFD found in {file_path}")
+        raise ValueError(tr("No LinearRaw IFD found in {value}", value=file_path))
     rgb = peeked_3ch[0]
     if expansion is not None and expansion > 1.0:
         rgb = _expand(rgb, expansion)
@@ -626,8 +627,12 @@ def _decode_dng(file_path: str, expansion: Optional[float] = None) -> tuple[np.n
         # DefaultCrop* trimmed rgb but the HDRi IR page is still full sensor size. Fail loudly
         # instead of pairing misaligned planes on export.
         raise ValueError(
-            f"LinearRaw RGB {rgb.shape[:2]} and IR plane {ir.shape[:2]} size "
-            f"mismatch in {file_path} (DefaultCrop* tag with an HDRi IR page?)"
+            tr(
+                "LinearRaw RGB {value} and IR plane {value1} size mismatch in {value2} (DefaultCrop* tag with an HDRi IR page?)",
+                value=rgb.shape[:2],
+                value1=ir.shape[:2],
+                value2=file_path,
+            )
         )
     orientation = read_orientation(file_path)
     rgb = apply_exif_orientation(rgb, orientation)

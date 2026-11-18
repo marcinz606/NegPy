@@ -83,7 +83,7 @@ class LensSidebar(BaseSidebar):
             button.setChecked(enabled)
             button.setEnabled(available or enabled)
             button.edited_dot.set_active(enabled)
-        text = lens.description if lens.available else tr("Unavailable: {reason}", reason=lens.reason)
+        text = lens.description if lens.available else tr("Unavailable: {reason}", reason=tr(lens.reason))
         self.lens_hint.setText(text)
         self.lens_hint.setVisible(bool(text))
         self.distortion_slider.setEnabled(not config.geometry.lens_distortion_from_metadata)

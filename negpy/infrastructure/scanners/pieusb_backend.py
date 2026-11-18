@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from negpy.kernel.system.i18n import tr
 from typing import TYPE_CHECKING
 
 
@@ -38,7 +39,7 @@ def _require_pieusb() -> None:
         # is here to catch.
         import pieusb  # noqa: F401
     except ImportError:
-        raise ScannerUnavailable("pieusb not importable. Install: uv sync --group pieusb") from None
+        raise ScannerUnavailable(tr("pieusb not importable. Install: uv sync --group pieusb")) from None
 
 
 def _as_scan_error(exc: BaseException, params: ScanParams) -> Exception:
@@ -67,50 +68,53 @@ def _as_scan_error(exc: BaseException, params: ScanParams) -> Exception:
     if isinstance(exc, (TransportError, Timeout)):
         # TransportError already reset the transport before raising, so the device is
         # deliberately left in a state a fresh open can use.
-        return TransientScanError(f"Scanner transport failure: {exc}")
+        return TransientScanError(tr("Scanner transport failure: {value}", value=exc))
     if isinstance(exc, WarmingUp):
         # Retryable by nature, but pieusb has already waited out its own budget at START SCAN,
         # so each further attempt costs that again. The WARMING_UP phase reaches the progress
         # bar, so the wait is at least visible.
-        return TransientScanError(f"Scanner lamp is still warming up: {exc}")
+        return TransientScanError(tr("Scanner lamp is still warming up: {value}", value=exc))
     if isinstance(exc, usb.core.USBError) and getattr(exc, "errno", None) in _RETRYABLE_USB_ERRNOS:
-        return TransientScanError(f"USB error during the scan: {exc}")
+        return TransientScanError(tr("USB error during the scan: {value}", value=exc))
 
     # --- fatal, most specific first ----------------------------------------
     if isinstance(exc, usb.core.USBError):
         if getattr(exc, "errno", None) in _GONE_USB_ERRNOS:
-            return RuntimeError(f"Lost contact with the scanner mid-scan; refresh the device list and try again ({exc})")
+            return RuntimeError(tr("Lost contact with the scanner mid-scan; refresh the device list and try again ({value})", value=exc))
         # No errno, or one not worth a claim either way: say what happened and stop, rather than
         # guessing at a cause the message cannot support.
-        return RuntimeError(f"USB error during the scan: {exc}")
+        return RuntimeError(tr("USB error during the scan: {value}", value=exc))
     if isinstance(exc, MemoryError):
         return RuntimeError(
-            f"Not enough memory to hold a {params.dpi} dpi {params.depth}-bit scan"
-            f"{' with infrared' if params.capture_ir else ''}. Lower the resolution, "
-            f"scan 8-bit, or select a smaller area."
+            tr(
+                "Not enough memory to hold a {value} dpi {value1}-bit scan{value2}. Lower the resolution, scan 8-bit, or select a smaller area.",
+                value=params.dpi,
+                value1=params.depth,
+                value2=" with infrared" if params.capture_ir else "",
+            )
         )
     if isinstance(exc, DeviceNotReady):
         # WarmingUp, its one retryable subclass, was taken above.
-        return RuntimeError(f"The scanner is not ready to scan — check the holder and the cover ({exc})")
+        return RuntimeError(tr("The scanner is not ready to scan: check the holder and the cover ({value})", value=exc))
     if isinstance(exc, CheckCondition):
         # str() carries the sense key, code and qualifier, which is the only thing that makes an
         # unrecognised refusal diagnosable after the fact.
-        return RuntimeError(f"The scanner refused a command: {exc}")
+        return RuntimeError(tr("The scanner refused a command: {value}", value=exc))
     if isinstance(exc, PieusbError):
         # The one message match, because pieusb has no distinct type for it and it is the
         # likeliest failure with a user action attached. Worth an upstream exception type;
         # until then, matching beats showing raw geometry.
         if "empty image" in str(exc):
-            return RuntimeError("The scanner reported an empty image — check that film is loaded and the area is in range")
-        return RuntimeError(f"Scan failed: {exc}")
-    return RuntimeError(f"Scan failed: {exc}")
+            return RuntimeError(tr("The scanner reported an empty image: check that film is loaded and the area is in range"))
+        return RuntimeError(tr("Scan failed: {value}", value=exc))
+    return RuntimeError(tr("Scan failed: {value}", value=exc))
 
 
 class PieusbSession:
     device_id: str
 
     def __init__(self, backend: PieusbBackend) -> None:
-        raise NotImplementedError("PieusbSession not yet implemented")
+        raise NotImplementedError(tr("PieusbSession not yet implemented"))
 
     def scan(
         self,
@@ -118,7 +122,7 @@ class PieusbSession:
         progress: Callable[[float, str], None],
         cancel: threading.Event,
     ) -> ScanResult:
-        raise NotImplementedError("PieusbSession is a stub; use PieusbBackend.scan")
+        raise NotImplementedError(tr("PieusbSession is a stub; use PieusbBackend.scan"))
 
     def eject(self) -> bool:
         return False
@@ -188,7 +192,7 @@ class PieusbBackend:
         from pieusb.scanner import Scanner
 
         if cancel.is_set():
-            raise Exception("Scan was cancelled")
+            raise Exception(tr("Scan was cancelled"))
 
         dev = self._devices_map[device_id]
 
@@ -237,7 +241,7 @@ class PieusbBackend:
             while not done:
                 if cancel.is_set():
                     s.cancel()
-                    raise Exception("Scan was cancelled")
+                    raise Exception(tr("Scan was cancelled"))
                 done = s.wait(0.2)
 
             # A pieusb scan reports exactly one outcome, and the three below are not
@@ -245,20 +249,20 @@ class PieusbBackend:
             if scan_cancelled:
                 # The worker noticed the cancel at a chunk boundary and stopped the device itself, so
                 # the poll above saw it finish rather than cancel.
-                raise Exception("Scan was cancelled")
+                raise Exception(tr("Scan was cancelled"))
             if scan_error is not None:
                 raise _as_scan_error(scan_error, params) from scan_error
             if result is None:
                 # on_complete never ran: the worker thread died on something that is not an Exception,
                 # so the device state is unknown, not failed.
-                raise RuntimeError("The scan worker did not report an outcome")
+                raise RuntimeError(tr("The scan worker did not report an outcome"))
             if result.rgb is None:
-                raise RuntimeError("The scan completed but returned no image data")
+                raise RuntimeError(tr("The scan completed but returned no image data"))
 
             return result
 
     def open_session(self, device_id: str) -> ScannerSession:
-        raise NotImplementedError("open_session not yet implemented in PieusbBackend")
+        raise NotImplementedError(tr("open_session not yet implemented in PieusbBackend"))
 
     def eject(self, device_id: str) -> bool:
         return False

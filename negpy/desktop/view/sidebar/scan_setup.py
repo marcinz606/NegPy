@@ -19,18 +19,6 @@ _LIGHT_HINT = {
         "narrowband": tr("RGB LED light, as in a Nikon Coolscan or Kodak Pakon."),
     },
 }
-_DECODE_EFFECT = {
-    ("camera", "white"): tr("Decodes the RAW with the camera white balance."),
-    ("camera", "narrowband"): tr("Decodes the RAW linear, with no white balance."),
-    ("scanner", "white"): tr("Reads the scan linear, with no white balance."),
-    ("scanner", "narrowband"): tr("Reads the scan linear, with no white balance."),
-}
-_CARDS_EFFECT = {
-    ("camera", "white"): tr("Shows the Raw Decode and Optics cards."),
-    ("camera", "narrowband"): tr("Shows the Raw Decode, Optics and Trichrome cards."),
-    ("scanner", "white"): tr("Hides the Raw Decode and Optics cards."),
-    ("scanner", "narrowband"): tr("Hides the Raw Decode and Optics cards."),
-}
 
 
 def detected_capture(state) -> str:
@@ -104,12 +92,12 @@ class ScanSetupSidebar(BaseSidebar):
         if process.process_mode == ProcessMode.C41:
             paper = self.state.config.exposure.paper_profile
             stock = (
-                tr("Prints on {stock}.", stock=resolve_paper(scan_setup_values(resolved, light)[1]).label)
+                tr("Prints on {stock}.", stock=tr(resolve_paper(scan_setup_values(resolved, light)[1]).label))
                 if paper in SCAN_SETUP_PAPERS
                 else tr("Keeps the print stock you picked.")
             )
-        rig = (resolved, light)
-        lines = ("" if bw else _LIGHT_HINT[resolved][light], detected, _DECODE_EFFECT[rig], _CARDS_EFFECT[rig], stock)
+        lines = ("" if bw else _LIGHT_HINT[resolved][light], detected, stock)
         # A table, not <ul>: a wrapped line hangs under its own text, and the bullets stay flush left.
         rows = "".join(f"<tr><td>•&nbsp;</td><td>{t}</td></tr>" for t in lines if t)
         self.hint.setText('<table cellspacing="0" cellpadding="0">' + rows + "</table>")
+        self.hint.setVisible(bool(rows))

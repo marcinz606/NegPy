@@ -8,7 +8,15 @@ from PyQt6.QtWidgets import QApplication, QWidget
 
 from negpy.desktop.session import ToolMode
 from negpy.services.assets import rolls
-from negpy.desktop.view.confirm import confirm_remove_from_roll, confirm_reset_frames, confirm_restore_removed, confirm_unload_all
+from negpy.services.assets.rehome import gone_member_paths
+from negpy.desktop.view.confirm import (
+    confirm_remove_from_roll,
+    confirm_remove_missing,
+    confirm_reset_frames,
+    confirm_reset_roll,
+    confirm_restore_removed,
+    confirm_unload_all,
+)
 from negpy.desktop.view.widgets.granular_settings_dialog import open_paste_dialog, open_sticky_dialog, open_sync_bounds_dialog
 from negpy.desktop.view.widgets.rgb_triplet_dialog import open_triplet_dialog
 from negpy.desktop.view.shortcut_registry import (
@@ -63,6 +71,17 @@ def _reset_roll(window, controller) -> None:
         controller.request_render()
 
 
+def reset_open_roll(window, controller) -> None:
+    """Reset the open roll and every frame loaded from it, after a confirmation."""
+    roll_id = controller.state.active_roll_id
+    count = len(controller.state.uploaded_files)
+    if not roll_id or not count:
+        return
+    name = (rolls.roll_for_id(controller.session.repo, roll_id) or {}).get("name") or tr("this roll")
+    if confirm_reset_roll(window, name, count):
+        controller.reset_open_roll()
+
+
 def _unload_all(window, controller) -> None:
     """Empty the Film Strip and close the open roll, which stays in the Library."""
     session = controller.session
@@ -86,6 +105,19 @@ def remove_from_roll(window, controller) -> None:
     name = (rolls.roll_for_id(controller.session.repo, state.active_roll_id) or {}).get("name") or tr("this roll")
     if count and confirm_remove_from_roll(window, count, name):
         controller.request_remove_from_roll(indices)
+
+
+def remove_missing_frames(window, controller, roll_id: Optional[str] = None) -> bool:
+    """Take the frames whose files are gone out of a virtual roll (the open one by default), after a confirmation."""
+    roll_id = roll_id or controller.state.active_roll_id
+    entry = rolls.roll_for_id(controller.session.repo, roll_id) if roll_id else None
+    count = len(gone_member_paths(entry))
+    if not count:
+        return False
+    if not confirm_remove_missing(window, count, (entry or {}).get("name") or tr("this roll")):
+        return False
+    controller.remove_missing_frames(roll_id)
+    return True
 
 
 def restore_removed_frames(window, controller, roll_id: Optional[str] = None) -> bool:
@@ -541,6 +573,8 @@ class ShortcutManager:
             "measure_chart": lambda: controls.sensor_sidebar.measure_chart_btn.click(),
             "estimate_fade": lambda: controls.fade_sidebar.estimate_fade_btn.click(),
             "fade_auto_red": lambda: controls.fade_sidebar.fade_auto_red_btn.click(),
+            "estimate_fade_roll": lambda: controls.fade_sidebar.estimate_roll_btn.click(),
+            "share_crossover": lambda: controls.fade_sidebar.share_crossover_btn.click(),
             "scan_prescan": (lambda: right.scan_sidebar.prescan_btn.click() if getattr(right, "scan_sidebar", None) is not None else None),
             "scan_meter_frame": (
                 lambda: right.scan_sidebar.exposure_meter_btn.click() if getattr(right, "scan_sidebar", None) is not None else None
@@ -664,10 +698,12 @@ class ShortcutManager:
             "paste": lambda: open_paste_dialog(self.window, controller),
             "sync_bounds": lambda: open_sync_bounds_dialog(self.window, controller.session),
             "reset_roll": lambda: _reset_roll(self.window, controller),
+            "reset_open_roll": lambda: reset_open_roll(self.window, controller),
             "close_roll": lambda: _unload_all(self.window, controller),
             "remove_from_roll": lambda: remove_from_roll(self.window, controller),
             "locate_roll_folder": lambda: self.window.right_panel.library_tree.locate_open_roll_folder(),
             "restore_removed_frames": lambda: restore_removed_frames(self.window, controller),
+            "remove_missing_frames": lambda: remove_missing_frames(self.window, controller),
             "reset_tab": lambda: _fire_tab_header(right, "reset"),
             "reset_tab_to_roll": lambda: _fire_tab_header(right, "revert"),
             "reset_to_roll": controller.revert_frame_to_roll,

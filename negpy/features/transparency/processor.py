@@ -53,7 +53,6 @@ from negpy.features.transparency.logic import (
     transfer_cast_affine,
     transfer_curve_params,
     transfer_point_offsets,
-    transfer_widths,
 )
 
 
@@ -232,7 +231,6 @@ class TransferProcessor:
         )
         cast_offset = tuple(o * TRANSFER_DENSITY_RANGE for o in cast_offset_norm)
 
-        tw3, sw3 = transfer_widths(self.config)
         if self.mono_weights is not None:
             # B&W: one density before the curve, and luma after it so per-channel trims cannot tint.
             image = negpy_core.matmul_3x3(np.ascontiguousarray(image, dtype=np.float32), collapse_matrix(self.mono_weights))
@@ -243,8 +241,6 @@ class TransferProcessor:
             toe3,
             sh3,
             cmy_offsets,
-            tw3,
-            sw3,
             shadow_density=self.config.shadow_density + shadow_auto,
             highlight_density=self.config.highlight_density + highlight_auto,
             shadow_cmy=shadow_cmy,

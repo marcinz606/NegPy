@@ -1,3 +1,4 @@
+from negpy.kernel.system.i18n import tr
 from collections.abc import Iterable
 from dataclasses import dataclass, field, fields
 
@@ -147,9 +148,9 @@ def parse_frame_spec(text: str) -> tuple[int, ...]:
             lo = int(first)
             hi = int(last) if sep else lo
         except ValueError:
-            raise ValueError(f"Cannot read {part!r} as a frame number") from None
+            raise ValueError(tr("Cannot read {value!r} as a frame number", value=part)) from None
         if lo < 1 or hi < lo:
-            raise ValueError(f"{part!r} is not a frame range")
+            raise ValueError(tr("{value!r} is not a frame range", value=part))
         frames.update(range(lo, hi + 1))
     return tuple(sorted(frames))
 

@@ -232,12 +232,10 @@ class PhotometricCurveWidget(QWidget):
         from negpy.features.exposure.logic import (
             _expit,
             compute_pivot,
-            grade_coupled_shape,
             grade_to_slope,
             per_channel_midtone_gamma,
-            per_channel_toe_shoulder,
-            per_channel_widths,
             print_curve,
+            print_knees,
             print_curve_output,
             split_grade_deltas,
         )
@@ -256,7 +254,6 @@ class PhotometricCurveWidget(QWidget):
 
         # Grade-coupled knees, from the same helper as the render path, so the plotted curve
         # matches the engine at hard grades. Flat has no print knees.
-        toe_eff, shoulder_eff = (params.toe, params.shoulder) if flat else grade_coupled_shape(slope, params.toe, params.shoulder)
         split_sh_trims = (params.shadow_grade_trim_red, params.shadow_grade_trim_green, params.shadow_grade_trim_blue)
         split_hi_trims = (params.highlight_grade_trim_red, params.highlight_grade_trim_green, params.highlight_grade_trim_blue)
         sg3, hg3 = split_grade_deltas(params.grade, params.shadow_grade, params.highlight_grade, split_sh_trims, split_hi_trims)
@@ -291,8 +288,8 @@ class PhotometricCurveWidget(QWidget):
                 process_mode,
                 toe=toe_ch,
                 shoulder=sh_ch,
-                toe_width=tw_ch,
-                shoulder_width=sw_ch,
+                toe_stretch=tw_ch,
+                shoulder_stretch=sw_ch,
                 midtone_gamma=mg_ch,
                 highlight_density=highlight_density,
                 shadow_density=shadow_density,
@@ -341,45 +338,46 @@ class PhotometricCurveWidget(QWidget):
                 params.midtone_gamma_trim_green,
                 params.midtone_gamma_trim_blue,
             )
-            width_trims = (
-                params.toe_width_trim_red,
-                params.toe_width_trim_green,
-                params.toe_width_trim_blue,
-                params.shoulder_width_trim_red,
-                params.shoulder_width_trim_green,
-                params.shoulder_width_trim_blue,
-            )
             curvs = (0.0, 0.0, 0.0) if curvatures is None else curvatures
             diverged = (
                 (max(slopes) - min(slopes) > 1e-9)
                 or (max(pivots) - min(pivots) > 1e-9)
                 or (max(curvs) - min(curvs) > 1e-9)
-                or any(t != 0.0 for t in knee_trims + snap_trims + width_trims + split_sh_trims + split_hi_trims)
+                or any(t != 0.0 for t in knee_trims + snap_trims + split_sh_trims + split_hi_trims)
             )
             if diverged:
-                toe3, sh3 = per_channel_toe_shoulder(toe_eff, shoulder_eff, knee_trims[:3], knee_trims[3:])
                 from negpy.features.exposure.papers import effective_paper_profile
 
                 mg3 = per_channel_midtone_gamma(
                     effective_paper_profile(params.paper_profile, process_mode), params.midtone_gamma, snap_trims
                 )
-                tw3, sw3 = per_channel_widths(params.toe_width, params.shoulder_width, width_trims[:3], width_trims[3:])
+                toe3, sh3, tw3, sw3 = print_knees(slopes[1], params.toe, params.shoulder, knee_trims[:3], knee_trims[3:], paper=paper)
                 ch_colors = (QColor(THEME.channel_red_text), QColor(THEME.channel_green_text), QColor(THEME.channel_blue_text))
                 self._channel_curves = [
                     (
                         ch_colors[ch],
-                        _curve_points(slopes[ch], pivots[ch], toe3[ch], sh3[ch], mg3[ch], tw3[ch], sw3[ch], sg3[ch], hg3[ch], curvs[ch]),
+                        _curve_points(
+                            slopes[ch],
+                            pivots[ch],
+                            toe3[ch],
+                            sh3[ch],
+                            mg3[ch],
+                            tw3[ch],
+                            sw3[ch],
+                            sg3[ch],
+                            hg3[ch],
+                            curvs[ch],
+                        ),
                     )
                     for ch in range(3)
                 ]
 
         # Zone shading: the toe rolls the shadows (input above the pivot) and the shoulder rolls
-        # the highlights (input below it). A smaller width is a sharper split.
-        epsilon = 1e-6
-        self._toe_mask = _expit((x_log_exp - pivot) * (10.0 / max(params.toe_width, epsilon))).tolist()
-        self._shoulder_mask = _expit((pivot - x_log_exp) * (10.0 / max(params.shoulder_width, epsilon))).tolist()
-        self._toe_strength = toe_eff
-        self._shoulder_strength = shoulder_eff
+        # the highlights (input below it).
+        self._toe_mask = _expit((x_log_exp - pivot) * 4.0).tolist()
+        self._shoulder_mask = _expit((pivot - x_log_exp) * 4.0).tolist()
+        self._toe_strength = params.toe
+        self._shoulder_strength = params.shoulder
 
         # Pivot in widget x-space: x_log_exp = pivot → plt_x = 1 - pivot
         pivot_plt_x = float(np.clip(1.0 - pivot, self._X_MIN, self._X_MAX))
@@ -445,9 +443,9 @@ class PhotometricCurveWidget(QWidget):
             self._draw_zone_shading(painter, w, h, self._shoulder_mask, self._shoulder_strength, cool)
 
             # Glow the dragged slider's zone at fixed strength, so it reads at zero and negative values
-            if self._active_param in ("toe", "toe_width"):
+            if self._active_param == "toe":
                 self._draw_zone_shading(painter, w, h, self._toe_mask, 0.5, warm)
-            elif self._active_param in ("shoulder", "shoulder_width"):
+            elif self._active_param == "shoulder":
                 self._draw_zone_shading(painter, w, h, self._shoulder_mask, 0.5, cool)
 
             # P2: Gradient luminance fill under the curve
@@ -778,9 +776,7 @@ class WaveformWidget(QWidget):
     def _split(self) -> bool:
         return self._parade and not (self._overlay and self._aligned())
 
-    def set_scan_domain(
-        self, enabled: bool, marks: Any = None, caption: str = "Scan density", full_scale: Any = None, base: Any = None
-    ) -> None:
+    def set_scan_domain(self, enabled: bool, marks: Any = None, caption: str = "", full_scale: Any = None, base: Any = None) -> None:
         """Read the counts as scan density (Peek Negative) rather than print tone. ``marks`` is the
         (3, 2) per-channel stretch ends and ``base`` the (3,) clear film base, 0..1 up the panel;
         ``full_scale`` the (3, cols) counts of scan pixels at sensor clip, which set the top ticks.
@@ -798,7 +794,7 @@ class WaveformWidget(QWidget):
         new_shifts = self._base_shifts()
         if (old_shifts is None) != (new_shifts is None) or (new_shifts is not None and not np.array_equal(old_shifts, new_shifts)):
             self._images = None
-        self._scan_caption = caption if enabled else ""
+        self._scan_caption = (caption or tr("Scan density")) if enabled else ""
         self._full_scale = None if full_scale is None or not enabled else np.asarray(full_scale, dtype=float)
         self.update()
 
@@ -997,7 +993,7 @@ class WaveformWidget(QWidget):
         if self._scan:
             caption = self._scan_caption
             if ranges is not None and not self._split():
-                caption += " · range " + "  ".join(f"{letter} {r:.2f}" for letter, r in zip("RGB", ranges))
+                caption += " · " + tr("range") + " " + "  ".join(f"{letter} {r:.2f}" for letter, r in zip("RGB", ranges))
             _draw_plated_text(
                 painter, QRect(THEME.space_xs, THEME.space_xs, w, 12), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop, caption
             )

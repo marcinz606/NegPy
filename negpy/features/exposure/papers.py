@@ -24,6 +24,7 @@ import numpy as np
 from negpy.features.exposure.models import EXPOSURE_CONSTANTS
 from negpy.features.exposure.print_lut import DyeLut, DyeMatrix, DyeMatrixRows, PrintColor, PrintLut, flat_matrix, load_print_lut
 from negpy.features.process.models import ProcessMode
+from negpy.kernel.system.i18n import mark
 
 DEFAULT_PROFILE_KEY = "neutral"
 
@@ -67,6 +68,8 @@ class PaperProfile:
     Grade gives, for a paper whose knees take much of its ISO R. base_tint_cmy — per-channel (C, M, Y) additions to the minimum
     density floor (base tint, shows in highlights). print_color — the stock's dyes: a
     DyeMatrix coupling D_rgb = M · D_dye above base, or a DyeLut from dye density to color.
+    d_max_drop — how far each layer's (R, G, B) maximum dye density sits below d_max, in the
+    kernel's dye densities, for a stock whose layers run out at different densities.
     lith_path — the paper's lith color path, read by the Lith stage.
     kind picks the process mode the paper shows in; medium is its group in the dropdown;
     short names it on a paper test strip band.
@@ -87,19 +90,20 @@ class PaperProfile:
     channel_gamma: Tuple[float, float, float] = (1.0, 1.0, 1.0)
     slope_gain: float = 1.0
     base_tint_cmy: Tuple[float, float, float] = (0.0, 0.0, 0.0)
+    d_max_drop: Tuple[float, float, float] = (0.0, 0.0, 0.0)
     print_color: PrintColor = DyeMatrix(_IDENTITY_DYE)
     lith_path: LithPath = _DEFAULT_LITH_PATH
 
 
 PAPER_PROFILES: Dict[str, PaperProfile] = {
-    DEFAULT_PROFILE_KEY: PaperProfile(label="Digital (Adobe RGB)", short="Digital", kind="default", medium="digital"),
+    DEFAULT_PROFILE_KEY: PaperProfile(label=mark("Digital (Adobe RGB)"), short=mark("Digital"), kind="default", medium="digital"),
     # Digital's curve with a Pakon minilab's colors: the LUT is RGBScan.icc applied to Digital's print.
-    "pakon": PaperProfile(label="Digital (Pakon)", short="Pakon", kind="ra4", medium="digital", print_color=DyeLut("pakon")),
+    "pakon": PaperProfile(label=mark("Digital (Pakon)"), short="Pakon", kind="ra4", medium="digital", print_color=DyeLut("pakon")),
     # A Frontier 350/370's file output, from its own tables, with a neutral gray axis. The curve shape is fitted to its
     # gray curve on the print density axis (543 codes per log E). slope_gain prints L* 90 to 10 over Digital's log E span
     # at the same Grade. The fit's equal-ISO-R gain (1.5) separates the layers so far that warm shadows block in two.
     "frontier": PaperProfile(
-        label="Digital (Frontier)",
+        label=mark("Digital (Frontier)"),
         short="Frontier",
         kind="ra4",
         medium="digital",
@@ -111,6 +115,23 @@ PAPER_PROFILES: Dict[str, PaperProfile] = {
         paper_gamma_width=2.0,
         slope_gain=1.2,
         print_color=DyeLut("frontier"),
+    ),
+    # Nikon Scan 4's color for an LS-5000 color negative, from its CML4 tables, with a neutral gray axis. The curve shape
+    # is fitted to Nikon's gray curve (fixed tone curve, gamma 2.2, CML4); its log E scale is free, because Nikon sets it
+    # per frame. slope_gain prints L* 90 to 10 over Digital's log E span at the same Grade.
+    "nikon_scan": PaperProfile(
+        label=mark("Digital (Nikon Scan)"),
+        short="Nikon Scan",
+        kind="ra4",
+        medium="digital",
+        d_max=2.72,
+        d_min=0.005,
+        toe_sharpness_base=4.72,
+        shoulder_sharpness_base=1.22,
+        paper_midtone_gamma=-0.21,
+        paper_gamma_width=1.28,
+        slope_gain=1.6,
+        print_color=DyeLut("nikon_scan"),
     ),
     # ── B&W (tonal only) ──────────────────────────────────────────────────────
     "ilford_mg_rc": PaperProfile(
@@ -191,13 +212,15 @@ PAPER_PROFILES: Dict[str, PaperProfile] = {
         short="Endura Premier",
         kind="ra4",
         # Neutral, with deep blacks and a punchy midtone S. The datasheet R/G/B diverge only at
-        # Dmax, red densest, which cools the deep shadows. Approximated with a small
-        # channel_gamma.
-        d_max=2.55,
-        d_min=0.06,
+        # Dmax, red densest, which cools the deep shadows: d_max is the cyan layer's top and
+        # d_max_drop the other two below it, from E-4070's Status A curves read through its dyes.
+        # Paper white and its tint are the curves' feet.
+        d_max=2.73,
+        d_min=0.096,
         toe_sharpness_base=3.5,
         paper_midtone_gamma=0.22,
-        channel_gamma=(1.04, 1.0, 0.98),
+        base_tint_cmy=(0.009, 0.010, -0.018),
+        d_max_drop=(0.0, 0.31, 0.41),
         # Dyes from E-4070's spectral dye density curves, under D50.
         print_color=DyeLut("kodak_e4070"),
     ),
@@ -243,6 +266,7 @@ PAPER_PROFILES: Dict[str, PaperProfile] = {
         paper_gamma_width=0.89,
         channel_gamma=(0.968, 1.0, 1.013),
         base_tint_cmy=(-0.002, 0.012, -0.009),
+        d_max_drop=(0.0, 0.11, 0.44),
         print_color=DyeLut("kodak_e4021"),
     ),
     "kodak_supra_endura": PaperProfile(
@@ -257,16 +281,17 @@ PAPER_PROFILES: Dict[str, PaperProfile] = {
         paper_gamma_width=0.62,
         channel_gamma=(1.008, 1.0, 1.0),
         base_tint_cmy=(0.011, -0.009, -0.003),
+        d_max_drop=(0.0, 0.17, 0.34),
         print_color=DyeLut("kodak_e4021"),
     ),
     # Fitted to Kodak E-4020 (Status A R/G/B). Dyes are E-4070's: the E-4020 sheet draws each dye
     # over a density floor in every band, which desaturates past any RA4 print, and spektrafilm's
-    # Ultra Endura is the later High Definition paper (E-4044).
+    # Ultra Endura is the later High Definition paper (E-4044). d_max is the magenta layer's top.
     "kodak_ultra_endura": PaperProfile(
         label="Kodak Ultra Endura",
         short="Ultra Endura",
         kind="ra4",
-        d_max=2.61,
+        d_max=2.69,
         d_min=0.096,
         toe_sharpness_base=6.04,
         shoulder_sharpness_base=5.74,
@@ -274,14 +299,16 @@ PAPER_PROFILES: Dict[str, PaperProfile] = {
         paper_gamma_width=0.60,
         channel_gamma=(1.109, 1.0, 1.051),
         base_tint_cmy=(-0.003, -0.003, 0.005),
+        d_max_drop=(0.04, 0.0, 0.42),
         print_color=DyeLut("kodak_e4070"),
     ),
     # Fitted to Kodak E-7020 (Status A R/G/B). Its spectral dye density curves are E-4070's.
+    # d_max is the magenta layer's top.
     "kodak_ektacolor_edge": PaperProfile(
         label="Kodak Ektacolor Edge",
         short="Ektacolor Edge",
         kind="ra4",
-        d_max=2.25,
+        d_max=2.33,
         d_min=0.083,
         toe_sharpness_base=2.30,
         shoulder_sharpness_base=2.34,
@@ -289,6 +316,7 @@ PAPER_PROFILES: Dict[str, PaperProfile] = {
         paper_gamma_width=0.82,
         channel_gamma=(1.013, 1.0, 1.004),
         base_tint_cmy=(0.011, 0.011, -0.022),
+        d_max_drop=(0.11, 0.0, 0.29),
         print_color=DyeLut("kodak_e4070"),
     ),
     # ── Color print film (kind "ra4": the kind gates the C-41 mode) ─────────

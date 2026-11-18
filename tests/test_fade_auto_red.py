@@ -44,8 +44,24 @@ def test_auto_red_shifts_density_by_what_the_median_gains() -> None:
 
     points = tuple(np.linspace(1.0, 2.2, len(RANGE_PCT)))
     gain = 1.6 / 0.75 - 1.6
-    assert auto_red(_scaled(points, 1.0), 1.0) == ({"fade_ratio_r": 0.75, "fade_density_shift": round(-gain, 4)}, "")
+    expected = {"fade_ratio_r": 0.75, "fade_density_shift": round(-gain, 4), "fade_red_trim": 1.0}
+    assert auto_red(_scaled(points, 1.0), 1.0) == (expected, "")
+    # A NumPy scalar in the config makes the card's edited count a NumPy bool, which Qt refuses.
+    assert all(type(v) is float for v in auto_red(_scaled(points, 1.0), 1.0)[0].values())
     assert auto_red(_scaled(points, 1.0), 1.0, shift=0.1)[0]["fade_density_shift"] == pytest.approx(0.1 - gain, abs=1e-4)
+
+
+def test_a_hand_red_is_a_trim_on_the_fit_that_each_fit_applies_again() -> None:
+    """A target Red stores its ratio to the fit; a later fit with that trim sets the same ratio and fits
+    the shift for the Red it sets."""
+    from negpy.features.process.fade_auto_red import auto_red
+
+    points = tuple(np.linspace(1.0, 2.2, len(RANGE_PCT)))
+    hand, _ = auto_red(_scaled(points, 1.0), 1.0, target=0.6)
+    assert hand["fade_ratio_r"] == 0.6 and hand["fade_red_trim"] == pytest.approx(0.8, abs=1e-4)
+    assert hand["fade_density_shift"] == pytest.approx(-(1.6 / 0.6 - 1.6), abs=1e-4)
+    again, _ = auto_red(_scaled(points, 1.0), 1.0, trim=hand["fade_red_trim"])
+    assert again["fade_ratio_r"] == pytest.approx(0.6, abs=1e-3) and again["fade_red_trim"] == hand["fade_red_trim"]
 
 
 def test_auto_red_keeps_the_light_end_off_white() -> None:
@@ -69,3 +85,29 @@ def test_the_density_shift_adds_density_to_every_channel_after_the_fade() -> Non
     shifted = fade_density(replace(base, fade_density_shift=0.3), ProcessMode.E6).matrix
     assert np.allclose(shifted[:, :3], plain[:, :3]) and np.allclose(shifted[:, 3], -0.3)
     assert fade_density(replace(base, process_mode=ProcessMode.C41, fade_density_shift=0.3), ProcessMode.C41).matrix is None
+
+
+def test_a_hand_red_below_the_fit_s_floor_and_a_trim_above_one_hold_to_the_bounds() -> None:
+    """A short span fits AUTO_RED_MIN, and a hand Red may go below it; a trim past 1.0 holds Red at 1.0."""
+    from negpy.features.process.fade_auto_red import AUTO_RED_MIN, auto_red
+
+    points = tuple(np.linspace(1.0, 1.3, len(RANGE_PCT)))
+    hand, _ = auto_red(_scaled(points, 1.0), 1.0, target=0.3)
+    assert hand["fade_ratio_r"] == 0.3 and hand["fade_red_trim"] == pytest.approx(0.3 / AUTO_RED_MIN, abs=1e-4)
+    wide = tuple(np.linspace(0.3, 2.3, len(RANGE_PCT)))
+    high, _ = auto_red(_scaled(wide, 0.9), 0.9, trim=1.5)
+    assert high["fade_ratio_r"] == 1.0 and high["fade_red_trim"] == 1.5
+
+
+def test_the_white_is_read_once_per_grid() -> None:
+    from unittest.mock import patch
+
+    from negpy.features.process import fade
+    from negpy.features.process.fade_auto_red import grid_white
+
+    a, b = np.full((8, 8, 3), -0.5, np.float32), np.full((8, 8, 3), -0.4, np.float32)
+    with patch.object(fade, "measure_white", wraps=fade.measure_white) as measured:
+        grid_white(a)
+        grid_white(a)
+        grid_white(b)
+    assert measured.call_count == 2

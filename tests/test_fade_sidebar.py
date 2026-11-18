@@ -229,13 +229,16 @@ def _slide_sidebar(**process):
 _TABLE = (-1.5, -2.5, 0.2, 0.1, 0.2, -0.3, -1.5, 0.3, 0.0, 0.0, 0.0, -0.5, 0.3, -0.1, -0.1, 0.2)
 
 
-def test_crossover_waits_for_a_table():
+def test_crossover_waits_for_a_table_or_survivals():
     w, _ = _slide_sidebar()
     assert not w.fade_crossover_slider.isEnabled()
     assert "Estimate" in w.fade_crossover_hint.text()
     w, _ = _slide_sidebar(fade_crossover_table=_TABLE)
     assert w.fade_crossover_slider.isEnabled()
     assert "Crossover" in w.fade_crossover_hint.text()
+    w, _ = _slide_sidebar(fade_ratio_g=1.2, fade_ratio_b=1.1)
+    assert w.fade_crossover_slider.isEnabled()
+    assert w.fade_crossover_hint.text() == ""
 
 
 def test_the_hint_names_the_shadow_and_highlight_casts():
@@ -382,8 +385,12 @@ def test_the_hint_says_whose_table_the_frame_uses():
     w, ctrl = _slide_sidebar(fade_crossover_table=_TABLE)
     assert not w.fade_crossover_hint.text().startswith("Table from")
     ctrl.roll_crossover_table.return_value = _TABLE
+    ctrl.roll_crossover_source.return_value = ""
     w.sync_ui()
     assert w.fade_crossover_hint.text().startswith("Table from the roll.")
+    ctrl.roll_crossover_source.return_value = "Image (7).tif"
+    w.sync_ui()
+    assert w.fade_crossover_hint.text().startswith("Table from the roll, measured on Image (7).tif.")
     ctrl.roll_crossover_table.return_value = tuple(v + 0.1 for v in _TABLE)
     w.sync_ui()
     assert w.fade_crossover_hint.text().startswith("Table from this frame.")
@@ -470,7 +477,7 @@ def test_auto_red_on_fits_red_and_estimate_keeps_it_and_off_puts_estimate_s_red_
         assert "fade_crossover_table" in again
         w.fade_auto_red_btn.setChecked(False)
     off = _apply(ctrl)
-    assert off["fade_auto_red"] is False and off["fade_density_shift"] == 0.0
+    assert off["fade_auto_red"] is False and off["fade_density_shift"] == 0.0 and off["fade_red_trim"] == 1.0
     assert off["fade_ratio_r"] == estimate_red(again["fade_ratio_g"], again["fade_ratio_b"])
 
 
@@ -490,9 +497,95 @@ def test_sync_shows_the_frame_s_auto_red():
     assert w.fade_auto_red_btn.isChecked()
 
 
-def test_a_hand_red_turns_auto_red_off():
-    w, ctrl = _slide_sidebar(fade_auto_red=True)
-    w.fade_ratio_r_slider.valueCommitted.emit(0.7)
+def test_a_hand_red_under_restore_range_fits_the_shift_while_it_drags():
+    from unittest.mock import patch
+
+    w, ctrl = _slide_sidebar(fade_auto_red=True, fade_density_shift=-0.2)
+    fit = ({"fade_ratio_r": 0.7, "fade_density_shift": -0.3, "fade_red_trim": 1.1}, "")
+    with (
+        patch("negpy.desktop.workers.chart_fit.fade_estimate_grid", return_value=_mix_grid()),
+        patch("negpy.desktop.view.sidebar.fade.auto_red_changes", return_value=fit) as fitted,
+    ):
+        w.fade_ratio_r_slider.valueChanged.emit(0.7)
+        drag = ctrl.set_roll_default.call_args.kwargs
+        w.fade_ratio_r_slider.valueCommitted.emit(0.7)
+    assert fitted.call_args.args[-1] == 0.7
+    release = ctrl.set_roll_default.call_args.kwargs
+    assert drag["persist"] is False and release["persist"] is True
+    for kwargs in (drag, release):
+        assert (kwargs["fade_ratio_r"], kwargs["fade_density_shift"], kwargs["fade_red_trim"]) == (0.7, -0.3, 1.1)
+        assert "fade_auto_red" not in kwargs
+
+
+def test_a_hand_red_with_nothing_to_read_turns_restore_range_off():
+    from unittest.mock import patch
+
+    w, ctrl = _slide_sidebar(fade_auto_red=True, fade_density_shift=-0.2)
+    with patch("negpy.desktop.workers.chart_fit.fade_estimate_grid", return_value=None):
+        w.fade_ratio_r_slider.valueCommitted.emit(0.7)
     kwargs = ctrl.set_roll_default.call_args.kwargs
     assert kwargs["fade_ratio_r"] == 0.7 and kwargs["fade_auto_red"] is False
-    assert kwargs["fade_density_shift"] == 0.0
+    assert kwargs["fade_density_shift"] == 0.0 and kwargs["fade_red_trim"] == 1.0
+
+
+def test_estimate_roll_sits_on_the_card():
+    w, _ = _slide_sidebar()
+    assert w.estimate_roll_btn.isVisibleTo(w)
+
+
+def test_share_crossover_measures_the_frame_at_the_roll_survivals():
+    from unittest.mock import patch
+
+    w, ctrl = _slide_sidebar(fade_crossover_table=_TABLE)
+    w.state.active_roll_id = "r1"
+    w.sync_ui()
+    assert not w.share_crossover_btn.isEnabled()
+    w.state.config = replace(w.state.config, process=replace(w.state.config.process, fade_ratio_g=1.2, fade_ratio_b=1.1))
+    w.sync_ui()
+    assert w.share_crossover_btn.isEnabled()
+    measured = {"fade_crossover_table": tuple(v + 0.1 for v in _TABLE), "fade_crossover_space": "s"}
+    ctrl.roll_survivals.return_value = {"fade_ratio_g": 1.3}
+    with (
+        patch("negpy.desktop.workers.chart_fit.fade_estimate_grid", return_value=_mix_grid()),
+        patch("negpy.features.process.fade_estimate.measured_crossover", return_value=measured) as measure,
+    ):
+        w.share_crossover_btn.click()
+    assert measure.call_args.args[1].fade_ratio_g == 1.3
+    ctrl.share_crossover.assert_called_once_with(measured["fade_crossover_table"], "s")
+
+
+def test_the_roll_hint_lists_the_frame_names_in_its_tooltip():
+    w, _ = _slide_sidebar()
+    w.state.active_roll_id = "r1"
+    w.controller.roll_crossover_source.return_value = ""
+    w._show_roll_hint("Estimated from 4 of 5 slides. Left out: 1.", "", "Left out: a.tif.")
+    assert w.fade_roll_result_hint.text().endswith("Left out: 1.")
+    assert w.fade_roll_result_hint.toolTip() == "Left out: a.tif."
+    w.state.active_roll_id = "r2"
+    w.sync_ui()
+    assert w.fade_roll_result_hint.text() == "" and w.fade_roll_result_hint.toolTip() == ""
+
+
+def test_the_crossover_suggestion_goes_once_the_roll_shares_a_crossover():
+    w, ctrl = _slide_sidebar()
+    w.state.active_roll_id = "r1"
+    ctrl.roll_crossover_source.return_value = ""
+    w._show_roll_hint("Estimated from 4 of 5 slides.", "Try the crossover from b.tif.", "")
+    assert w.fade_roll_result_hint.text() == "Estimated from 4 of 5 slides. Try the crossover from b.tif."
+    ctrl.roll_crossover_source.return_value = "c.tif"
+    w.sync_ui()
+    assert w.fade_roll_result_hint.text() == "Estimated from 4 of 5 slides."
+
+
+def test_restore_range_on_starts_a_fresh_fit_over_a_stale_trim():
+    from unittest.mock import patch
+
+    w, ctrl = _slide_sidebar(fade_red_trim=0.7)
+    fit = ({"fade_ratio_r": 0.6, "fade_density_shift": -0.2, "fade_red_trim": 1.0}, "")
+    with (
+        patch("negpy.desktop.workers.chart_fit.fade_estimate_grid", return_value=_mix_grid()),
+        patch("negpy.desktop.view.sidebar.fade.auto_red_changes", return_value=fit) as fitted,
+    ):
+        w.fade_auto_red_btn.setChecked(True)
+    assert fitted.call_args.args[0].fade_red_trim == 1.0
+    assert ctrl.set_roll_default.call_args.kwargs["fade_red_trim"] == 1.0

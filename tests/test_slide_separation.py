@@ -27,7 +27,7 @@ def _with_trims(*names: str) -> set:
 TRANSFER = (
     {"density", "grade", "wb_cyan", "wb_magenta", "wb_yellow", "shadow_density", "highlight_density", "cast_removal_strength"}
     | {f"{zone}_{dye}" for zone in ("shadow", "highlight") for dye in ("cyan", "magenta", "yellow")}
-    | _with_trims("toe", "shoulder", "toe_width", "shoulder_width", "dye_separation")
+    | _with_trims("toe", "shoulder", "dye_separation")
     | {"separation_damping"}
 )
 # Meter the frame on a raw slide and on a Positive frame alike; a slide starts with both off.
@@ -75,8 +75,6 @@ def _moved(field: str, value):
         return BwFilter.RED_25
     if "grade" in field:
         return value + 15.0
-    if field in ("toe_width", "shoulder_width"):
-        return value + 1.5
     if field in ("preflash", "diffusion", "contrast_mask_strength"):
         return 0.8
     return value + 0.25
@@ -90,7 +88,7 @@ def _image() -> np.ndarray:
 
 
 def _config(positive: bool):
-    """Toe, Shoulder and Dye Separation off neutral, so their widths, trims and damping bite."""
+    """Toe, Shoulder and Dye Separation off neutral, so their trims and damping bite."""
     cfg = DEFAULT_WORKSPACE_CONFIG
     exposure = replace(
         cfg.exposure,

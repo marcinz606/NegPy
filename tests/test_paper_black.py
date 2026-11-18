@@ -26,12 +26,6 @@ class TestBlackPointCompensation(unittest.TestCase):
         self.assertGreater(base, 0.004)
         self.assertLess(compensated, 0.001)
 
-    def test_negative_toe_reaches_exact_zero(self):
-        """Negative toe raises the BPC clip point into the shadows — the deepest
-        scene shadow prints at exactly 0 (the pure black the toe promises)."""
-        self.assertGreater(_render(_SHADOW, toe=-1.0), 0.0)  # without BPC: never zero
-        self.assertEqual(_render(_SHADOW, toe=-1.0, bpc=True), 0.0)
-
     def test_paper_white_preserved(self):
         base = _render(_HIGHLIGHT)
         compensated = _render(_HIGHLIGHT, bpc=True)
