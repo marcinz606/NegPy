@@ -496,13 +496,13 @@ Ogni modifica che hai fatto, la più recente in alto (le ultime 100). **Ora** in
 
 Questi riquadri contengono ciò che i fotogrammi di un rullino condividono: la pellicola, come è stata scansionata e le misurazioni del rullino. Ogni riquadro ha la coppia Fotogramma / Rullino ([§1](#fotogramma-o-rullino)). La riga sopra i riquadri elenca i riquadri che questo fotogramma modifica per conto proprio.
 
-<!-- panel:film src:60044f56 -->
+<!-- panel:film src:8a784cae -->
 ### 10.1 Configurazione
 
 Che pellicola è e come l'hai scansionata. Queste scelte decidono quali riquadri e controlli compaiono.
 
 *   **Colore / B/N / Diapositiva**: negativo a colori (C-41), una stampa in bianco e nero, oppure diapositiva (E-6 e simili). B/N stampa qualsiasi negativo in bianco e nero. Su un negativo a colori, il riquadro Filtratura offre allora un Filtro di contrasto.
-*   **Positivo** (solo Diapositiva): per un file che è già un positivo, come una stampa scansionata o l'esportazione di un'altra app. NegPy salta allora inversione e misurazione. Una diapositiva che non è un RAW di fotocamera, come una scansione TIFF, JPEG, JXL, DNG di scanner o Pakon, Noritsu, Coolscan o Flextight, parte come Positivo. Disattivalo per dare a una scansione sbiadita la curva tonale delle diapositive.
+*   **Positivo** (solo Diapositiva): per un file che è già un positivo, come una stampa scansionata o l'esportazione di un'altra app. NegPy salta allora inversione e misurazione. Una diapositiva che non è un RAW di fotocamera, come una scansione TIFF, JPEG, JXL, DNG di scanner o Pakon, Noritsu, Coolscan o Flextight, parte come Positivo. Anche una fusione HDR o un'unione di questi file parte come Positivo. Per una scansione sbiadita, usa il riquadro Ripristino dello sbiadimento.
 *   **Diapositiva B/N** (solo Diapositiva): rende la diapositiva in bianco e nero, per pellicole invertibili B/N come la Scala. Una diapositiva a colori riceve allora il Filtro.
 *   **Codifica** (TIFF positivo): come i campioni codificano la luce. **Auto** legge il profilo ICC del file, altrimenti presuppone lineare sopra gli 8 bit e sRGB a 8 bit. **Lineare** è l'uscita lineare di uno scanner, come Nikon Scan con la gestione del colore disattivata. **2,2** è una gamma 2,2 con primari Adobe RGB. Scegli Lineare o 2,2 in base al software dello scanner.
 *   **Fotocamera / Scanner per pellicola**: con cosa hai eseguito la scansione. NegPy lo legge da ogni file (un RAW di fotocamera è una fotocamera) finché non ne scegli uno. La tua scelta vale per ogni fotogramma e imposta lo scanner della scheda Scansione.
