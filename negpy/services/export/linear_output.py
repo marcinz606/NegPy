@@ -287,6 +287,7 @@ def _apply_ice(rgb: np.ndarray, ir: np.ndarray, retouch: RetouchConfig) -> np.nd
         apply_score_repair,
         downsample_ir,
         ir_defect_score,
+        ir_attenuation_onset,
         ir_detect_cutoff,
         ir_detect_target,
         ir_ratio_and_gain,
@@ -300,10 +301,11 @@ def _apply_ice(rgb: np.ndarray, ir: np.ndarray, retouch: RetouchConfig) -> np.nd
         rgb_det = negpy_core.resize_area(np.ascontiguousarray(rgb, dtype=np.float32), (max(1, round(w * s)), max(1, round(h * s))))
     else:
         rgb_det = rgb
-    ratio_det, gain_det, degenerate, _ = ir_ratio_and_gain(ir_det, rgb_det)
+    onset = ir_attenuation_onset(retouch.ir_threshold)
+    ratio_det, gain_det, degenerate, _ = ir_ratio_and_gain(ir_det, rgb_det, onset)
     if degenerate:
         return rgb
-    score_det = ir_defect_score(ratio_det, ir_detect_cutoff(retouch.ir_threshold, retouch.ir_attenuation))
+    score_det = ir_defect_score(ratio_det, ir_detect_cutoff(retouch.ir_threshold, retouch.ir_attenuation), onset)
     out = apply_ir_attenuation(rgb, gain_det) if retouch.ir_attenuation else rgb
     out = apply_score_repair(out, score_det)
     return out

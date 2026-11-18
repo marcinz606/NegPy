@@ -111,7 +111,10 @@ _IR_DETECT_REF = 1600
 # IR ratio-normalization base window (px at _IR_DETECT_REF, pinned like HEAL_SIZE_REF).
 # Defects wider than about half of it depress their own base.
 _IR_BASE_WIN = 25
-_IR_GAIN_IDENTITY = 0.97  # gain is identity at/above this ratio
+_IR_GAIN_IDENTITY = 0.97  # clean-film ratio; gain is identity at/above it with IR Threshold at 0
+# IR Threshold 1 lowers the repair onset by this much, so a shallow dip (faint dust, an image
+# ghost in the IR plane) is left alone.
+_IR_ONSET_REACH = 0.15
 _IR_GAIN_CLAMP = 2.0  # caps misregistration halos
 # Per-channel refraction γ, fitted per frame. The patent values under-correct file IR.
 _IR_GAMMA_LO = 1.0
@@ -745,13 +748,19 @@ def ir_detect_cutoff(slider: float, attenuation: bool) -> float:
     return (0.85 - 0.40 * s) if attenuation else (0.95 - 0.20 * s)
 
 
-def ir_defect_score(ratio: np.ndarray, cutoff: float) -> np.ndarray:
-    """Continuous defect score in ``[_IR_SCORE_FLOOR, 1]``: 1 = clean film, floor
-    at/below ``cutoff`` (from ir_detect_cutoff). The 3×3 erode bleeds a defect's score
+def ir_attenuation_onset(slider: float) -> float:
+    """UI IR Threshold → the ratio below which IR repair starts: attenuation gain, score ramp
+    and overlay. Higher slider = lower onset, so shallow dips stay untouched."""
+    return _IR_GAIN_IDENTITY - _IR_ONSET_REACH * float(np.clip(slider, 0.0, 1.0))
+
+
+def ir_defect_score(ratio: np.ndarray, cutoff: float, onset: float = _IR_GAIN_IDENTITY) -> np.ndarray:
+    """Continuous defect score in ``[_IR_SCORE_FLOOR, 1]``: 1 = clean film at/above ``onset``,
+    floor at/below ``cutoff`` (from ir_detect_cutoff). The 3×3 erode bleeds a defect's score
     one pixel outward, covering sub-pixel hairs and the min-pool skirt. 3×3 at any detection
     scale: a sampling allowance, not a film footprint — widening it with the plane re-fattens
     the mask the finer detection just tightened."""
-    span = max(_IR_GAIN_IDENTITY - cutoff, 1e-4)
+    span = max(onset - cutoff, 1e-4)
     constants = (cutoff, span, 1.0 - _IR_SCORE_FLOOR, _IR_SCORE_FLOOR)
     return negpy_core.ir_defect_score(np.ascontiguousarray(ratio, dtype=np.float32), constants)
 
@@ -941,10 +950,17 @@ def _ir_normalize_ratio(ratio: np.ndarray, live: np.ndarray) -> np.ndarray:
     return ratio
 
 
-def ir_ratio_and_gain(ir_det: np.ndarray, img_det: np.ndarray) -> Tuple[np.ndarray, np.ndarray, bool, Tuple[float, ...]]:
-    """Detection-scale ``(ratio, gain HxWx3, degenerate, gammas)`` for IR-division
-    attenuation: semi-transparent dust recovered by ``RGB / ratio^γ``, γ per channel from
-    ``_fit_refraction_gammas``. ``degenerate`` = IR carrying image content
+def ir_ratio_and_gain(
+    ir_det: np.ndarray, img_det: np.ndarray, onset: float = _IR_GAIN_IDENTITY
+) -> Tuple[np.ndarray, np.ndarray, bool, Tuple[float, ...]]:
+    """Detection-scale ``(ratio, gain HxWx3, degenerate, gammas)``: ``ir_ratio`` then ``ir_gain``."""
+    ratio, img_det, degenerate, gammas = ir_ratio(ir_det, img_det)
+    return ratio, ir_gain(ratio, img_det, gammas, onset), degenerate, gammas
+
+
+def ir_ratio(ir_det: np.ndarray, img_det: np.ndarray) -> Tuple[np.ndarray, np.ndarray, bool, Tuple[float, ...]]:
+    """Detection-scale ``(ratio, img_det, degenerate, gammas)``, independent of the IR sliders.
+    γ per channel from ``_fit_refraction_gammas``. ``degenerate`` = IR carrying image content
     (B&W/Kodachrome) → caller skips the whole IR bake."""
     plane = ir_det[:, :, 0] if ir_det.ndim == 3 else ir_det
     # No film under the head is not a defect. Left as a dip, the holder margin scores as one
@@ -966,13 +982,16 @@ def ir_ratio_and_gain(ir_det: np.ndarray, img_det: np.ndarray) -> Tuple[np.ndarr
     ratio = _ir_normalize_ratio(ratio, live)
 
     gammas = _fit_refraction_gammas(ratio, vis_log, img_det)
+    return ratio, img_det, degenerate, gammas
+
+
+def ir_gain(ratio: np.ndarray, img_det: np.ndarray, gammas: Tuple[float, ...], onset: float = _IR_GAIN_IDENTITY) -> np.ndarray:
+    """IR-division attenuation gain HxWx3: semi-transparent dust recovered by
+    ``RGB / (ratio / onset)^γ``; identity at/above ``onset``."""
     # Never lift a pixel past its own local clean base (see _IR_CAP_WIN). Floored at 1, so
     # the cap only holds the bake back and never darkens a pixel.
     clean = _ir_clean_base(img_det, ratio)
-    gain = negpy_core.ir_gain(
-        ratio, img_det, np.ascontiguousarray(clean, dtype=np.float32), list(gammas), (_IR_GAIN_IDENTITY, _IR_GAIN_CLAMP)
-    )
-    return ratio, gain, degenerate, gammas
+    return negpy_core.ir_gain(ratio, img_det, np.ascontiguousarray(clean, dtype=np.float32), list(gammas), (onset, _IR_GAIN_CLAMP))
 
 
 def apply_ir_attenuation(img: ImageBuffer, gain_det: np.ndarray) -> ImageBuffer:

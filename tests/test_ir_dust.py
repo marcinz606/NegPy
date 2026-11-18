@@ -26,10 +26,12 @@ from negpy.features.retouch.logic import (
     apply_ir_attenuation,
     apply_score_repair,
     downsample_ir,
+    ir_attenuation_onset,
     ir_bake_token,
     ir_defect_score,
     ir_detect_cutoff,
     ir_detect_target,
+    ir_gain,
     ir_ratio_and_gain,
     normalize_ir,
     route_wide_defects,
@@ -206,6 +208,27 @@ def test_ir_detect_cutoff_mapping_and_direction():
     assert ir_detect_cutoff(0.1, False) > ir_detect_cutoff(0.9, False)
     assert ir_detect_cutoff(0.35, True) < ir_detect_cutoff(0.35, False)
     assert abs(ir_detect_cutoff(0.35, True) - 0.71) < 1e-6
+
+
+def test_ir_threshold_moves_the_attenuation_onset():
+    """A shallow dip (a residual image ghost) gets attenuation and a partial fill at a low
+    IR Threshold and is left alone at a high one; a deep dust core is repaired at both."""
+    assert ir_attenuation_onset(0.0) == pytest.approx(_IR_GAIN_IDENTITY)
+    assert ir_attenuation_onset(0.9) < ir_attenuation_onset(0.1)
+    ratio = np.ones((160, 160), dtype=np.float32)
+    ratio[40:60, 40:60] = 0.9
+    ratio[110:114, 110:114] = 0.2
+    img = np.full((160, 160, 3), 0.5, dtype=np.float32)
+    img[40:60, 40:60] = 0.45
+    img[110:114, 110:114] = 0.1
+    ghost = (slice(40, 60), slice(40, 60))
+    for slider, ghost_touched in ((0.05, True), (0.95, False)):
+        onset = ir_attenuation_onset(slider)
+        gain = ir_gain(ratio, img, (1.5, 1.5, 1.5), onset)
+        score = ir_defect_score(ratio, ir_detect_cutoff(slider, True), onset)
+        assert bool((gain[ghost] > 1.0).any()) is ghost_touched
+        assert bool((score[ghost] < 1.0).any()) is ghost_touched
+        assert float(score[110:114, 110:114].min()) <= _IR_SCORE_FLOOR + 1e-6
 
 
 def test_normalize_ir_flat_plane_is_unity():
