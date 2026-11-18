@@ -570,6 +570,7 @@ class ShortcutManager:
             "metadata_clear_process": lambda: right.metadata_sidebar.process_clear_btn.click(),
             "metadata_clear_scanning": lambda: right.metadata_sidebar.scan_clear_btn.click(),
             "assign_sequential_frame": lambda: right.metadata_sidebar.frame_sequence_btn.click(),
+            "assign_capture_times": lambda: right.metadata_sidebar.capture_times_btn.click(),
             "measure_chart": lambda: controls.sensor_sidebar.measure_chart_btn.click(),
             "estimate_fade": lambda: controls.fade_sidebar.estimate_fade_btn.click(),
             "fade_auto_red": lambda: controls.fade_sidebar.fade_auto_red_btn.click(),

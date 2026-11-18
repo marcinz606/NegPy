@@ -41,6 +41,7 @@ from negpy.desktop.view.widgets.step_combo import StepCombo
 from negpy.services.assets.rolls import ROLL_DEFAULT_FIELDS
 from negpy.desktop.view.widgets.sub_tabs import SubTabs, tab_page
 from negpy.desktop.view.widgets.tab_header import TabHeader
+from negpy.desktop.view.widgets.assign_capture_times_dialog import open_assign_capture_times_dialog
 from negpy.desktop.view.widgets.granular_settings_dialog import open_sequential_frame_dialog
 from negpy.desktop.view.widgets.description_fields_dialog import DescriptionFieldsDialog
 from negpy.desktop.view.widgets.gear_catalog_dialog import resolve_other_gear_pick
@@ -94,6 +95,7 @@ _PREVIEW_HEIGHT = 240
 # The tab strip and a card header stay in view under a preview dragged tall.
 _TABS_MIN_HEIGHT = 160
 _SEQUENCE_TOOLTIP = tr("Assign sequential capture frame numbers to the selected frames or the whole roll")
+_CAPTURE_TIMES_TOOLTIP = tr("Give the selected frames or the whole roll a day, a time in film order, a time zone and a place")
 
 _CLEAR_TOOLTIPS = {
     "gear_clear_btn": (tr("Clear the camera, lens and film stock selections"), "metadata_clear_gear"),
@@ -161,7 +163,8 @@ class MetadataSidebar(BaseSidebar):
         self.capture_date_edit.setPlaceholderText(tr(CAPTURE_DATE_HINT))
         self.capture_date_edit.setText(conf.capture_date)
         self.capture_date_edit.setToolTip(tr("When the picture was taken: a year, a month, a date, or a date and time."))
-        cap.addLayout(field_row(tr("Date"), self.capture_date_edit))
+        self.capture_times_btn = self._labeled_action("", tr("Assign Times…"), _CAPTURE_TIMES_TOOLTIP)
+        cap.addLayout(field_row(tr("Date"), self.capture_date_edit, self.capture_times_btn))
 
         place_row = QHBoxLayout()
         place_row.setSpacing(THEME.space_sm)
@@ -570,6 +573,7 @@ class MetadataSidebar(BaseSidebar):
         self.process_clear_btn.clicked.connect(self._on_process_clear)
         self.scan_clear_btn.clicked.connect(self._on_scanning_clear)
         self.frame_sequence_btn.clicked.connect(self._open_sequence_dialog)
+        self.capture_times_btn.clicked.connect(self._open_capture_times_dialog)
         self.camera_combo.selection_changed.connect(self._on_gear_changed)
         self.lens_combo.selection_changed.connect(self._on_gear_changed)
         self.film_stock_combo.selection_changed.connect(self._on_gear_changed)
@@ -805,6 +809,12 @@ class MetadataSidebar(BaseSidebar):
         self._dirty = False
         self.sync_ui()
 
+    def _open_capture_times_dialog(self) -> None:
+        self._persist_all_metadata_settings()
+        if open_assign_capture_times_dialog(self, self.controller.session):
+            self._dirty = False
+            self.sync_ui()
+
     def _on_gear_changed(self, *_args) -> None:
         sender = self.sender()
         if sender is self.camera_combo:
@@ -847,6 +857,7 @@ class MetadataSidebar(BaseSidebar):
             tab_action = {"presets": "tab_gear_presets", "gear": "tab_gear_items"}.get(key, "")
             btn.setToolTip(tooltip_with_shortcut(btn.text(), tab_action) if tab_action else btn.text())
         self.frame_sequence_btn.setToolTip(tooltip_with_shortcut(_SEQUENCE_TOOLTIP, "assign_sequential_frame"))
+        self.capture_times_btn.setToolTip(tooltip_with_shortcut(_CAPTURE_TIMES_TOOLTIP, "assign_capture_times"))
         for attr, (text, action_id) in _CLEAR_TOOLTIPS.items():
             getattr(self, attr).setToolTip(tooltip_with_shortcut(text, action_id))
 

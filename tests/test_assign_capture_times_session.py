@@ -2,7 +2,7 @@ from datetime import date, datetime, timedelta
 from unittest.mock import MagicMock
 
 from negpy.desktop.session import DesktopSessionManager
-from negpy.features.metadata.capture_times import Anchor, Segment, assign_times
+from negpy.features.metadata.capture_times import Reference, Segment, assign_times
 from negpy.infrastructure.storage.repository import StorageRepository
 
 
@@ -73,16 +73,16 @@ def test_assign_without_changes_writes_nothing(qapp) -> None:
 
 def test_logic_results_flow_into_the_frames(qapp) -> None:
     mgr = _session()
-    photo = Anchor(local=datetime(2026, 10, 25, 11, 9, 21), offset=timedelta(hours=3), latitude=27.14, longitude=33.88, ref="IMG_2514.HEIC")
-    segment = Segment(("h0", "h1", "h2"), day=date(2026, 10, 25), zone="Africa/Cairo", anchors={"h1": photo})
+    photo = Reference("IMG_2514.HEIC", datetime(2026, 10, 25, 11, 9, 21), timedelta(hours=3), 27.14, 33.88)
+    segment = Segment(("h0", "h1", "h2"), day=date(2026, 10, 25), zone="Africa/Cairo", references=((1, photo),))
     results, issues = assign_times(segment)
     assert issues == []
     assert mgr.assign_capture_times({r.frame: r.metadata_fields() for r in results}) == 3
     saved = _saved(mgr)
     assert [saved[h].metadata.capture_date for h in ("h0", "h1", "h2")] == [
         "2026-10-25 11:07:21",
-        "2026-10-25 11:09:21",
         "2026-10-25 11:11:21",
+        "2026-10-25 11:13:21",
     ]
     assert saved["h1"].metadata.capture_anchor_ref == "IMG_2514.HEIC"
     assert saved["h2"].metadata.capture_time_source == "after"

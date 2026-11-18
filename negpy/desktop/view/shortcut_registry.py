@@ -173,6 +173,7 @@ REGISTRY: dict[str, ShortcutEntry] = {
     "metadata_clear_process": ShortcutEntry("", tr("Clear the frame's development process"), tr("Actions")),
     "metadata_clear_scanning": ShortcutEntry("", tr("Clear the frame's scan setup"), tr("Actions")),
     "assign_sequential_frame": ShortcutEntry("", tr("Assign sequential frame numbers"), tr("Actions")),
+    "assign_capture_times": ShortcutEntry("", tr("Assign capture times to the frames of the roll"), tr("Actions")),
     "measure_chart": ShortcutEntry("", tr("Measure a crosstalk matrix from a color chart"), tr("Process")),
     "estimate_fade": ShortcutEntry("", tr("Estimate Fade Restoration from the grays in this frame"), tr("Process")),
     "fade_auto_red": ShortcutEntry("", tr("Toggle Restore Range (Fade Restoration)"), tr("Process")),

@@ -47,6 +47,7 @@ GUIDED_KEYS = (
     "soft_proof",
     "metadata_gear",
     "metadata_capture",
+    "assign_capture_times",
     "metadata_process",
     "metadata_scanning",
     "metadata_exposure",

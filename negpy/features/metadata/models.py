@@ -160,10 +160,13 @@ class MetadataConfig:
 
     # IANA zone of the capture. Empty takes the zone at the capture place.
     capture_timezone: str = ""
-    # How the capture time was set ("anchor", "between", "before", "after", "day", "typed"),
-    # and the reference photo of an anchor. Assign Capture Times writes both.
+    # How the capture time was set ("between", "before", "after", "start", "typed"), and the
+    # reference photos it came from. Assign Capture Times writes both.
     capture_time_source: str = ""
     capture_anchor_ref: str = ""
+    # Assign Capture Times state for this frame (JSON): a segment start, and the reference photos
+    # placed before it, so the dialog can rebuild the roll. Never exported.
+    capture_plan: str = ""
 
     # Scanlight capture identity (not process.roll_name / Roll Analysis)
     capture_roll: str = ""
