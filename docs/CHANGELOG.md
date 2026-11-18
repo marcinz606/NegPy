@@ -6,6 +6,7 @@
 - New: **Fade Restoration for a whole roll** — Estimate Roll pools one set of fade values from the roll's slides and can share one frame's crossover with the others; a hand Red Survival now stays under Restore Range. @thetalkingdrum
 - New: **DKC-Pro chart** — Measure from Chart fits a Crosstalk matrix from a DGK DKC-Pro frame.
 - New: **Drop a folder on the Library** — makes it a roll, like Import Folder as a Roll. @thetalkingdrum
+- New: **Reset Roll** — a roll menu item that resets every frame of the open roll and clears the roll's settings, locks, baseline, film base and scenes. The name, frames and forks stay, and one Undo restores all of it.
 - New: **Italian translation** — the app, the in-app guide, the README and the docs, with more hard-coded UI text now translatable. @Spaccioclarinet99
 - Change: **Faster render and export** — the last pipeline steps run in Rust negpy_core.
 - Change: **Toe and Shoulder** — start from the print stock's own curve: 0 is the stock, Toe softens or hardens its shadows, Shoulder its highlights, and the stock's black and white stay. Toe Width and Shoulder Width are removed; saved edits convert to the closest Toe and Shoulder.
@@ -16,6 +17,7 @@
 - Change: **Export message** — names the folder when a batch writes to one folder.
 - Change: **Plustek** — pyopticfilm 1.3.10; the OpticFilm 135i shows as not supported for scanning. @jboneng
 - Change: **Nikon scanners** — nkscan bumped 0.20.0, fixed multisampling and faster ICE. @activexray
+- Fix: **Grade under Shadow Reach** — with Auto Grade on, a softer hand Grade now prints softer instead of stopping at the floor. The softest-Grade warning shows on the Grade value.
 - Fix: **Batch Undo** — puts back only the settings a batch changed, and each frame's card locks. @thetalkingdrum
 - Fix: **Virtual rolls** — find their photos after their folders move, with Locate Folder… per missing folder. @thetalkingdrum
 - Fix: **Camera capture** — 102 MP RAWs such as the GFX100S load. @RP2
