@@ -2621,6 +2621,27 @@ class TestAppController(unittest.TestCase):
         # An export color space resolves an effective output profile → proof active.
         self.assertTrue(self.controller.proof_active())
 
+    def test_gray_proof_profile_names_a_gray_proof_on_a_color_frame(self):
+        """Issue #1642: a Greyscale export profile, carried from a B&W roll, previews a color frame gray."""
+        from negpy.domain.models import ColorSpace
+        from negpy.features.process.models import ProcessMode, with_process_mode
+
+        state = self.controller.state
+        state.soft_proof_enabled = True
+        state.proof_icc_path = None
+        gray = ColorSpace.GREYSCALE.value
+        state.config = replace(state.config, export=replace(state.config.export, export_color_space=gray))
+        self.assertEqual(self.controller.gray_proof_profile(), gray)
+
+        state.config = with_process_mode(state.config, ProcessMode.BW)
+        self.assertEqual(self.controller.gray_proof_profile(), "")
+        state.config = with_process_mode(state.config, ProcessMode.C41)
+        state.soft_proof_enabled = False
+        self.assertEqual(self.controller.gray_proof_profile(), "")
+        state.soft_proof_enabled = True
+        state.config = replace(state.config, export=replace(state.config.export, export_color_space=ColorSpace.SRGB.value))
+        self.assertEqual(self.controller.gray_proof_profile(), "")
+
     def test_effective_input_icc(self):
         """The explicit Input ICC, else None."""
         self.assertIsNone(self.controller.effective_input_icc())

@@ -37,7 +37,7 @@ from negpy.desktop.view.sidebar.pick_better_window import PickBetterWindow
 from negpy.desktop.view.sidebar.right_panel import RightPanel
 from negpy.desktop.view.sidebar.files import FileBrowser, table_color
 from negpy.desktop.view.update_notice import UpdateNotice
-from negpy.desktop.view.styles.templates import hint_label, labeled_action
+from negpy.desktop.view.styles.templates import choice_label, hint_label, labeled_action
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.collapsible import fit_pane
 from negpy.desktop.view.widgets.command_palette import CommandPalette, FindField
@@ -973,8 +973,10 @@ class MainWindow(QMainWindow):
         st = self.state
         if not st.current_file_path:
             self.canvas.hud.set_zoom_note("")
+            self.canvas.hud.set_advisory("")
             self.canvas.hud.update_info("", "")
             return
+        self.canvas.hud.set_advisory(self._canvas_advisory())
         w, h = st.original_res
         proof = ""
         if st.soft_proof_enabled:
@@ -991,6 +993,16 @@ class MainWindow(QMainWindow):
             )
         )
         self._on_zoom_info_changed(self.canvas.zoom_level)
+
+    def _canvas_advisory(self) -> str:
+        """Standing warnings about the whole preview, one per state that makes it misleading."""
+        warnings = []
+        gray = self.controller.gray_proof_profile()
+        if gray:
+            warnings.append(
+                tr("Gray preview from the {value} profile. Choose another profile or turn off Proof on Screen.", value=choice_label(gray))
+            )
+        return " ".join(warnings)
 
     def _on_zoom_info_changed(self, zoom: float) -> None:
         """The zoom readout: under the navigator while it is up, else at the strip's right end."""

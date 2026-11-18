@@ -72,6 +72,24 @@ def test_update_info_fills_both_sides(qapp):
     assert hud.lbl_right.text() == "C-41"
 
 
+def test_an_advisory_holds_the_message_slot_in_amber_between_messages(qapp):
+    hud = _hud()
+    hud.set_advisory("Gray preview")
+    assert not hud.isHidden() and hud.message.text() == "Gray preview"
+    assert THEME.warn_amber in hud.message.styleSheet()
+    hud.showMessage("Saved", 1000)
+    assert hud.message.text() == "Saved"
+    hud._expire_message()
+    assert hud.message.text() == "Gray preview"
+    hud.showMessage("Aborting…", -1)
+    hud.set_advisory("Other warning")
+    assert hud.message.text() == "Aborting…"
+    hud.clear_message("Aborting…")
+    assert hud.message.text() == "Other warning"
+    hud.set_advisory("")
+    assert hud.message.isHidden()
+
+
 def test_show_message_keeps_case_and_arms_timer(qapp):
     """A path or a filename in a message must stay as written."""
     hud = _hud()

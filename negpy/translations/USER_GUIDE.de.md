@@ -534,14 +534,14 @@ Auf dem Tab **Datei**, neben **Ausgabeziel**. Ein Kontaktbogen zeigt die ganze R
 
 Die Bögen werden als `contact_sheet.jpg` gespeichert (`contact_sheet_1of2.jpg` und folgende bei einer langen Rolle).
 
-<!-- panel:soft_proof src:0254272b -->
+<!-- panel:soft_proof src:2ec0a049 -->
 ### Softproof
 
 Der Tab **Proof** zeigt am Bildschirm, wie das Bild auf einem bestimmten Drucker und Papier aussieht. Er ändert nur die Vorschau, nie den Export. Papier zeigt keine so leuchtenden Farben wie ein Bildschirm, darum wirkt ein korrekter Proof matter.
 
 *   **Proof am Bildschirm** (`Shift+P`): schaltet den Proof ein oder aus. Solange er an ist, zeigt die Bildinfo über dem Foto **Softproof** und das Profil.
 *   **Vorgabe**: ein gespeichertes Setup aus Drucker und Papier.
-*   **Profil**: das Drucker- oder Papierprofil. Es folgt dem Exportprofil, bis du eines wählst.
+*   **Profil**: das Drucker- oder Papierprofil. Es folgt dem Exportprofil, bis du eines wählst. Ein Graustufenprofil macht die Vorschau grau, darum zeigt ein Farbbild dann über dem Foto eine gelbe Warnung.
 *   **Umsetzung**: **Relativ farbmetrisch** behält druckbare Farben genau und beschneidet den Rest. **Wahrnehmung** staucht alle Farben und passt zu sehr bunten Bildern. **Sättigung** ist für Diagramme und Grafiken.
 *   **Schwarzpunktkompensation**: bildet den dunkelsten Ton auf das Schwarz des Papiers ab.
 *   **Papierweiß simulieren** und **Tintenschwarz simulieren**: zeigen das echte Weiß und Schwarz des Papiers.

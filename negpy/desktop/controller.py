@@ -208,6 +208,7 @@ from negpy.features.lab.models import LabConfig
 from negpy.features.local.models import LocalAdjustmentsConfig
 from negpy.features.process.fade_roll import ROLL_MIN_FRAMES
 from negpy.features.process.path import RenderPath, is_mono, positive_decode, render_path
+from negpy.infrastructure.display.icc_profile import is_gray_profile
 from negpy.features.process.models import (
     SCAN_SETUP_PAPERS,
     ProcessConfig,
@@ -8509,6 +8510,18 @@ class AppController(QObject):
         self.session.save_icc_prefs()
         self.config_updated.emit()
         self.request_render()
+
+    def gray_proof_profile(self) -> str:
+        """While a color frame previews through a gray profile: the proof profile's file name, or the
+        export color space it follows. Else "". The export profile carries to every file."""
+        if not self.proof_active() or is_mono(self.state.config.process):
+            return ""
+        icc = self.effective_proof_icc()
+        if not icc or not is_gray_profile(icc):
+            return ""
+        if self.state.proof_icc_path:
+            return os.path.splitext(os.path.basename(self.state.proof_icc_path))[0]
+        return self.state.config.export.export_color_space
 
     def proof_active(self) -> bool:
         """True when the preview should soft-proof: the toggle is on and an input or

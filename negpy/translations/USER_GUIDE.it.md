@@ -764,14 +764,14 @@ Nella scheda **File**, accanto a **Intento di uscita**. Un provino a contatto mo
 
 I fogli vengono salvati come `contact_sheet.jpg` (`contact_sheet_1of2.jpg` e così via per un rullino lungo).
 
-<!-- panel:soft_proof src:0254272b -->
+<!-- panel:soft_proof src:2ec0a049 -->
 ### Prova a video
 
 La scheda **Prova** mostra sullo schermo come apparirà l'immagine stampata su una data stampante e carta. Cambia solo l'anteprima, mai l'esportazione. La carta non può mostrare colori luminosi come quelli di uno schermo, quindi una prova corretta appare più spenta.
 
 *   **Prova a video** (`Maiusc+P`): attiva o disattiva la prova. Mentre è attiva, le info del fotogramma sopra la foto mostrano **Prova** e il profilo.
 *   **Preimpostazione**: una configurazione salvata di stampante e carta.
-*   **Profilo**: il profilo della stampante o della carta. Segue il profilo di esportazione finché non ne scegli uno.
+*   **Profilo**: il profilo della stampante o della carta. Segue il profilo di esportazione finché non ne scegli uno. Un profilo in scala di grigi rende grigia l'anteprima, quindi un fotogramma a colori mostra un avviso ambra sopra la foto.
 *   **Intento**: **Colorimetrico relativo** mantiene esatti i colori stampabili e tosa gli altri. **Percettivo** comprime tutti i colori, il che si adatta alle immagini molto colorate. **Saturazione** è per grafici e illustrazioni.
 *   **Compensazione del punto del nero**: fa corrispondere il tono più scuro al nero della carta.
 *   **Simula il bianco della carta** e **Simula il nero dell'inchiostro**: mostrano il bianco e il nero reali della carta.

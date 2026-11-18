@@ -771,7 +771,7 @@ The **Proof** tab shows on screen how the picture will look when printed on a gi
 
 *   **Proof on Screen** (`Shift+P`): turns the proof on or off. While it is on, the frame info above the photo shows **Proof** and the profile.
 *   **Preset**: a saved printer and paper setup.
-*   **Profile**: the printer or paper profile. It follows the export profile until you pick one.
+*   **Profile**: the printer or paper profile. It follows the export profile until you pick one. A gray profile makes the preview gray, so a color frame then shows an amber warning above the photo.
 *   **Intent**: **Relative Colorimetric** keeps printable colors exact and clips the rest. **Perceptual** compresses all colors, which suits very colorful pictures. **Saturation** is for charts and graphics.
 *   **Black Point Compensation**: maps the darkest tone to the paper's black.
 *   **Simulate Paper White** and **Simulate Ink Black**: show the paper's real white and black.
