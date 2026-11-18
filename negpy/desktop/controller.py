@@ -9858,11 +9858,8 @@ class AppController(QObject):
         ]
         self._dispatch_preset_export(visible_files)
 
-    def _contact_sheet_output_dir(self, visible_files: list) -> Optional[str]:
-        """Resolve the contact sheet output folder (custom path or export destination rules)."""
-        custom = self.state.config.export.contact_sheet_output_path.strip()
-        if custom:
-            return custom
+    def _contact_sheet_default_dir(self, visible_files: list) -> Optional[str]:
+        """The export destination rules' folder, used when the sheet has no folder of its own."""
         export_path = self._ensure_valid_export_path()
         if export_path is None:
             return None
@@ -9882,8 +9879,10 @@ class AppController(QObject):
         visible_files = [self.state.uploaded_files[i] for i in self.session.asset_model.visible_actual_indices_ordered()]
         if not visible_files:
             return
-        out_dir = self._contact_sheet_output_dir(visible_files)
-        if not out_dir:
+        custom_dir = self.state.config.export.contact_sheet_output_path.strip()
+        # A sheet with its own folder never needs the export folder, which can prompt for a path.
+        default_dir = "" if custom_dir else self._contact_sheet_default_dir(visible_files)
+        if not custom_dir and not default_dir:
             return
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         try:
@@ -9891,7 +9890,13 @@ class AppController(QObject):
         finally:
             QApplication.restoreOverrideCursor()
         generation = self.contact_sheet_preview.prepare(tuple(visible_files))
-        self._contact_sheet_pending = {"generation": generation, "assets": visible_files, "configs": configs, "out_dir": out_dir}
+        self._contact_sheet_pending = {
+            "generation": generation,
+            "assets": visible_files,
+            "configs": configs,
+            "custom_dir": custom_dir,
+            "default_dir": default_dir,
+        }
         self.set_status(tr("Reading capture dates…"), 0)
 
     def _on_contact_sheet_prepared(self, generation: int, facts: list) -> None:
@@ -9930,15 +9935,23 @@ class AppController(QObject):
             settings,
             lambda fmt: sheet_look(frames, fmt, label, library),
             label,
-            pending["out_dir"],
+            pending["custom_dir"],
             tiles=self.contact_sheet_preview,
             lane_busy=self._contact_sheet_lane_message,
             proof=proof,
             scene_proof=scene_proof,
             parent=QApplication.activeWindow(),
             repo=self.session.repo,
+            default_dir=pending["default_dir"],
         )
         if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        folder = dialog.folder()
+        if folder != pending["custom_dir"]:
+            export = replace(self.state.config.export, contact_sheet_output_path=folder)
+            self.session.update_config(replace(self.state.config, export=export), persist=True)
+        out_dir = folder or pending["default_dir"] or self._contact_sheet_default_dir(pending["assets"])
+        if not out_dir:
             return
         settings = dialog.settings()
         self.session.repo.save_global_setting(self._CONTACT_SHEET_SETTINGS_KEY, settings.to_dict())
@@ -9950,7 +9963,7 @@ class AppController(QObject):
             frame_size=frame_size,
             settings=settings,
             look=dialog.look(),
-            out_dir=pending["out_dir"],
+            out_dir=out_dir,
             gpu_enabled=self.state.gpu_enabled,
             working_color_space=self.state.workspace_color_space,
             jpeg_quality=int(export_conf.jpeg_quality),

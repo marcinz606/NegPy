@@ -515,12 +515,11 @@ Zusätzliche Dateien neben dem Abzug. Jede hat links einen Schalter und rechts e
 *   **Auto-Dichte / Gradation**: **Beim Export festschreiben** fixiert die automatische Helligkeit und den Kontrast jedes exportierten Bildes, damit sie sich später nicht ändern. **In Rolle festschreiben** tut das jetzt für jedes sichtbare Bild.
 *   **Bearbeitungs-Sidecar-Dateien**: **Beim Export speichern** schreibt neben jede Quelle eine `.negpy`-Datei mit der Bearbeitung. **Sidecar-Dateien exportieren** schreibt sie für alle sichtbaren Bilder. Rechtsklick auf ein Bild → **Bearbeitung aus Sidecar-Datei laden…** liest eine zurück.
 
-<!-- panel:contact_sheet src:ddc8d6ef -->
+<!-- panel:contact_sheet src:cc84fd86 -->
 ### Kontaktbogen
 
-Auf dem Tab **Neben dem Export**. Ein Kontaktbogen zeigt die ganze Rolle als Filmstreifen auf einem Blatt Papier, wie ein Kontaktabzug in der Dunkelkammer.
+Auf dem Tab **Datei**, neben **Ausgabeziel**. Ein Kontaktbogen zeigt die ganze Rolle als Filmstreifen auf einem Blatt Papier, wie ein Kontaktabzug in der Dunkelkammer.
 
-*   **Pfad**: der Ordner für die Bögen. Leer verwendet den Exportordner.
 *   **Kontaktbogen…**: öffnet den Bogen. Ziehe an einer Kante des Papiers, um die Größe zu ändern.
 *   **Filmformat**: 35mm, 35mm Half Frame oder 120 (bei 120 mit **Bildgröße**).
 *   **Papier**, **Breite**, **Höhe** und **DPI**: Größe und Auflösung des Bogens. Das Standardpapier fasst eine Rolle mit 36 Aufnahmen.
@@ -531,6 +530,7 @@ Auf dem Tab **Neben dem Export**. Ein Kontaktbogen zeigt die ganze Rolle als Fil
 *   **Rollenbeschriftung**: Rollenname, Film, Kamera und Datum über den Streifen. Gib in **Beschriftungstext** deinen eigenen Text ein, um ihn stattdessen zu drucken.
 *   **Weißes Papier**: druckt auf Weiß und spart so Tinte auf einem Heimdrucker.
 *   **Filmränder**: Aus druckt die Bilder aufrecht, jedes in seiner eigenen Form, in Zeilen wie auf dem Leuchttisch. Der Bogen hat dann keine Perforation und keinen **Randaufdruck**.
+*   **Ordner**: der Ordner für die Bögen. Leer verwendet den Exportordner.
 
 Die Bögen werden als `contact_sheet.jpg` gespeichert (`contact_sheet_1of2.jpg` und folgende bei einer langen Rolle).
 

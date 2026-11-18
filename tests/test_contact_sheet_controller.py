@@ -36,7 +36,7 @@ class TestContactSheetRequest(unittest.TestCase):
         self.jobs = []
         self.controller.contact_sheet_requested.connect(self.jobs.append)
         self.controller.load_gear_library = MagicMock(return_value=None)
-        self.controller._contact_sheet_output_dir = MagicMock(return_value="/out")
+        self.controller._contact_sheet_default_dir = MagicMock(return_value="/out")
 
         self.files = [
             {"name": "b.tif", "path": "/roll/b.tif", "hash": "hb"},
@@ -82,6 +82,7 @@ class TestContactSheetRequest(unittest.TestCase):
         dialog.kept_frames.side_effect = lambda: tuple(mock_cls.call_args.args[0])
         dialog.numbers.side_effect = lambda: tuple(range(len(mock_cls.call_args.args[0])))
         dialog.breaks.return_value = ()
+        dialog.folder.return_value = ""
         mock_cls.return_value = dialog
         return mock_cls
 
@@ -96,7 +97,7 @@ class TestContactSheetRequest(unittest.TestCase):
         self.controller.contact_sheet_preview.prepare.assert_not_called()
 
     def test_no_output_folder_ends_the_request(self):
-        self.controller._contact_sheet_output_dir.return_value = None
+        self.controller._contact_sheet_default_dir.return_value = None
         self.controller.request_contact_sheet()
         self.controller.contact_sheet_preview.prepare.assert_not_called()
 
@@ -117,6 +118,40 @@ class TestContactSheetRequest(unittest.TestCase):
         self.assertEqual(self.controller._active_batch, "contact_sheet")
         saved = [c.args for c in self.session.repo.save_global_setting.call_args_list if c.args[0] == "contact_sheet_settings"]
         self.assertEqual(saved[0][1]["dpi"], 600)
+
+    def _export_with_sheet_folder(self, path):
+        export = replace(self.controller.state.config.export, contact_sheet_output_path=path)
+        self.controller.state.config = replace(self.controller.state.config, export=export)
+
+    def test_a_sheet_folder_skips_the_export_folder(self):
+        self._export_with_sheet_folder("/sheets")
+        mock_cls = self._dialog()
+        mock_cls.return_value.folder.return_value = "/sheets"
+        self.controller.request_contact_sheet()
+        self._prepared()
+        self.controller._contact_sheet_default_dir.assert_not_called()
+        self.assertEqual(mock_cls.call_args.args[6], "/sheets")
+        self.assertEqual(self.jobs[0].out_dir, "/sheets")
+        self.session.update_config.assert_not_called()
+
+    def test_a_folder_typed_in_the_dialog_is_kept_and_used(self):
+        mock_cls = self._dialog()
+        mock_cls.return_value.folder.return_value = "/typed"
+        self.controller.request_contact_sheet()
+        self._prepared()
+        self.assertEqual(mock_cls.call_args.kwargs["default_dir"], "/out")
+        self.assertEqual(self.jobs[0].out_dir, "/typed")
+        saved = self.session.update_config.call_args.args[0]
+        self.assertEqual(saved.export.contact_sheet_output_path, "/typed")
+
+    def test_a_cleared_folder_falls_back_to_the_export_folder(self):
+        self._export_with_sheet_folder("/sheets")
+        self._dialog()
+        self.controller.request_contact_sheet()
+        self._prepared()
+        self.assertEqual(self.jobs[0].out_dir, "/out")
+        saved = self.session.update_config.call_args.args[0]
+        self.assertEqual(saved.export.contact_sheet_output_path, "")
 
     def test_frames_left_out_keep_the_others_roll_numbers(self):
         mock_cls = self._dialog()

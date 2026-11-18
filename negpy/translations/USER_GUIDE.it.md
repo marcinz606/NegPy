@@ -745,12 +745,11 @@ File aggiuntivi accanto alla stampa. Ognuno ha un interruttore a sinistra e un'a
 *   **Densità / gradazione automatica**: **Fissa all'esportazione** fissa la luminosità e il contrasto automatici di ogni fotogramma esportato, così non cambiano in seguito. **Fissa sul rullino** lo fa subito per ogni fotogramma visibile.
 *   **File collaterali di modifica**: **Salva all'esportazione** scrive accanto a ogni sorgente un file `.negpy` con la modifica. **Esporta file collaterali** li scrive per tutti i fotogrammi visibili. Clic destro su un fotogramma → **Carica modifica da file collaterale…** ne rilegge uno.
 
-<!-- panel:contact_sheet src:ddc8d6ef -->
+<!-- panel:contact_sheet src:cc84fd86 -->
 ### Provino a contatto
 
-Nella scheda **Accanto alle esportazioni**. Un provino a contatto mostra l'intero rullino come strisce di pellicola su un unico foglio di carta, come fa una stampa a contatto in camera oscura.
+Nella scheda **File**, accanto a **Intento di uscita**. Un provino a contatto mostra l'intero rullino come strisce di pellicola su un unico foglio di carta, come fa una stampa a contatto in camera oscura.
 
-*   **Percorso**: la cartella per i fogli. Se vuoto usa la cartella di esportazione.
 *   **Provino a contatto…**: apre il foglio. Trascina un lato della carta per ridimensionarla.
 *   **Formato della pellicola**: 35mm, 35mm mezzo formato o 120 (con **Dimensioni del fotogramma** per il 120).
 *   **Carta**, **Larghezza**, **Altezza** e **DPI**: dimensioni e risoluzione del foglio. La carta predefinita contiene un rullino da 36 pose.
@@ -761,6 +760,7 @@ Nella scheda **Accanto alle esportazioni**. Un provino a contatto mostra l'inter
 *   **Etichetta del rullino**: nome del rullino, pellicola, fotocamera e data sopra le strisce. Scrivi il tuo testo in **Testo dell'etichetta** per stamparlo al loro posto.
 *   **Carta bianca**: stampa su bianco, il che fa risparmiare inchiostro su una stampante domestica.
 *   **Bordi della pellicola**: se disattivato, stampa i fotogrammi dritti, ognuno con la propria forma, in righe come sul Tavolo luminoso. Il foglio non ha allora né perforazioni né **Scritte del bordo**.
+*   **Cartella**: la cartella per i fogli. Se vuoto usa la cartella di esportazione.
 
 I fogli vengono salvati come `contact_sheet.jpg` (`contact_sheet_1of2.jpg` e così via per un rullino lungo).
 

@@ -748,9 +748,8 @@ Extra files beside the print. Each has a switch on the left and a one-time actio
 <!-- panel:contact_sheet -->
 ### Contact Sheet
 
-On the **Alongside Exports** tab. A contact sheet shows the whole roll as film strips on one sheet of paper, as a darkroom contact print does.
+On the **File** tab, beside **Output Intent**. A contact sheet shows the whole roll as film strips on one sheet of paper, as a darkroom contact print does.
 
-*   **Path**: the folder for the sheets. Empty uses the export folder.
 *   **Contact Sheet…**: opens the sheet. Drag an edge of the paper to resize it.
 *   **Film format**: 35mm, 35mm Half Frame or 120 (with **Frame size** for 120).
 *   **Paper**, **Width**, **Height** and **DPI**: the sheet's size and resolution. The default paper holds a 36-exposure roll.
@@ -761,6 +760,7 @@ On the **Alongside Exports** tab. A contact sheet shows the whole roll as film s
 *   **Roll Label**: the roll name, film, camera and date above the strips. Type your own text in **Label text** to print it instead.
 *   **White Paper**: prints on white, which saves ink on a home printer.
 *   **Film Edges**: off prints the frames upright, each at its own shape, in rows as on the Light Table. The sheet then has no perforations and no **Edge Print**.
+*   **Folder**: the folder for the sheets. Empty uses the export folder.
 
 Sheets are saved as `contact_sheet.jpg` (`contact_sheet_1of2.jpg` and on for a long roll).
 

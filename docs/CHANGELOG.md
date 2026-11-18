@@ -15,6 +15,7 @@
 - Change: **Roll tab** — cards ordered by use (Setup, Roll Analysis, Metering, Fade Restoration first), a simpler Roll Analysis.
 - Change: **Smoother slider drags** — the preview updates in steady steps while you drag instead of waiting for slider settle. @thetalkingdrum
 - Change: **Export message** — names the folder when a batch writes to one folder.
+- Change: **Contact Sheet** — the button moves to the File tab beside Output Intent, and the sheet folder is set in the Contact Sheet dialog.
 - Change: **Plustek** — pyopticfilm 1.3.10; the OpticFilm 135i shows as not supported for scanning. @jboneng
 - Change: **Nikon scanners** — nkscan bumped 0.20.0, fixed multisampling and faster ICE. @activexray
 - Fix: **Grade under Shadow Reach** — with Auto Grade on, a softer hand Grade now prints softer instead of stopping at the floor. The softest-Grade warning shows on the Grade value.
