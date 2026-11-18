@@ -6,7 +6,7 @@ from typing import Callable, Optional, Protocol, Sequence
 import numpy as np
 from PyQt6.QtCore import QEvent, QPointF, QRectF, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QImage, QPainter, QPen
-from PyQt6.QtWidgets import QDialog, QHBoxLayout, QLineEdit, QPushButton, QSizePolicy, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QDialog, QFileDialog, QHBoxLayout, QLineEdit, QPushButton, QSizePolicy, QVBoxLayout, QWidget
 
 from negpy.desktop.view.canvas.overlay import draw_resize_handles, draw_view_badge, hit_resize_handle, resize_cursor, view_badge_width
 from negpy.desktop.view.styles.templates import (
@@ -278,6 +278,7 @@ class ContactSheetDialog(QDialog):
         parent: Optional[QWidget] = None,
         *,
         repo: Optional[IRepository] = None,
+        default_dir: str = "",
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle(tr("Contact Sheet"))
@@ -290,6 +291,7 @@ class ContactSheetDialog(QDialog):
         self._look_for = look_for
         self._label_text = label_text
         self._out_dir = out_dir
+        self._default_dir = default_dir
         self._source = tiles
         self._lane_busy = lane_busy
         self._repo = repo
@@ -491,9 +493,13 @@ class ContactSheetDialog(QDialog):
         self.summary_label = hint_label()
         self.summary_label.setWordWrap(True)
         col.addWidget(self.summary_label)
-        self.folder_label = hint_label(tr("Saves to {_out_dir}", _out_dir=self._out_dir) if self._out_dir else "")
-        self.folder_label.setWordWrap(True)
-        col.addWidget(self.folder_label)
+        self.folder_edit = QLineEdit(self._out_dir)
+        self.folder_edit.setPlaceholderText(self._default_dir or tr("Uses export destination"))
+        self.folder_edit.setToolTip(wrap_tooltip(tr("The folder for contact sheets, or the export folder when this is empty.")))
+        self.folder_edit.installEventFilter(self)
+        browse_btn = icon_button("fa5s.folder-open", tr("Choose contact sheet output folder"))
+        browse_btn.clicked.connect(self._browse_folder)
+        col.addLayout(field_row(tr("Folder"), self.folder_edit, browse_btn))
         col.addStretch()
 
         footer = QHBoxLayout()
@@ -514,7 +520,7 @@ class ContactSheetDialog(QDialog):
         combos = (self.format_btn, self.frame_size_btn, self.paper_btn, self.dpi_btn, self.order_btn, self.print_btn)
         # One width, the widest choice's, so no choice elides and the column keeps one right edge.
         width = max(combo.minimumSizeHint().width() for combo in combos)
-        for field in (*combos, self.label_edit):
+        for field in (*combos, self.label_edit, self.folder_edit):
             field.setMinimumWidth(width)
         return panel
 
@@ -796,7 +802,7 @@ class ContactSheetDialog(QDialog):
 
     def eventFilter(self, obj, event) -> bool:  # noqa: N802
         if event.type() == QEvent.Type.KeyPress and event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
-            if obj is self.label_edit:
+            if obj in (self.label_edit, self.folder_edit):
                 obj.clearFocus()
                 return True
             if obj in (self.width_slider.spin, self.height_slider.spin):
@@ -805,6 +811,15 @@ class ContactSheetDialog(QDialog):
                 self._set_paper(self.width_slider.value(), self.height_slider.value(), snap=False)
                 return True
         return super().eventFilter(obj, event)
+
+    def _browse_folder(self) -> None:
+        start = self.folder() or self._default_dir
+        path = QFileDialog.getExistingDirectory(self, tr("Select Contact Sheet Output Folder"), start)
+        if path:
+            self.folder_edit.setText(path)
+
+    def folder(self) -> str:
+        return self.folder_edit.text().strip()
 
     def _on_export(self) -> None:
         busy = self._lane_busy() if self._lane_busy else ""

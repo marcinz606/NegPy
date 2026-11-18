@@ -62,7 +62,9 @@ from negpy.features.retouch.logic import (
     ir_defect_score,
     ir_detect_cutoff,
     ir_detect_target,
-    ir_ratio_and_gain,
+    ir_attenuation_onset,
+    ir_gain,
+    ir_ratio,
     lines_to_score,
     manual_bake_token,
     repair_components,
@@ -453,8 +455,8 @@ class ImageProcessor:
         self._dust_stats_value: Optional[tuple] = None
         # IR ratio + gain map at detection scale, keyed on source only so it survives
         # threshold drags. Shared by the attenuation bake and IR detection.
-        self._ir_gain_key: Optional[tuple] = None
-        self._ir_gain_value: Optional[tuple] = None
+        self._ir_ratio_key: Optional[tuple] = None
+        self._ir_ratio_value: Optional[tuple] = None
         # Inpainted source for hairs, keyed on (source+detection params, buffer res)
         # so creative-slider drags reuse it instead of re-inpainting every frame.
         self._hair_key: Optional[tuple] = None
@@ -527,8 +529,8 @@ class ImageProcessor:
         if self.on_slow_step is not None:
             self.on_slow_step(label)
 
-    def _ir_ratio_gain(self, ir_buffer: np.ndarray, img: np.ndarray, source_key: str) -> tuple:
-        """Cached (ratio_det, gain_det, degenerate, gammas) at detection scale."""
+    def _ir_ratio_terms(self, ir_buffer: np.ndarray, img: np.ndarray, source_key: str) -> tuple:
+        """Cached (ratio_det, img_det, degenerate, gammas) at detection scale."""
         # Detection follows the buffer it will repair (capped). The score is upsampled onto
         # that buffer, so a coarse detection writes a fat mask and averages over a wide
         # support. See _IR_MAX_UPSAMPLE.
@@ -538,15 +540,15 @@ class ImageProcessor:
         # Keying on the result made the second caller repay a full-res erode to build a
         # key it then hit.
         key = (source_key, ir_buffer.shape, target)
-        if key == self._ir_gain_key and self._ir_gain_value is not None:
-            return self._ir_gain_value
+        if key == self._ir_ratio_key and self._ir_ratio_value is not None:
+            return self._ir_ratio_value
         # Min-preserving, not _downsample_to_long_edge: INTER_AREA averages a sub-pixel
         # hair's dip away. A no-op on the preview path, where preview_ir already arrives
         # min-pooled at this scale.
         ir_det = downsample_ir(np.ascontiguousarray(ir_buffer, dtype=np.float32), target)
-        val = ir_ratio_and_gain(ir_det, _downsample_to_long_edge(img, target))
-        self._ir_gain_key = key
-        self._ir_gain_value = val
+        val = ir_ratio(ir_det, _downsample_to_long_edge(img, target))
+        self._ir_ratio_key = key
+        self._ir_ratio_value = val
         return val
 
     def _ir_bake(
@@ -564,9 +566,9 @@ class ImageProcessor:
         ret = settings.retouch
         if self._is_flat(settings) or ir_buffer is None or not ret.ir_dust_remove:
             return img, None, False, None
-        # The ratio and gain do not depend on the threshold or the attenuation toggle, so their
+        # The ratio does not depend on the threshold or the attenuation toggle, so its
         # cache is keyed without the IR token and survives a slider drag.
-        ratio_det, gain_det, degenerate, _ = self._ir_ratio_gain(ir_buffer, img, source_key.replace(ir_bake_token(ret, True), ""))
+        ratio_det, img_det, degenerate, gammas = self._ir_ratio_terms(ir_buffer, img, source_key.replace(ir_bake_token(ret, True), ""))
         if degenerate:
             return img, None, True, None
         key = (source_key, round(float(ret.ir_threshold), 6), bool(ret.ir_attenuation), img.shape)
@@ -574,13 +576,14 @@ class ImageProcessor:
             out, routed = self._ir_recon_value
         else:
             self._slow_step("removing IR dust")
-            score_det = ir_defect_score(ratio_det, ir_detect_cutoff(ret.ir_threshold, ret.ir_attenuation))
-            out = apply_ir_attenuation(img, gain_det) if ret.ir_attenuation else img
+            onset = ir_attenuation_onset(ret.ir_threshold)
+            score_det = ir_defect_score(ratio_det, ir_detect_cutoff(ret.ir_threshold, ret.ir_attenuation), onset)
+            out = apply_ir_attenuation(img, ir_gain(ratio_det, img_det, gammas, onset)) if ret.ir_attenuation else img
             out = apply_score_repair(out, score_det)
             routed = route_wide_defects(score_det)
             self._ir_recon_key = key
             self._ir_recon_value = (out, routed)
-        return out, (ratio_det < 0.97), False, routed
+        return out, (ratio_det < ir_attenuation_onset(ret.ir_threshold)), False, routed
 
     def _hair_inpaint(self, img: np.ndarray, hair_masks: List[np.ndarray], cache_key: str, label: str = _DUST_STEP) -> np.ndarray:
         """Structure-following inpaint of detected hairs, baked into the source before

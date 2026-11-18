@@ -46,26 +46,3 @@ def test_a_state_sync_does_not_echo_back_as_a_toggle() -> None:
 
     assert stub.printing_notes_preview_btn.isChecked()
     assert calls == []
-
-
-def test_sync_ui_does_not_reset_cursor_in_focused_contact_sheet_path(qapp) -> None:
-    """sync_ui() runs on every debounced AppState resync; its setText() on the Contact
-    Sheet output path field must not steal the caret from a user mid-edit — see #1071,
-    which was the same bug in the Filename field."""
-    from PyQt6.QtTest import QTest
-
-    sidebar = _sidebar()
-    sidebar.show()
-    QTest.qWaitForWindowActive(sidebar)
-
-    sidebar.cs_output_path_edit.setFocus()
-    qapp.processEvents()
-    assert sidebar.cs_output_path_edit.hasFocus()
-
-    sidebar.cs_output_path_edit.setText("prefix_suffix")
-    sidebar.cs_output_path_edit.setCursorPosition(6)
-
-    sidebar.sync_ui()
-
-    assert sidebar.cs_output_path_edit.cursorPosition() == 6
-    sidebar.hide()

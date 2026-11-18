@@ -26,7 +26,7 @@ def test_each_card_sits_on_its_tab(qapp) -> None:
     assert _page(sidebar, "file").isAncestorOf(sidebar.form)
     assert _page(sidebar, "proof").isAncestorOf(sidebar._soft_proof_section)
     assert _page(sidebar, "presets").isAncestorOf(sidebar._presets_section)
-    assert _page(sidebar, "alongside").isAncestorOf(sidebar.contact_sheet_section)
+    assert _page(sidebar, "file").isAncestorOf(sidebar.contact_sheet_btn)
     assert _page(sidebar, "alongside").isAncestorOf(sidebar.alongside_section)
 
 

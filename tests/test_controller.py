@@ -5843,22 +5843,13 @@ class TestContactSheetOutputDir(unittest.TestCase):
         del self.controller
         gc.collect()
 
-    def test_custom_path_wins_over_export_destination(self):
-        export = ExportConfig(
-            contact_sheet_output_path="/custom/contact",
-            output_mode=ExportPresetOutputMode.SAME_AS_SOURCE,
-        )
-        self.controller.state.config = replace(self.controller.state.config, export=export)
-        out = self.controller._contact_sheet_output_dir(self.visible_files)
-        self.assertEqual(out, "/custom/contact")
-
     def test_empty_path_uses_source_folder_when_same_as_source(self):
         export = ExportConfig(
             contact_sheet_output_path="",
             output_mode=ExportPresetOutputMode.SAME_AS_SOURCE,
         )
         self.controller.state.config = replace(self.controller.state.config, export=export)
-        out = self.controller._contact_sheet_output_dir(self.visible_files)
+        out = self.controller._contact_sheet_default_dir(self.visible_files)
         self.assertEqual(out, "/rolls/frame")
 
     def test_empty_path_uses_export_path_when_absolute(self):
@@ -5868,17 +5859,8 @@ class TestContactSheetOutputDir(unittest.TestCase):
             export_path="/home/user/NegPy/export",
         )
         self.controller.state.config = replace(self.controller.state.config, export=export)
-        out = self.controller._contact_sheet_output_dir(self.visible_files)
+        out = self.controller._contact_sheet_default_dir(self.visible_files)
         self.assertEqual(out, "/home/user/NegPy/export")
-
-    def test_whitespace_only_path_falls_back_to_export_rules(self):
-        export = ExportConfig(
-            contact_sheet_output_path="   ",
-            output_mode=ExportPresetOutputMode.SAME_AS_SOURCE,
-        )
-        self.controller.state.config = replace(self.controller.state.config, export=export)
-        out = self.controller._contact_sheet_output_dir(self.visible_files)
-        self.assertEqual(out, "/rolls/frame")
 
     def _dict_repo(self) -> None:
         store: dict = {}
@@ -5900,7 +5882,7 @@ class TestContactSheetOutputDir(unittest.TestCase):
         ):
             with self.subTest(roll=label):
                 self.controller.state.active_roll_id = roll_id
-                self.assertEqual(self.controller._contact_sheet_output_dir(self.visible_files), os.path.join("/rolls/frame", "export"))
+                self.assertEqual(self.controller._contact_sheet_default_dir(self.visible_files), os.path.join("/rolls/frame", "export"))
 
 
 class TestRetouchPersistence(unittest.TestCase):

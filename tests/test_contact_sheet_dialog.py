@@ -412,3 +412,10 @@ def test_film_edges_off_takes_each_frames_aspect_from_its_tile(dialog):
     d._render()
     windows = dict(d.canvas._frames)
     assert windows[1].width() / windows[1].height() == pytest.approx(200 / 300)
+
+
+def test_the_folder_field_starts_on_the_sheet_folder_and_trims_its_text(dialog):
+    d = dialog()
+    assert d.folder() == "/out"
+    d.folder_edit.setText("  /elsewhere  ")
+    assert d.folder() == "/elsewhere"

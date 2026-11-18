@@ -2557,7 +2557,6 @@
   "Saved sets of metadata values. Apply one to write its fields onto this frame.": "저장된 메타데이터 값 세트입니다. 적용하면 해당 필드를 이 프레임에 씁니다.",
   "Saved setup": "저장된 설정",
   "Saved shots of the bare light, used to even out the light.": "빛을 고르게 하는 데 쓰는, 광원만 찍어 저장한 이미지입니다.",
-  "Saves to {_out_dir}": "{_out_dir}에 저장합니다.",
   "Save…": "저장…",
   "Scale the whole interface": "전체 인터페이스 배율 조정",
   "Scan": "스캔",

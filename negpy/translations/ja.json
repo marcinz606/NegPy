@@ -2557,7 +2557,6 @@
   "Saved sets of metadata values. Apply one to write its fields onto this frame.": "保存したメタデータ値のセット。適用すると、そのフィールドをこのフレームに書き込みます。",
   "Saved setup": "保存された設定",
   "Saved shots of the bare light, used to even out the light.": "光を均一にするための、光源だけを撮った保存済みの画像。",
-  "Saves to {_out_dir}": "{_out_dir} に保存します",
   "Save…": "保存…",
   "Scale the whole interface": "インターフェース全体をスケーリングする",
   "Scan": "スキャン",

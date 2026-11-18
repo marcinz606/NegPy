@@ -2557,7 +2557,6 @@
   "Saved sets of metadata values. Apply one to write its fields onto this frame.": "已保存的元数据值组合。应用后会将其字段写入此画面。",
   "Saved setup": "已保存装置",
   "Saved shots of the bare light, used to even out the light.": "已保存的光源空拍，用于均匀光线。",
-  "Saves to {_out_dir}": "保存到 {_out_dir}",
   "Save…": "保存…",
   "Scale the whole interface": "缩放整个界面",
   "Scan": "扫描",
