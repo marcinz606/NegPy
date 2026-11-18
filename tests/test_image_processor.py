@@ -253,8 +253,8 @@ def test_detect_luma_reruns_the_gate_on_hair_threshold(monkeypatch) -> None:
     assert seen == [0.66, 0.9]
 
 
-def test_ir_ratio_gain_downsamples_once_per_source(monkeypatch) -> None:
-    """_ir_bake and _detect_luma each call _ir_ratio_gain every render. The cache key is
+def test_ir_ratio_terms_downsamples_once_per_source(monkeypatch) -> None:
+    """_ir_bake and _detect_luma each call _ir_ratio_terms every render. The cache key is
     the source shape, not the downsampled one, so the second call resolves it without
     repaying the full-res erode+resize (~130ms on a 34MP scan)."""
     import negpy.services.rendering.image_processor as ip
@@ -269,18 +269,18 @@ def test_ir_ratio_gain_downsamples_once_per_source(monkeypatch) -> None:
     monkeypatch.setattr(ip, "downsample_ir", lambda *a, **k: (calls.append(1), real(*a, **k))[1])
 
     service = ImageProcessor()
-    first = service._ir_ratio_gain(ir, img, "s")
+    first = service._ir_ratio_terms(ir, img, "s")
     assert len(calls) == 1
-    second = service._ir_ratio_gain(ir, img, "s")
+    second = service._ir_ratio_terms(ir, img, "s")
     assert len(calls) == 1, "a cache hit must not repay the downsample"
     assert np.array_equal(first[0], second[0]) and np.array_equal(first[1], second[1])
     assert first[2] == second[2] and first[3] == second[3]
 
-    service._ir_ratio_gain(ir, img, "other-source")
+    service._ir_ratio_terms(ir, img, "other-source")
     assert len(calls) == 2, "a new source must still recompute"
 
 
-def test_ir_ratio_gain_recomputes_when_the_repaired_buffer_grows(monkeypatch) -> None:
+def test_ir_ratio_terms_recomputes_when_the_repaired_buffer_grows(monkeypatch) -> None:
     """Detection follows the buffer, so a preview hit must not be served to an export of the
     same source: same IR plane, larger buffer, different detection scale."""
     import negpy.services.rendering.image_processor as ip
@@ -295,8 +295,8 @@ def test_ir_ratio_gain_recomputes_when_the_repaired_buffer_grows(monkeypatch) ->
     monkeypatch.setattr(ip, "downsample_ir", lambda p, t, **k: (targets.append(t), real(p, t, **k))[1])
 
     service = ImageProcessor()
-    service._ir_ratio_gain(ir, small, "s")
-    service._ir_ratio_gain(ir, big, "s")
+    service._ir_ratio_terms(ir, small, "s")
+    service._ir_ratio_terms(ir, big, "s")
     assert len(targets) == 2 and targets[0] != targets[1]
 
 

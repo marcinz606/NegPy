@@ -19,6 +19,7 @@
 - Change: **Plustek** — pyopticfilm 1.3.10; the OpticFilm 135i shows as not supported for scanning. @jboneng
 - Change: **Nikon scanners** — nkscan bumped 0.20.0, fixed multisampling and faster ICE. @activexray
 - Fix: **Grade under Shadow Reach** — with Auto Grade on, a softer hand Grade now prints softer instead of stopping at the floor. The softest-Grade warning shows on the Grade value.
+- Fix: **IR Threshold** — now sets where IR repair starts, so a higher value leaves bright areas alone when the photo shows faintly in the IR scan. The Marked overlay follows it.
 - Fix: **Batch Undo** — puts back only the settings a batch changed, and each frame's card locks. @thetalkingdrum
 - Fix: **Virtual rolls** — find their photos after their folders move, with Locate Folder… per missing folder. @thetalkingdrum
 - Fix: **Camera capture** — 102 MP RAWs such as the GFX100S load. @RP2
