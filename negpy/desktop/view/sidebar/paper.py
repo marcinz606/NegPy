@@ -2,6 +2,7 @@ from negpy.kernel.system.i18n import tr
 import qtawesome as qta
 from PyQt6.QtWidgets import QHBoxLayout
 
+from negpy.kernel.system.config import DEFAULT_WORKSPACE_CONFIG
 from negpy.desktop.view.sidebar.base import BaseSidebar, SliderPage
 from negpy.desktop.view.sidebar.tone import _CH_LABEL, _CH_SUFFIX, channel_pages, channel_selector
 from negpy.desktop.view.shortcut_registry import tooltip_with_shortcut
@@ -34,6 +35,7 @@ class PaperSidebar(BaseSidebar):
 
     def _init_ui(self) -> None:
         conf = self.state.config.exposure
+        default = DEFAULT_WORKSPACE_CONFIG.exposure
 
         self.ch_btn = channel_selector(
             tr("Global changes all colors, and R, G or B changes one color, for a cast that differs in shadows and highlights.")
@@ -86,21 +88,25 @@ class PaperSidebar(BaseSidebar):
         self.layout.addLayout(paper_row)
 
         # Density-domain saturation on the dye amounts, before the stock's dyes, not a Lab a*/b* step.
-        self.dye_separation_slider = CompactSlider(tr("Dye Separation"), 0.5, 1.5, conf.dye_separation, has_neutral=True)
+        self.dye_separation_slider = CompactSlider(
+            tr("Dye Separation"), 0.5, 1.5, default.dye_separation, value=conf.dye_separation, has_neutral=True
+        )
         self.dye_separation_trim_slider = CompactSlider(tr("Dye Separation"), -0.4, 0.4, 0.0, has_neutral=True)
         self.dye_separation_trim_slider.setToolTip(tr("Dye Separation of this color layer only."))
         self.dye_separation_trim_slider.setVisible(False)
         # Redistributes the slider above by each pixel's own chroma, so it is inert at 1.0 separation.
-        self.separation_damping_slider = CompactSlider(tr("Separation Damping"), 0.0, 1.0, conf.separation_damping)
+        self.separation_damping_slider = CompactSlider(
+            tr("Separation Damping"), 0.0, 1.0, default.separation_damping, value=conf.separation_damping
+        )
         self.layout.addWidget(self.dye_separation_slider)
         self.layout.addWidget(self.dye_separation_trim_slider)
         self.separation_damping_fold = rail_fold("paper_separation", self.dye_separation_slider, self.separation_damping_slider)
         self.layout.addWidget(self.separation_damping_fold)
 
-        self.midtone_gamma_slider = CompactSlider(tr("Snap"), -0.5, 0.5, conf.midtone_gamma)
+        self.midtone_gamma_slider = CompactSlider(tr("Snap"), -0.5, 0.5, default.midtone_gamma, value=conf.midtone_gamma)
 
-        self.toe_slider = CompactSlider(tr("Toe"), -1.0, 1.0, conf.toe)
-        self.sh_slider = CompactSlider(tr("Shoulder"), -1.0, 1.0, conf.shoulder)
+        self.toe_slider = CompactSlider(tr("Toe"), -1.0, 1.0, default.toe, value=conf.toe)
+        self.sh_slider = CompactSlider(tr("Shoulder"), -1.0, 1.0, default.shoulder, value=conf.shoulder)
         curve_header, curve_fold = group_fold(
             "paper_curve_shape",
             tr("Curve Shape"),

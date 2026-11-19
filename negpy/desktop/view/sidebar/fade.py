@@ -1,6 +1,7 @@
 from dataclasses import replace
 from typing import Optional
 
+from negpy.kernel.system.config import DEFAULT_WORKSPACE_CONFIG
 from negpy.kernel.system.i18n import tr
 from PyQt6.QtCore import QSignalBlocker
 from PyQt6.QtWidgets import QHBoxLayout
@@ -27,17 +28,24 @@ class FadeSidebar(BaseSidebar):
 
     def _init_ui(self) -> None:
         conf = self.state.config.process
+        default = DEFAULT_WORKSPACE_CONFIG.process
         # Green and blue are ratios to red, all a neutral can constrain; red's absolute survival has its own control.
         self.fade_ratio_r_slider = CompactSlider(
-            tr("Red Survival"), *RED_SURVIVAL_BOUNDS, conf.fade_ratio_r, step=0.01, precision=1000, has_neutral=True
+            tr("Red Survival"),
+            *RED_SURVIVAL_BOUNDS,
+            default.fade_ratio_r,
+            value=conf.fade_ratio_r,
+            step=0.01,
+            precision=1000,
+            has_neutral=True,
         )
         self.fade_ratio_r_slider.setToolTip(tr("How much red dye is left in the slide. Lower it if the faded slide still looks flat."))
         self.fade_ratio_g_slider = CompactSlider(
-            tr("Green Survival"), *RATIO_BOUNDS, conf.fade_ratio_g, step=0.01, precision=1000, has_neutral=True
+            tr("Green Survival"), *RATIO_BOUNDS, default.fade_ratio_g, value=conf.fade_ratio_g, step=0.01, precision=1000, has_neutral=True
         )
         self.fade_ratio_g_slider.setToolTip(tr("How much green dye is left, compared with red. Below 1.0 means green faded more than red."))
         self.fade_ratio_b_slider = CompactSlider(
-            tr("Blue Survival"), *RATIO_BOUNDS, conf.fade_ratio_b, step=0.01, precision=1000, has_neutral=True
+            tr("Blue Survival"), *RATIO_BOUNDS, default.fade_ratio_b, value=conf.fade_ratio_b, step=0.01, precision=1000, has_neutral=True
         )
         self.fade_ratio_b_slider.setToolTip(tr("How much blue dye is left, compared with red. Below 1.0 means blue faded more than red."))
 
@@ -91,7 +99,9 @@ class FadeSidebar(BaseSidebar):
         # The frame where only the tone-band reader found grays: Gray Mix stays open there at every value.
         self._tone_bands_hash: Optional[str] = None
 
-        self.fade_crossover_slider = CompactSlider(tr("Crossover"), 0.0, 100.0, conf.fade_crossover * 100.0, step=1.0, unit="%")
+        self.fade_crossover_slider = CompactSlider(
+            tr("Crossover"), 0.0, 100.0, default.fade_crossover * 100.0, value=conf.fade_crossover * 100.0, step=1.0, unit="%"
+        )
         self.fade_crossover_slider.setToolTip(
             tr("Removes the color shift that changes from the shadows to the highlights, which the Survival sliders cannot fix.")
         )
@@ -99,7 +109,9 @@ class FadeSidebar(BaseSidebar):
         self.fade_crossover_hint = hint_label("")
         self.fade_crossover_hint.setVisible(False)
 
-        self.fade_neutrals_mix_slider = CompactSlider(tr("Gray Mix"), 0.0, 100.0, conf.fade_neutrals_mix * 100.0, step=1.0, unit="%")
+        self.fade_neutrals_mix_slider = CompactSlider(
+            tr("Gray Mix"), 0.0, 100.0, default.fade_neutrals_mix * 100.0, value=conf.fade_neutrals_mix * 100.0, step=1.0, unit="%"
+        )
         self.fade_neutrals_mix_slider.setToolTip(
             tr("Changes which grays Estimate trusts: drag it if the colors on this frame still look off.")
         )

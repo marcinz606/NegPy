@@ -378,8 +378,10 @@ class CompactSlider(BaseSlider):
         has_neutral: bool = False,
         unit: str = "",
         inverted: bool = False,
+        value: float | None = None,
         parent=None,
     ):
+        """*default_val* is the reset value; *value*, when given, is the starting value."""
         super().__init__(min_val, max_val, default_val, precision=precision, has_neutral=has_neutral, inverted=inverted, parent=parent)
 
         self._label_color = color if color else THEME.text_secondary
@@ -432,6 +434,8 @@ class CompactSlider(BaseSlider):
         layout.addLayout(label_cell)
         layout.addWidget(self.slider, 1)
         layout.addWidget(self.spin)
+        if value is not None:
+            self.setValue(value)
 
     def setToolTip(self, text: str) -> None:
         """Mirror onto the label: a child with its own tooltip shadows the parent's, and
@@ -635,9 +639,9 @@ class HueSlider(CompactSlider):
     The label color and slider handle track the current hue.
     """
 
-    def __init__(self, label: str, default_val: float = 0.0, parent=None):
-        super().__init__(label, 0.0, 360.0, default_val, step=1.0, precision=1, unit="°", parent=parent)
-        self._apply_hue(default_val)
+    def __init__(self, label: str, default_val: float = 0.0, value: float | None = None, parent=None):
+        super().__init__(label, 0.0, 360.0, default_val, step=1.0, precision=1, unit="°", value=value, parent=parent)
+        self._apply_hue(self.value())
 
     def _apply_hue(self, hue_deg: float) -> None:
         """Tint the slider handle to the current hue."""

@@ -1,5 +1,6 @@
 from typing import Optional
 
+from negpy.kernel.system.config import DEFAULT_WORKSPACE_CONFIG
 from negpy.kernel.system.i18n import tr
 from PyQt6.QtWidgets import QDialog, QHBoxLayout
 
@@ -44,6 +45,7 @@ class SensorSidebar(BaseSidebar):
 
     def _init_ui(self) -> None:
         conf = self.state.config.process
+        default = DEFAULT_WORKSPACE_CONFIG.process
         self._crosstalk_dialog: Optional[QDialog] = None
         self._crosstalk_snapshot: dict = {}  # the frame's crosstalk fields when the editor opened
         self._crosstalk_previewed: dict = {}  # the fields the editor's last preview set
@@ -114,7 +116,9 @@ class SensorSidebar(BaseSidebar):
         self.crosstalk_hint.setToolTip(
             wrap_tooltip(tr("A matrix shows only for the film type that it was saved for, so open the editor to make one."))
         )
-        self.crosstalk_strength_slider = CompactSlider(tr("Strength"), 0.0, 1.0, conf.crosstalk_strength, has_neutral=True)
+        self.crosstalk_strength_slider = CompactSlider(
+            tr("Strength"), 0.0, 1.0, default.crosstalk_strength, value=conf.crosstalk_strength, has_neutral=True
+        )
         self.crosstalk_strength_rail = SliderGroup(self.crosstalk_strength_slider)
         crosstalk_header, crosstalk_fold = group_fold(
             "sensor_crosstalk",
@@ -128,7 +132,9 @@ class SensorSidebar(BaseSidebar):
         self.layout.addLayout(crosstalk_header)
         self.layout.addWidget(crosstalk_fold)
 
-        self.hue_trim_slider = CompactSlider(tr("Hue Trim"), -30.0, 30.0, conf.hue_trim, step=0.5, precision=10, has_neutral=True, unit="°")
+        self.hue_trim_slider = CompactSlider(
+            tr("Hue Trim"), -30.0, 30.0, default.hue_trim, value=conf.hue_trim, step=0.5, precision=10, has_neutral=True, unit="°"
+        )
         self.hue_trim_slider.setToolTip(
             tr("Rotates all hues, for a light that turns yellows orange or greens olive; keep 0 for white light.")
         )

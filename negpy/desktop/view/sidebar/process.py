@@ -1,4 +1,5 @@
 from negpy.kernel.system.i18n import tr
+from negpy.kernel.system.config import DEFAULT_WORKSPACE_CONFIG
 from negpy.kernel.system.text import count_of
 import math
 import os
@@ -118,6 +119,7 @@ class ProcessSidebar(BaseSidebar):
 
     def _init_ui(self) -> None:
         conf = self.state.config.process
+        default = DEFAULT_WORKSPACE_CONFIG.process
 
         # The top of the "Setup" Roll-tab card -- ControlsPanel wraps it in that section,
         # so it carries no header of its own; deliberately not in
@@ -180,7 +182,7 @@ class ProcessSidebar(BaseSidebar):
         analysis_col = QVBoxLayout(self.analysis_bar)
         analysis_col.setContentsMargins(0, 0, 0, 0)
         analysis_col.setSpacing(THEME.space_sm)
-        self.analysis_buffer_slider = CompactSlider(tr("Analysis Buffer"), 0.0, 0.25, conf.analysis_buffer)
+        self.analysis_buffer_slider = CompactSlider(tr("Analysis Buffer"), 0.0, 0.25, default.analysis_buffer, value=conf.analysis_buffer)
         self.reanalyze_frame_btn = self._labeled_action(
             "fa5s.redo",
             tr("Measure Alone"),
@@ -240,8 +242,12 @@ class ProcessSidebar(BaseSidebar):
         self.ch_btn = channel_selector(
             tr("Global changes all colors, and R, G or B changes one color layer."),
         )
-        self.white_point_slider = CompactSlider(tr("White Point"), -0.25, 0.25, conf.white_point_offset, has_neutral=True)
-        self.black_point_slider = CompactSlider(tr("Black Point"), -0.25, 0.25, conf.black_point_offset, has_neutral=True)
+        self.white_point_slider = CompactSlider(
+            tr("White Point"), -0.25, 0.25, default.white_point_offset, value=conf.white_point_offset, has_neutral=True
+        )
+        self.black_point_slider = CompactSlider(
+            tr("Black Point"), -0.25, 0.25, default.black_point_offset, value=conf.black_point_offset, has_neutral=True
+        )
         point_row, point_fold = group_fold(
             "metering_points", tr("White / Black Point"), self.ch_btn, self.white_point_slider, self.black_point_slider
         )

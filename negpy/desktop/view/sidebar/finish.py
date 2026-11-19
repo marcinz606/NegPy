@@ -3,6 +3,7 @@ import qtawesome as qta
 from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import QColorDialog
 
+from negpy.kernel.system.config import DEFAULT_WORKSPACE_CONFIG
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.styles.templates import field_row, section_subheader, wrap_tooltip
 from negpy.desktop.view.styles.theme import THEME
@@ -18,37 +19,40 @@ class FinishSidebar(BaseSidebar):
 
     def _init_ui(self) -> None:
         conf = self.state.config.finish
+        default = DEFAULT_WORKSPACE_CONFIG.finish
 
         self.layout.addWidget(section_subheader(tr("VIGNETTE")))
 
-        self.vignette_burn_slider = CompactSlider(tr("Burn"), -2.0, 2.0, conf.vignette_stops, unit=" st")
+        self.vignette_burn_slider = CompactSlider(tr("Burn"), -2.0, 2.0, default.vignette_stops, value=conf.vignette_stops, unit=" st")
         self.layout.addWidget(self.vignette_burn_slider)
 
-        self.vignette_size_slider = CompactSlider(tr("Size"), 0.0, 1.0, conf.vignette_size)
-        self.vignette_roundness_slider = CompactSlider(tr("Roundness"), 0.0, 1.0, conf.vignette_roundness)
+        self.vignette_size_slider = CompactSlider(tr("Size"), 0.0, 1.0, default.vignette_size, value=conf.vignette_size)
+        self.vignette_roundness_slider = CompactSlider(tr("Roundness"), 0.0, 1.0, default.vignette_roundness, value=conf.vignette_roundness)
         vignette_rail = SliderGroup(self.vignette_size_slider, self.vignette_roundness_slider)
         self.layout.addWidget(vignette_rail)
 
         self.layout.addWidget(section_subheader(tr("FILED CARRIER")))
-        self.carrier_width_slider = CompactSlider(tr("Width"), 0.0, 5.0, conf.carrier_width)
+        self.carrier_width_slider = CompactSlider(tr("Width"), 0.0, 5.0, default.carrier_width, value=conf.carrier_width)
         self.carrier_width_slider.setToolTip(
             tr("Filed Carrier: a rough black frame around the picture, as from a filed negative carrier. 0 is off.")
         )
-        self.carrier_rough_slider = CompactSlider(tr("Roughness"), 0.0, 1.0, conf.carrier_rough)
+        self.carrier_rough_slider = CompactSlider(tr("Roughness"), 0.0, 1.0, default.carrier_rough, value=conf.carrier_rough)
         self.carrier_rough_slider.setToolTip(tr("How rough the outer edge of the black frame is."))
         self.layout.addWidget(self.carrier_width_slider)
 
-        self.carrier_flare_slider = CompactSlider(tr("Flare"), 0.0, 1.0, conf.carrier_flare)
+        self.carrier_flare_slider = CompactSlider(tr("Flare"), 0.0, 1.0, default.carrier_flare, value=conf.carrier_flare)
         self.carrier_flare_slider.setToolTip(tr("A soft gray glow just outside the black frame. 0 is off."))
-        self.carrier_corner_slider = CompactSlider(tr("Corners"), 0.0, 1.0, conf.carrier_corner)
+        self.carrier_corner_slider = CompactSlider(tr("Corners"), 0.0, 1.0, default.carrier_corner, value=conf.carrier_corner)
         self.carrier_corner_slider.setToolTip(tr("How round the corners of the black frame are."))
         carrier_rail = SliderGroup(self.carrier_rough_slider, self.carrier_flare_slider, self.carrier_corner_slider)
         self.layout.addWidget(carrier_rail)
 
         self.layout.addWidget(section_subheader(tr("BORDER")))
 
-        self.border_slider = CompactSlider(tr("Width"), 0.0, 2.5, conf.border_size)
-        self.bottom_weight_slider = CompactSlider(tr("Bottom Weight"), 1.0, 2.0, conf.border_bottom_weight)
+        self.border_slider = CompactSlider(tr("Width"), 0.0, 2.5, default.border_size, value=conf.border_size)
+        self.bottom_weight_slider = CompactSlider(
+            tr("Bottom Weight"), 1.0, 2.0, default.border_bottom_weight, value=conf.border_bottom_weight
+        )
         self.bottom_weight_slider.setToolTip(wrap_tooltip(tr("Makes the bottom border wider than the others, as in a picture mat.")))
         self.layout.addWidget(self.border_slider)
 

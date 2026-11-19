@@ -3,6 +3,7 @@ from PyQt6.QtCore import QPointF, Qt
 from PyQt6.QtGui import QColor, QIcon, QPainter, QPen, QPixmap
 from PyQt6.QtWidgets import QHBoxLayout
 
+from negpy.kernel.system.config import DEFAULT_WORKSPACE_CONFIG
 from negpy.desktop.session import ToolMode
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.styles.templates import header_row, section_subheader
@@ -44,6 +45,7 @@ class GeometrySidebar(BaseSidebar):
 
     def _init_ui(self) -> None:
         conf = self.state.config.geometry
+        default = DEFAULT_WORKSPACE_CONFIG.geometry
 
         # The toolbar's buttons, here too; MainWindow wires them to the same rotate and flip.
         self.rot_l_btn = self._icon_action("mdi6.file-rotate-left", tr("Rotate CCW"))
@@ -70,15 +72,21 @@ class GeometrySidebar(BaseSidebar):
         # counter-clockwise and flip-independent because flips apply before fine rotation, so
         # saved edits keep their meaning: display = -stored at this boundary.
         self.fine_rot_slider = CompactSlider(
-            tr("Fine Rotation"), -FINE_ROTATION_LIMIT, FINE_ROTATION_LIMIT, -conf.fine_rotation, step=0.1, unit="°"
+            tr("Fine Rotation"),
+            -FINE_ROTATION_LIMIT,
+            FINE_ROTATION_LIMIT,
+            -default.fine_rotation,
+            value=-conf.fine_rotation,
+            step=0.1,
+            unit="°",
         )
         self.layout.addWidget(self.fine_rot_slider)
 
-        self.converge_v_slider = CompactSlider(tr("Tilt"), -15.0, 15.0, conf.converge_v, step=0.1, unit="%")
+        self.converge_v_slider = CompactSlider(tr("Tilt"), -15.0, 15.0, default.converge_v, value=conf.converge_v, step=0.1, unit="%")
         self.converge_v_slider.setToolTip(
             tr("Tilt: straighten buildings that lean back because the camera pointed up, where positive stretches the top.")
         )
-        self.converge_h_slider = CompactSlider(tr("Swing"), -15.0, 15.0, conf.converge_h, step=0.1, unit="%")
+        self.converge_h_slider = CompactSlider(tr("Swing"), -15.0, 15.0, default.converge_h, value=conf.converge_h, step=0.1, unit="%")
         self.converge_h_slider.setToolTip(tr("Swing: straighten a wall that narrows to one side, where positive stretches the left side."))
         self.layout.addWidget(rail_fold("geometry_easel", self.fine_rot_slider, self.converge_v_slider, self.converge_h_slider))
 

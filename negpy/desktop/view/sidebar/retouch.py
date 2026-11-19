@@ -1,5 +1,6 @@
 from negpy.kernel.system.i18n import tr
 from PyQt6.QtWidgets import QHBoxLayout
+from negpy.kernel.system.config import DEFAULT_WORKSPACE_CONFIG
 from negpy.desktop.view.widgets.segmented_choice import SegmentedChoice
 from negpy.desktop.view.widgets.sliders import CompactSlider, SliderGroup
 from negpy.desktop.view.sidebar.base import BaseSidebar
@@ -29,6 +30,7 @@ class RetouchSidebar(BaseSidebar):
 
     def _init_ui(self) -> None:
         conf = self.state.config.retouch
+        default = DEFAULT_WORKSPACE_CONFIG.retouch
 
         # Applies to every detection source.
         self.overlay_btn = SegmentedChoice(
@@ -45,15 +47,21 @@ class RetouchSidebar(BaseSidebar):
         optical_row.addWidget(self.auto_dust_btn, 1)
         optical_row.addWidget(self.right_click_btn)
         self.layout.addLayout(optical_row)
-        self.threshold_slider = CompactSlider(tr("Spot Threshold"), 0.01, 1.0, conf.dust_threshold)
-        self.hair_threshold_slider = CompactSlider(tr("Hair Threshold"), 0.01, 1.0, conf.dust_hair_threshold)
-        self.auto_size_slider = CompactSlider(tr("Size"), 2.0, 8.0, float(conf.dust_size), step=1.0, precision=1, unit=" px")
+        self.threshold_slider = CompactSlider(tr("Spot Threshold"), 0.01, 1.0, default.dust_threshold, value=conf.dust_threshold)
+        self.hair_threshold_slider = CompactSlider(
+            tr("Hair Threshold"), 0.01, 1.0, default.dust_hair_threshold, value=conf.dust_hair_threshold
+        )
+        self.auto_size_slider = CompactSlider(
+            tr("Size"), 2.0, 8.0, float(default.dust_size), value=float(conf.dust_size), step=1.0, precision=1, unit=" px"
+        )
         self.optical_rail = SliderGroup(self.threshold_slider, self.hair_threshold_slider, self.auto_size_slider)
         self.layout.addWidget(self.optical_rail)
 
         self.ir_dust_btn = self._small_toggle("mdi6.heat-wave", tr("IR Removal"), conf.ir_dust_remove, _IR_REMOVAL_TIP, align_left=True)
         self.layout.addWidget(self.ir_dust_btn)
-        self.ir_threshold_slider = CompactSlider(tr("IR Threshold"), 0.05, 0.95, float(conf.ir_threshold))
+        self.ir_threshold_slider = CompactSlider(
+            tr("IR Threshold"), 0.05, 0.95, float(default.ir_threshold), value=float(conf.ir_threshold)
+        )
         self.ir_rail = SliderGroup(self.ir_threshold_slider)
         self.layout.addWidget(self.ir_rail)
 
@@ -93,7 +101,9 @@ class RetouchSidebar(BaseSidebar):
             tr("Brush Size"), HEAL_SIZE_MIN, HEAL_SIZE_MAX, float(conf.manual_dust_size), step=1.0, precision=1, unit=" px"
         )
         self.manual_size_slider.setToolTip(tr("Brush size, which Alt+scroll on the picture also changes."))
-        self.line_threshold_slider = CompactSlider(tr("Line Sensitivity"), 0.05, 0.95, float(conf.scratch_threshold))
+        self.line_threshold_slider = CompactSlider(
+            tr("Line Sensitivity"), 0.05, 0.95, float(default.scratch_threshold), value=float(conf.scratch_threshold)
+        )
         self.line_threshold_slider.setToolTip(tr("Lower finds fainter lines; raise it if the repair spreads onto good film."))
         self.layout.addWidget(SliderGroup(self.manual_size_slider, self.line_threshold_slider))
 
@@ -123,11 +133,15 @@ class RetouchSidebar(BaseSidebar):
         self.layout.addLayout(clone_row)
         self.clone_hint = hint_label()
         self.layout.addWidget(self.clone_hint)
-        self.clone_strength_slider = CompactSlider(tr("Strength"), 0.0, 100.0, conf.clone_strength * 100.0, step=1.0, precision=0, unit="%")
+        self.clone_strength_slider = CompactSlider(
+            tr("Strength"), 0.0, 100.0, default.clone_strength * 100.0, value=conf.clone_strength * 100.0, step=1.0, precision=0, unit="%"
+        )
         self.clone_strength_slider.setToolTip(
             wrap_tooltip(tr("How much of the source covers the destination, where lower lets the original show through"))
         )
-        self.clone_feather_slider = CompactSlider(tr("Feather"), 0.0, 100.0, conf.clone_feather * 100.0, step=1.0, precision=0, unit="%")
+        self.clone_feather_slider = CompactSlider(
+            tr("Feather"), 0.0, 100.0, default.clone_feather * 100.0, value=conf.clone_feather * 100.0, step=1.0, precision=0, unit="%"
+        )
         self.clone_feather_slider.setToolTip(wrap_tooltip(tr("Softness of the brush edge. 0 is a hard edge.")))
         self.clone_rail = SliderGroup(self.clone_strength_slider, self.clone_feather_slider)
         self.layout.addWidget(self.clone_rail)
