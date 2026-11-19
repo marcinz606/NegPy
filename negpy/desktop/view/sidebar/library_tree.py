@@ -1091,7 +1091,7 @@ class LibraryTree(QWidget):
     def _delete_roll(self, roll_id: str, name: str) -> None:
         is_folder = (rolls.roll_for_id(self.repo, roll_id) or {}).get("kind") == "folder"
         if confirm_delete_named(self, tr("Roll"), name, informative=_DELETE_FOLDER_ROLL if is_folder else _DELETE_SET_ROLL):
-            rolls.delete_roll(self.repo, roll_id)
+            self.controller.delete_rolls([roll_id])
             self.reload()
             self.rolls_changed.emit()
 
@@ -1099,8 +1099,7 @@ class LibraryTree(QWidget):
         """Forget the rolls the row shows, not every roll under its folders: a roll opened
         on its own, or one the filter hides, can sit in one of them."""
         if confirm_delete_named(self, tr("Folder"), item.text(0), informative=_DELETE_FOLDER_ROW):
-            for roll_id in self._leaf_roll_ids(item):
-                rolls.delete_roll(self.repo, roll_id)
+            self.controller.delete_rolls(self._leaf_roll_ids(item))
             rolls.forget_import_sources(self.repo, item.data(0, _FOLDER_ROLE))
             self.reload()
             self.rolls_changed.emit()
@@ -1110,7 +1109,6 @@ class LibraryTree(QWidget):
         sets = any((rolls.roll_for_id(self.repo, roll_id) or {}).get("kind") != "folder" for roll_id, _name in selection)
         informative = f"{_DELETE_SEVERAL} {_DELETE_SEVERAL_SETS}" if sets else _DELETE_SEVERAL
         if confirm_delete_several(self, tr("Rolls"), names, informative=informative):
-            for roll_id, _name in selection:
-                rolls.delete_roll(self.repo, roll_id)
+            self.controller.delete_rolls([roll_id for roll_id, _name in selection])
             self.reload()
             self.rolls_changed.emit()

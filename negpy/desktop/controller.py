@@ -2017,7 +2017,7 @@ class AppController(QObject):
             self.session.repo.save_global_setting("library_roots", [*roots, *new])
 
     def has_rolls(self) -> bool:
-        return bool(rolls.saved_rolls(self.session.repo))
+        return bool(rolls.all_rolls_sorted(self.session.repo))
 
     def import_subfolders_as_rolls(self, parent_path: str) -> List[str]:
         """Recognize every roll folder under *parent_path* as its own roll, and
@@ -2038,10 +2038,36 @@ class AppController(QObject):
         returns (new rolls, rolls dropped by a filter)."""
         repo = self.session.repo
         dropped = rolls.prune_filtered_rolls(repo)
-        before = len(rolls.saved_rolls(repo))
+        before = {roll_id for roll_id, _entry in rolls.all_rolls_sorted(repo)}
         for source in rolls.import_sources(repo):
             rolls.import_subfolders_as_rolls(repo, source, skip_dismissed=True)
-        return len(rolls.saved_rolls(repo)) - before, dropped
+        if self.state.active_roll_id and self.state.active_roll_id not in before:
+            self._leave_open_roll()
+        return len({roll_id for roll_id, _entry in rolls.all_rolls_sorted(repo)} - before), dropped
+
+    def delete_rolls(self, roll_ids: List[str]) -> None:
+        """Forget *roll_ids* with the edits made only in them. The open roll closes first, so no
+        save of its frames writes a fork back."""
+        if self.state.active_roll_id in roll_ids:
+            self._leave_open_roll()
+        for roll_id in roll_ids:
+            for fork_hash in rolls.delete_roll(self.session.repo, roll_id):
+                self.session.repo.delete_file_settings(fork_hash)
+
+    def _leave_open_roll(self) -> None:
+        """Close the open roll that the Library no longer lists. Its frames stay loaded, in no roll,
+        on their shared edits."""
+        self.session.save_active_edit()
+        for asset in self.state.uploaded_files:
+            if asset.get("hash"):
+                asset["hash"] = rolls.unforked_hash(asset["hash"])
+        self.state.active_roll_id = None
+        self._announce_roll_modes(None)
+        self.session.persist_session()
+        self.session.asset_model.refresh()
+        if self.state.current_file_hash:
+            self._reselect_active_frame()
+        self.config_updated.emit()
 
     def open_library_folder(self, folder: str, add_to_session: bool = False) -> None:
         self.open_library_folders([folder], add_to_session=add_to_session)

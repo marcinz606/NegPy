@@ -29,6 +29,7 @@ def _make(tmp_path) -> LibraryTree:
     controller.session.repo = repo
     controller.removed_frame_count.return_value = 0
     controller.save_choice.return_value = ("hidden", "")
+    controller.delete_rolls.side_effect = lambda roll_ids: [delete_roll(repo, roll_id) for roll_id in roll_ids]
     return LibraryTree(controller)
 
 
