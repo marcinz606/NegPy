@@ -91,7 +91,11 @@ class ColorSidebar(BaseSidebar):
 
         # Balances each dye layer against the frame's own grays; no region scopes it.
         self.cast_removal_slider = CompactSlider(
-            tr("Cast Removal"), 0.0, 1.0, default.cast_removal_strength, value=conf.cast_removal_strength
+            tr("Cast Removal"),
+            0.0,
+            1.0,
+            cast_removal_for_mode(self.state.config.process.process_mode, default.cast_removal_strength),
+            value=conf.cast_removal_strength,
         )
         self.cast_removal_slider.setToolTip(
             tr("Cast Removal: removes a color cast that differs between the dark and bright parts of the picture. 0 is off.")

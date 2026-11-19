@@ -27,13 +27,13 @@ class LensSidebar(BaseSidebar):
             -0.10,
             0.10,
             default.distortion_k1,
-            value=conf.distortion_k1,
             step=0.001,
             precision=1000,
             has_neutral=True,
         )
         # Nothing derives the readout's decimals from `precision`, so a 0.001 step needs both.
         self.distortion_slider.spin.setDecimals(3)
+        self.distortion_slider.setValue(conf.distortion_k1)
         self.distortion_slider.setToolTip(wrap_tooltip(tr("Straightens lines that bow out (positive) or in (negative).")))
 
         self.metadata_distortion_btn = self._labeled_toggle(

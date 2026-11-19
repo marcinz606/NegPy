@@ -207,13 +207,25 @@ class ProcessSidebar(BaseSidebar):
         tools_row.addWidget(self.analysis_region_btn, 1)
         analysis_col.addLayout(tools_row)
 
-        initial_luma_slider_val = _luma_range_value_to_slider(conf.luma_range_clip)
         self.luma_range_clip_slider = CompactSlider(
-            tr("Luma Range Clip"), -100, 100, initial_luma_slider_val, precision=1, step=1, has_neutral=True
+            tr("Luma Range Clip"),
+            -100,
+            100,
+            _luma_range_value_to_slider(default.luma_range_clip),
+            value=_luma_range_value_to_slider(conf.luma_range_clip),
+            precision=1,
+            step=1,
+            has_neutral=True,
         )
-        initial_color_slider_val = _color_value_to_slider(conf.color_range_clip)
         self.color_range_clip_slider = CompactSlider(
-            tr("Color Clip"), -100, 100, initial_color_slider_val, precision=1, step=1, has_neutral=True
+            tr("Color Clip"),
+            -100,
+            100,
+            _color_value_to_slider(default.color_range_clip),
+            value=_color_value_to_slider(conf.color_range_clip),
+            precision=1,
+            step=1,
+            has_neutral=True,
         )
         self.clip_fold = rail_fold("metering_clip", self.analysis_buffer_slider, self.luma_range_clip_slider, self.color_range_clip_slider)
         analysis_col.addWidget(self.analysis_buffer_slider)
