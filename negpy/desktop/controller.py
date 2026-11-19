@@ -25,6 +25,7 @@ from negpy.desktop.session import (
     AppState,
     DesktopSessionManager,
     ToolMode,
+    PRINT_ONLY_TOOLS,
     REVERTIBLE_TOOLS,
     UNCROPPED_PREVIEW_TOOLS,
     can_edit_triplet,
@@ -1324,6 +1325,7 @@ class AppController(QObject):
         self.session.frame_previews_ending.connect(self._previewed_meter_cards.clear)
         self.session.session_emptied.connect(self._render_memo.clear)
         self.session.session_emptied.connect(self._strip_memo.clear)
+        self.session.session_emptied.connect(self._end_flat_scan)
         self.session.file_selected.connect(self._on_file_selected_load)
         self.session.state_changed.connect(self.config_updated.emit)
         self.session.state_changed.connect(self._render_if_state_moved)
@@ -3170,15 +3172,12 @@ class AppController(QObject):
         self._requested_file_path = file_path
         self._sync_launch_recipe(file_path)
         # The memo fast path below repaints without request_render, so the state tied to the frame
-        # the user leaves goes here: test strip, zone pins, compare split, flat peek, Keystone Lines.
+        # the user leaves goes here: test strip, zone pins, compare split, Keystone Lines.
         self._clear_test_strip()
         self._drop_zone_pins()
         self.exit_compare()
         self._keystone_lines = {}
         self.keystone_lines_cleared.emit()
-        if self.state.flat_peek:
-            self.state.flat_peek = False
-            self.flat_peek_changed.emit(False)
         if self.state.active_tool != ToolMode.NONE and self.active_diptych() is not None:
             self.set_active_tool(ToolMode.NONE)
         if not keep_preview:
@@ -3190,10 +3189,13 @@ class AppController(QObject):
         # now, with no spinner and no toasts, and let the real render refresh the metrics.
         target_hash = self._file_hash_for_path(file_path)
         self._expected_render_key = self._render_memo_key()
-        # An uncropped-preview tool and the average peek skip the memo: it holds the frame's own cropped print.
+        # An uncropped-preview tool, the average peek and Flat Scan skip the memo: it holds the frame's own cropped print.
         memo = (
             self._render_memo.get(target_hash, self._expected_render_key)
-            if target_hash and self.state.active_tool not in UNCROPPED_PREVIEW_TOOLS and not self.state.average_peek
+            if target_hash
+            and self.state.active_tool not in UNCROPPED_PREVIEW_TOOLS
+            and not self.state.average_peek
+            and not self.state.flat_peek
             else None
         )
 
@@ -3246,9 +3248,6 @@ class AppController(QObject):
         self.state.export_view = None
         self.state.has_ir = False
         self.state.original_res = (0, 0)
-        if self.state.flat_peek:
-            self.state.flat_peek = False
-            self.flat_peek_changed.emit(False)
         if self.state.negative_peek:
             self.state.negative_peek = False
             self.negative_peek_changed.emit(False)
@@ -3631,6 +3630,10 @@ class AppController(QObject):
         if mode != ToolMode.NONE and self._diptych_blocks_canvas():
             self.tool_sync_requested.emit()
             return
+        if mode in PRINT_ONLY_TOOLS and self.state.flat_peek:
+            self.set_status(tr("Flat Scan is on. This tool changes only the print."), 4000, "warning")
+            self.tool_sync_requested.emit()
+            return
         if mode == ToolMode.CROP_MANUAL and self.state.active_tool != mode and self.refuse_crop_edit():
             self.tool_sync_requested.emit()
             return
@@ -3702,6 +3705,8 @@ class AppController(QObject):
     def toggle_zones_overlay(self, force: Optional[bool] = None) -> None:
         """Adams-zone box overlay. Repaint only — the boxes are carved from the frame
         the canvas already holds, so no re-render is needed."""
+        if self.state.flat_peek and force is not False:
+            return
         self.state.zones_overlay = (not self.state.zones_overlay) if force is None else bool(force)
         self.zones_overlay_changed.emit(self.state.zones_overlay)
 
@@ -3713,6 +3718,8 @@ class AppController(QObject):
 
     def toggle_clipping_overlay(self, force: Optional[bool] = None) -> None:
         """Marks paper black and paper white on the frame. Repaint only."""
+        if self.state.flat_peek and force is not False:
+            return
         self.state.clipping_overlay = (not self.state.clipping_overlay) if force is None else bool(force)
         self.clipping_overlay_changed.emit(self.state.clipping_overlay)
 
@@ -4182,6 +4189,10 @@ class AppController(QObject):
         if not target:
             self._clear_test_strip()
             return
+        if self.state.flat_peek:
+            self.set_status(tr("Flat Scan is on. This tool changes only the print."), 4000, "warning")
+            self.test_strip_changed.emit(False)
+            return
         if self.state.preview_raw is None:
             return
         # A slide or a Positive frame is rendered from the capture, so every band would match.
@@ -4431,6 +4442,10 @@ class AppController(QObject):
             self._clear_pick_better()
             return
         if self.state.preview_raw is None:
+            return
+        if self.state.flat_peek:
+            self.set_status(tr("Flat Scan is on. This tool changes only the print."), 4000, "warning")
+            self.pick_better_changed.emit(False)
             return
         self.exit_compare()
         self._pick_better_progress = start_pick_better(self.state.config)
@@ -4687,12 +4702,10 @@ class AppController(QObject):
         self.request_render()
 
     def reset_all_peeks(self) -> None:
+        """End the peeks that show something other than the edit. Flat Scan shows the edit, so it stays."""
         if self.state.average_peek:
             self.state.average_peek = False
             self.average_peek_changed.emit(False)
-        if self.state.flat_peek:
-            self.state.flat_peek = False
-            self.flat_peek_changed.emit(False)
         if self.state.negative_peek:
             self.state.negative_peek = False
             self.negative_peek_changed.emit(False)
@@ -6452,6 +6465,7 @@ class AppController(QObject):
                 return
             self.exit_compare()
             self.reset_all_peeks()
+            self._end_flat_scan()
             self._clear_test_strip()
             axes = {f: bool(getattr(process, f)) for f in _AVERAGE_FIELDS}
             if not any(axes.values()):
@@ -8595,26 +8609,29 @@ class AppController(QObject):
             self.load_file(self.state.current_file_path, preserve_zoom=True)
             return
 
-        # A plain render paints the edit over the flat peek, so it ends the peek. The scan
-        # peeks repaint over a render, so only an edit since they opened ends them.
-        if config_override is None and self.state.flat_peek:
-            self.state.flat_peek = False
-            self.flat_peek_changed.emit(False)
-        if config_override is None and self.state.average_peek:
+        # The scan peeks repaint over a render, so only an edit since they opened ends them.
+        plain = config_override is None
+        if plain and self.state.average_peek:
             if self._average_peek_hash != self.state.current_file_hash:
                 self._carry_average_peek()
                 return
             self.state.average_peek = False
             self.average_peek_changed.emit(False)
-        if config_override is None and (self.state.negative_peek or self.state.embedded_peek) and not self._peek_shows(self.state.config):
+        if plain and (self.state.negative_peek or self.state.embedded_peek) and not self._peek_shows(self.state.config):
             self.reset_all_peeks()
 
         # The strip's patches were printed from the config as it stood, so once the edit
         # moves they prove something else. Drop them, which also cancels a strip still
         # building. Zone pins die the same way.
-        if config_override is None:
+        if plain:
             self._clear_test_strip()
             self._drop_zone_pins()
+
+        # Flat Scan follows the edit. From here on an override is tested as config_override,
+        # never as plain: a flat render filed under the print's memo key repaints as the print.
+        flat_scan = plain and not ephemeral and self.state.flat_peek
+        if flat_scan:
+            config_override = flat_master_config(self.state.config)
 
         if self.state.preview_raw is None:
             return
@@ -8650,6 +8667,9 @@ class AppController(QObject):
         self._expected_render_key = memo_key
 
         dip = self.active_diptych()
+        halves = dip[1] if dip is not None else None
+        if halves is not None and flat_scan:
+            halves = tuple(flat_master_config(half) for half in halves)
         cam_xyz, camera_wb = self._effective_cam_xyz()
         task = RenderTask(
             buffer=preview_raw,
@@ -8678,7 +8698,7 @@ class AppController(QObject):
             ),
             cam_xyz=cam_xyz,
             camera_wb=camera_wb,
-            diptych=dip[1] if dip is not None else None,
+            diptych=halves,
             split_x=dip[0]["split_x"] if dip is not None else 0.5,
             gutter_thickness=dip[0]["gutter_thickness"] if dip is not None else 0.0,
             split_axis=str(dip[0].get("split_axis") or "x") if dip is not None else "x",
@@ -8688,7 +8708,7 @@ class AppController(QObject):
         )
 
         self._cancel_neighbor_prefetch()
-        if config_override is None and not ephemeral:
+        if plain and not ephemeral:
             self._dispatched_render_state = self._render_state()
 
         if self._is_rendering:
@@ -8830,17 +8850,14 @@ class AppController(QObject):
             self._request_compare_baseline()
 
     def rerender_active_view(self) -> None:
-        """Re-render after a rotate or flip. Keeps the flat peek, which a plain request_render()
-        would exit, and the compare split, whose baseline half re-captures on the key change.
-        A scan peek ends, as on every committed rotation."""
+        """Re-render after a rotate or flip. Keeps the compare split, whose baseline half
+        re-captures on the key change. A scan peek ends, as on every committed rotation."""
         if self.state.negative_peek or self.state.embedded_peek:
             self.reset_all_peeks()
         if self.state.flatfield_peek:
             self._paint_flatfield_peek()
         elif self.state.average_peek:
             self._render_average_peek()
-        elif self.state.flat_peek:
-            self.request_render(readback_metrics=False, config_override=flat_master_config(self.state.config))
         else:
             self.request_render()
 
@@ -8895,6 +8912,12 @@ class AppController(QObject):
         self.session.repo.save_global_setting("bake_on_export", enabled)
         self.bake_on_export_changed.emit(enabled)
 
+    def _end_flat_scan(self) -> None:
+        """End Flat Scan without a render, for a view that is about to take the canvas."""
+        if self.state.flat_peek:
+            self.state.flat_peek = False
+            self.flat_peek_changed.emit(False)
+
     def toggle_flat_peek(self, force: Optional[bool] = None) -> None:
         """Preview the flat master render in the canvas without changing the saved edit.
 
@@ -8920,14 +8943,13 @@ class AppController(QObject):
                 self.state.flatfield_peek = False
                 self.flatfield_peek_changed.emit(False)
             self._clear_test_strip()
+            self._clear_pick_better()
+            if self.state.active_tool in PRINT_ONLY_TOOLS:
+                self.set_active_tool(ToolMode.NONE)
 
         self.state.flat_peek = target
         self.flat_peek_changed.emit(target)
-
-        if target:
-            self.request_render(readback_metrics=False, config_override=flat_master_config(self.state.config))
-        else:
-            self.request_render()
+        self.request_render()
 
     def _peek_context(self, source: np.ndarray) -> PipelineContext:
         """A geometry-only context scaled from the buffer the peek crops, as the render scales its own."""
@@ -9098,6 +9120,7 @@ class AppController(QObject):
         if target:
             self.exit_compare()
             self.reset_all_peeks()
+            self._end_flat_scan()
             self._clear_test_strip()
         self.state.export_size_view = target
         self.export_size_view_changed.emit(target)

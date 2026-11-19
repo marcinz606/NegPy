@@ -6731,17 +6731,8 @@ class TestCompareFlatPeekInteraction(unittest.TestCase):
         self.assertIsNone(kwargs.get("config_override"))
         self.assertTrue(self.controller.state.compare_mode)
 
-    def test_rerender_active_view_re_renders_the_flat_master(self):
-        from negpy.domain.models import flat_master_config
-
-        self.controller.state.flat_peek = True
-        with patch.object(self.controller, "request_render") as rr:
-            self.controller.rerender_active_view()
-        _, kwargs = rr.call_args
-        self.assertEqual(kwargs.get("config_override"), flat_master_config(self.controller.state.config))
-
-    def test_an_edit_ends_flat_peek(self):
-        """The render after an edit paints the print, so the badge and the toolbar button go off with it."""
+    def test_an_edit_shows_in_flat_peek(self):
+        """The render after an edit paints that edit as the flat master; the peek stays on."""
         from negpy.features.exposure.models import RenderIntent
 
         self.controller.state.flat_peek = True
@@ -6750,29 +6741,19 @@ class TestCompareFlatPeekInteraction(unittest.TestCase):
         dispatched: list = []
         self.controller.render_requested.connect(dispatched.append)
         self.controller.request_render()
-        self.assertFalse(self.controller.state.flat_peek)
-        self.assertEqual(seen, [False])
-        self.assertFalse(dispatched[-1].config_override)
-
-        self.controller._is_rendering = False
-        self.controller.toggle_flat_peek()
         self.assertTrue(self.controller.state.flat_peek)
+        self.assertEqual(seen, [])
+        self.assertTrue(dispatched[-1].config_override)
         self.assertEqual(dispatched[-1].config.exposure.render_intent, RenderIntent.FLAT)
 
-    def test_a_frame_switch_ends_flat_peek(self):
-        import numpy as np
-
+    def test_a_frame_switch_keeps_flat_peek(self):
         self.controller.preview_load_requested.disconnect(self.controller.preview_load_worker.process)
         self.controller.state.flat_peek = True
         seen: list = []
         self.controller.flat_peek_changed.connect(seen.append)
         self.controller.load_file("next.arw")
-        self.assertFalse(self.controller.state.flat_peek)
-        self.assertEqual(seen, [False])
-        # Once the new frame's decode lands, one press turns it back on.
-        self.controller.state.preview_raw = np.empty((8, 8, 3), dtype=np.float32)
-        self.controller.toggle_flat_peek()
         self.assertTrue(self.controller.state.flat_peek)
+        self.assertEqual(seen, [])
 
     def test_rerender_active_view_is_a_plain_render_when_no_overlay(self):
         with patch.object(self.controller, "request_render") as rr:
