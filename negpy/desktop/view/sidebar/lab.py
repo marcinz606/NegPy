@@ -81,6 +81,8 @@ class LabSidebar(BaseSidebar):
         self.layout.addStretch()
 
     def _connect_signals(self) -> None:
+        self.saturation_slider.valueChanged.connect(lambda _v: self._sync_rails())
+        self.sharpen_slider.valueChanged.connect(lambda _v: self._sync_rails())
         self.sharpen_method_combo.currentIndexChanged.connect(
             lambda idx: self.update_config_section("lab", persist=True, sharpen_method=self.sharpen_method_combo.itemData(idx))
         )
@@ -195,6 +197,14 @@ class LabSidebar(BaseSidebar):
         finally:
             self.block_signals(False)
         self._sync_masking()
+        self._sync_rails()
+
+    def _sync_rails(self) -> None:
+        """Skin Protection steers a Chroma change and the sharpen rail a sharpen, so each is dead at its parent's neutral."""
+        self.skin_protection_slider.setEnabled(not self.saturation_slider.is_default(self.saturation_slider.value()))
+        sharpening = self.sharpen_slider.value() > 0
+        for widget in (self.sharpen_method_combo, self.auto_masking_btn, self.sharpen_radius_slider, self.sharpen_masking_slider):
+            widget.setEnabled(sharpening)
 
     def block_signals(self, blocked: bool) -> None:
         widgets = [
