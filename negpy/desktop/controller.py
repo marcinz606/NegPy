@@ -207,11 +207,13 @@ from negpy.domain.interfaces import PipelineContext
 from negpy.features.lab.models import LabConfig
 from negpy.features.local.models import LocalAdjustmentsConfig
 from negpy.features.process.fade_roll import ROLL_MIN_FRAMES
-from negpy.features.process.path import RenderPath, positive_decode, render_path
+from negpy.features.process.path import RenderPath, is_mono, positive_decode, render_path
+from negpy.infrastructure.display.icc_profile import is_gray_profile
 from negpy.features.process.models import (
     SCAN_SETUP_PAPERS,
     ProcessConfig,
     ProcessMode,
+    chroma_for_mono,
     invalidate_local_bounds,
     mode_aware_exposure_reset,
     scan_setup_values,
@@ -6853,10 +6855,12 @@ class AppController(QObject):
         names = {name for card in pushed for name in rolls.card_fields(card)}
         snapshot = rolls.roll_fields_snapshot(repo, roll_id, names)
         baselines = {card: rolls.frame_baseline(repo, roll_id, frame_hash, card) for card in pushed}
+        film_before = self._film_followers(roll_id) if "film" in pushed else {}
         with self.session.recording_batch(tr("Apply to Roll")) as batch:
             for card_key in pushed:
                 rolls.set_roll_defaults(repo, roll_id, **self._card_values(self.state.config, card_key))
                 rolls.set_frame_override(repo, roll_id, frame_hash, card_key, False)
+            self._restore_chroma_leaving_mono(film_before)
             batch.roll_undo = lambda: self._restore_roll_push(roll_id, frame_hash, baselines, snapshot)
         self._roll_defaults_changed(roll_id, set(pushed))
         message = tr("Applied to the roll: {value}", value=self._roll_card_names(pushed))
@@ -6865,6 +6869,29 @@ class AppController(QObject):
             message = tr("{message}. Frames that keep their own value: {count}", message=message, count=own)
         self.set_status(message, 5000 if own else 3000)
         return len(set(pushed))
+
+    def _film_followers(self, roll_id: str) -> Dict[str, tuple]:
+        """hash -> (asset, effective config) for every loaded frame but the open one that follows *roll_id*'s film card."""
+        repo, current = self.session.repo, self.state.current_file_hash
+        return {
+            f["hash"]: (f, self.session.config_for_asset(f))
+            for f in self.state.uploaded_files
+            if f["hash"] != current and "film" not in rolls.frame_override_cards(repo, roll_id, rolls.unforked_hash(f["hash"]))
+        }
+
+    def _restore_chroma_leaving_mono(self, before: Dict[str, tuple]) -> None:
+        """chroma_for_mono on each frame a Film Mode push takes out of black and white. The push
+        changes only the roll's default, so with_process_mode never runs on these frames.
+        _roll_defaults_changed flags them for a new thumbnail."""
+        for file_hash, (asset, was) in before.items():
+            now = self.session.config_for_asset(asset)
+            saturation = chroma_for_mono(is_mono(was.process), is_mono(now.process), now.lab.saturation)
+            if saturation == now.lab.saturation:
+                continue
+            saved = self.session.repo.load_file_settings(file_hash) or now
+            updated = replace(saved, lab=replace(saved.lab, saturation=saturation))
+            self.session.push_external_history(file_hash, saved, updated)
+            self.session.repo.save_file_settings(file_hash, updated, file_path=asset["path"])
 
     def _frames_keeping_own(self, roll_id: str, cards: set) -> int:
         """Loaded frames locked on any of *cards*: a push to the roll does not reach them."""
@@ -8483,6 +8510,18 @@ class AppController(QObject):
         self.session.save_icc_prefs()
         self.config_updated.emit()
         self.request_render()
+
+    def gray_proof_profile(self) -> str:
+        """While a color frame previews through a gray profile: the proof profile's file name, or the
+        export color space it follows. Else "". The export profile carries to every file."""
+        if not self.proof_active() or is_mono(self.state.config.process):
+            return ""
+        icc = self.effective_proof_icc()
+        if not icc or not is_gray_profile(icc):
+            return ""
+        if self.state.proof_icc_path:
+            return os.path.splitext(os.path.basename(self.state.proof_icc_path))[0]
+        return self.state.config.export.export_color_space
 
     def proof_active(self) -> bool:
         """True when the preview should soft-proof: the toggle is on and an input or

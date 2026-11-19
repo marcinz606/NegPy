@@ -637,7 +637,7 @@ GLOBAL_TIER_SECTIONS: frozenset[str] = frozenset({"export", "metadata"})
 
 
 # Color controls a B&W frame hides; the render has no color for them to act on.
-_BW_UNUSED_LAB_FIELDS = frozenset({"saturation", "skin_protection", "chroma_denoise"})
+BW_UNUSED_LAB_FIELDS = frozenset({"saturation", "skin_protection", "chroma_denoise"})
 
 
 def unused_in_mode(section: str, field: str, cfg: WorkspaceConfig) -> bool:
@@ -646,7 +646,7 @@ def unused_in_mode(section: str, field: str, cfg: WorkspaceConfig) -> bool:
     mode = cfg.process.process_mode
     if section == "exposure" and field == "paper_profile":
         return effective_paper_profile(cfg.exposure.paper_profile, mode).kind == "default"
-    return section == "lab" and field in _BW_UNUSED_LAB_FIELDS and is_mono(cfg.process)
+    return section == "lab" and field in BW_UNUSED_LAB_FIELDS and is_mono(cfg.process)
 
 
 def _row_edited(row: SettingRow, cfg: WorkspaceConfig) -> bool:

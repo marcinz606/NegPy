@@ -1987,6 +1987,40 @@ class TestAppController(unittest.TestCase):
         session.last_batch = None
         session.recording_batch = types.MethodType(DesktopSessionManager.recording_batch, session)
 
+    def test_a_film_push_out_of_bw_restores_chroma_on_the_roll(self):
+        """Issue #1642 on a roll: a push only sets the roll's default, so each following frame
+        leaving B&W with Chroma 0 gets 1. A frame locked on Film keeps its own."""
+        from negpy.features.process.models import ProcessMode, with_process_mode
+        from negpy.services.assets import rolls
+
+        self._wire_repo_store()
+        repo = self.controller.session.repo
+        roll_id = rolls.create_virtual_roll(repo, "Portra", [])
+        gray = replace(WorkspaceConfig(), lab=replace(WorkspaceConfig().lab, saturation=0.0))
+        saved = {h: gray for h in ("h1", "h2", "h3", "h4")}
+        repo.load_file_settings.side_effect = saved.get
+        repo.save_file_settings.side_effect = lambda h, cfg, **kw: saved.__setitem__(h, cfg)
+        self.mock_session_manager.config_for_asset.side_effect = lambda f: rolls.resolve_roll_config(
+            repo, roll_id, f["hash"], saved[f["hash"]]
+        )
+        rolls.set_frame_override(repo, roll_id, "h4", "film", locked=True)
+        state = self.mock_session_manager.state
+        state.active_roll_id = roll_id
+        state.uploaded_files = [{"name": f"{h}.dng", "path": f"/{h}.dng", "hash": h} for h in saved]
+        state.current_file_hash = "h1"
+        state.stale_thumbnails = set()
+
+        def push(mode):
+            state.config = with_process_mode(state.config, mode)
+            rolls.set_frame_override(repo, roll_id, "h1", "film", locked=True)
+            self.controller.apply_roll_card("film")
+
+        state.config = gray
+        push(ProcessMode.BW)
+        self.assertEqual({h: c.lab.saturation for h, c in saved.items()}, dict.fromkeys(saved, 0.0))
+        push(ProcessMode.C41)
+        self.assertEqual({h: c.lab.saturation for h, c in saved.items()}, {"h1": 0.0, "h2": 1.0, "h3": 1.0, "h4": 0.0})
+
     def test_apply_roll_card_refreshes_the_thumbnails_of_frames_that_follow_the_roll(self):
         """A frame locked on the pushed card keeps its own value, so it is neither
         flagged stale nor re-rendered."""
@@ -2586,6 +2620,27 @@ class TestAppController(unittest.TestCase):
         self.controller.state.soft_proof_enabled = True
         # An export color space resolves an effective output profile → proof active.
         self.assertTrue(self.controller.proof_active())
+
+    def test_gray_proof_profile_names_a_gray_proof_on_a_color_frame(self):
+        """Issue #1642: a Greyscale export profile, carried from a B&W roll, previews a color frame gray."""
+        from negpy.domain.models import ColorSpace
+        from negpy.features.process.models import ProcessMode, with_process_mode
+
+        state = self.controller.state
+        state.soft_proof_enabled = True
+        state.proof_icc_path = None
+        gray = ColorSpace.GREYSCALE.value
+        state.config = replace(state.config, export=replace(state.config.export, export_color_space=gray))
+        self.assertEqual(self.controller.gray_proof_profile(), gray)
+
+        state.config = with_process_mode(state.config, ProcessMode.BW)
+        self.assertEqual(self.controller.gray_proof_profile(), "")
+        state.config = with_process_mode(state.config, ProcessMode.C41)
+        state.soft_proof_enabled = False
+        self.assertEqual(self.controller.gray_proof_profile(), "")
+        state.soft_proof_enabled = True
+        state.config = replace(state.config, export=replace(state.config.export, export_color_space=ColorSpace.SRGB.value))
+        self.assertEqual(self.controller.gray_proof_profile(), "")
 
     def test_effective_input_icc(self):
         """The explicit Input ICC, else None."""

@@ -4,7 +4,9 @@ Reads the tag table and specific tag payloads using pure struct parsing —
 no dependency on PIL.ImageCms or lcms2 for the introspection itself.
 """
 
+import os
 import struct
+from functools import lru_cache
 from typing import Optional
 
 import numpy as np
@@ -74,6 +76,20 @@ def _read_chad_tag(data: bytes, offset: int, size: int) -> Optional[np.ndarray]:
         return None
     vals = struct.unpack_from(">9i", data, offset + 8)
     return np.array(vals, dtype=np.float64).reshape(3, 3) / 65536.0
+
+
+def is_gray_profile(path: str) -> bool:
+    """True when the ICC profile at *path* has a gray data color space (header bytes 16 to 20)."""
+    try:
+        return _header_color_space(path, os.stat(path).st_mtime_ns) == b"GRAY"
+    except OSError:
+        return False
+
+
+@lru_cache(maxsize=16)
+def _header_color_space(path: str, _mtime_ns: int) -> bytes:
+    with open(path, "rb") as f:
+        return f.read(20)[16:20]
 
 
 def is_matrix_trc_profile(data: bytes) -> bool:

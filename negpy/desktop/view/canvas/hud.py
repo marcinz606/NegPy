@@ -118,6 +118,8 @@ class CanvasHud(QWidget):
 
         self._info = ("", "")
         self._zoom_note = ""
+        self._advisory = ""
+        self._advisory_shown = False
         self._done = 0
         self._total = 0
 
@@ -138,6 +140,12 @@ class CanvasHud(QWidget):
         self._info = (left, right)
         self._sync()
 
+    def set_advisory(self, text: str) -> None:
+        """A standing warning about the whole preview, in the message slot whenever no message shows."""
+        self._advisory = text
+        if self.message.isHidden() or self._advisory_shown:
+            self.showMessage("")
+
     def set_zoom_note(self, note: str) -> None:
         """Qualifier for what the canvas shows at this zoom."""
         self._zoom_note = note
@@ -148,26 +156,34 @@ class CanvasHud(QWidget):
         clear_message; an empty text clears any message."""
         if not text:
             self._message_timer.stop()
-            self.message.hide()
+            self._advisory_shown = bool(self._advisory)
+            if self._advisory:
+                self._show_text(self._advisory, "warning")
+            else:
+                self.message.hide()
             self._sync()
             return
+        self._advisory_shown = False
+        self._show_text(text, kind)
+        self._message_timer.stop()
+        if timeout >= 0:
+            self._message_timer.start(timeout or _DEFAULT_MESSAGE_MS)
+        self._sync()
+
+    def _show_text(self, text: str, kind: str) -> None:
         color = _MESSAGE_COLORS.get(kind, THEME.text_primary)
         self.message.setStyleSheet(
             f"color: {color}; font-size: {THEME.font_size_base}px; font-weight: {THEME.weight_semibold}; background: transparent;"
         )
         self.message.setText(text)
         self.message.show()
-        self._message_timer.stop()
-        if timeout >= 0:
-            self._message_timer.start(timeout or _DEFAULT_MESSAGE_MS)
-        self._sync()
 
     def _expire_message(self) -> None:
         self.showMessage("")
 
     def clear_message(self, text: str) -> None:
         """Clears the message only if it is still `text`, so a later message survives."""
-        if text and self.message.text() == text and not self.message.isHidden():
+        if text and self.message.text() == text and not self.message.isHidden() and not self._advisory_shown:
             self.showMessage("")
 
     def offer_undo(self) -> None:

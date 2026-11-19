@@ -534,14 +534,14 @@ På fanen **Fil**, ved siden av **Utdatahensikt**. Et kontaktark viser hele rull
 
 Arkene lagres som `contact_sheet.jpg` (`contact_sheet_1of2.jpg` og videre for en lang rull).
 
-<!-- panel:soft_proof src:0254272b -->
+<!-- panel:soft_proof src:2ec0a049 -->
 ### Prøvetrykk på skjerm
 
 Fanen **Prøve** viser på skjermen hvordan bildet vil se ut når det skrives ut på en gitt skriver og et gitt papir. Den endrer bare forhåndsvisningen, aldri eksporten. Papir kan ikke vise farger like klare som en skjerm, så et riktig prøvetrykk ser mattere ut.
 
 *   **Prøvetrykk på skjerm** (`Shift+P`): slår prøvetrykket på eller av. Mens det er på, viser bildeinfoen over bildet **Prøve** og profilen.
 *   **Forhåndsinnstilling**: et lagret oppsett for skriver og papir.
-*   **Profil**: skriver- eller papirprofilen. Den følger eksportprofilen til du velger en.
+*   **Profil**: skriver- eller papirprofilen. Den følger eksportprofilen til du velger en. En gråtoneprofil gjør forhåndsvisningen grå, så et fargebilde viser da en gul advarsel over bildet.
 *   **Hensikt**: **Relativ kolorimetrisk** holder farger som kan gjengis, nøyaktige og klipper resten. **Perseptuell** komprimerer alle farger, noe som passer svært fargerike bilder. **Metning** er for diagrammer og grafikk.
 *   **Svartpunktkompensasjon**: tilordner den mørkeste tonen til papirets svart.
 *   **Simuler papirhvitt** og **Simuler blekksvart**: viser papirets virkelige hvitt og svart.
