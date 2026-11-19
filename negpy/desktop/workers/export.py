@@ -291,7 +291,7 @@ class ExportWorker(QObject):
     # Advisory about files that were written; never counted as a failure.
     warning = pyqtSignal(str)
     contact_sheet_written = pyqtSignal(str)  # the folder the sheets went to
-    batch_written = pyqtSignal(list)  # the folders a finished batch wrote to
+    batch_written = pyqtSignal(str)  # the folder a finished batch wrote to, "" for several or none
 
     def __init__(self) -> None:
         super().__init__()
@@ -416,7 +416,8 @@ class ExportWorker(QObject):
             if self._cancel.is_set():
                 self.cancelled.emit()
             else:
-                self.batch_written.emit(sorted({os.path.dirname(path) for path in self._written}))
+                folders = {os.path.dirname(path) for path in self._written}
+                self.batch_written.emit(folders.pop() if len(folders) == 1 else "")
                 self.finished.emit()
         except Exception as e:
             self.error.emit(str(e))

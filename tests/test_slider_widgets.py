@@ -109,8 +109,6 @@ def test_commit_flushes_a_pending_frame_when_the_value_returned(qapp):
 
 
 def test_a_steady_drag_renders_on_the_max_wait(qapp):
-    """Moves closer together than the debounce still render: max_wait emits the value once per
-    period while the drag moves, and the trailing frame skips a value already shown."""
     slider = CompactSlider("Density", 0.0, 2.0, 1.0)
     changed = MagicMock()
     slider.valueChanged.connect(changed)
@@ -149,7 +147,6 @@ def test_commit_after_a_max_wait_frame_does_not_render_it_again(qapp):
 
 
 def test_a_later_move_does_not_restart_the_max_wait(qapp):
-    """Each move restarts the trailing timer; max_wait counts from the first move, or a steady drag never renders."""
     slider = CompactSlider("Density", 0.0, 2.0, 1.0)
 
     slider.slider.setValue(slider._to_int(1.1))

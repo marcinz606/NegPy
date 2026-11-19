@@ -103,6 +103,11 @@ _PATH_ROLE = Qt.ItemDataRole.UserRole + 8
 # A virtual roll's last disk check: (a folder of its frames is gone, count of frames not on disk), or None before one.
 _GONE_ROLE = Qt.ItemDataRole.UserRole + 9
 
+
+def _gone(item: QTreeWidgetItem) -> tuple[bool, int]:
+    return item.data(0, _GONE_ROLE) or (False, 0)
+
+
 # The roll-name prefixes of the folder rows the user collapsed, kept across sessions.
 _COLLAPSED_KEY = "library_collapsed_folders"
 
@@ -458,7 +463,7 @@ class LibraryTree(QWidget):
         # A parent sorts before its subfolders, so it is an import source before they take their names.
         for folder in sorted(set(folders)):
             if folder_counts(folder)[0]:
-                roll_ids += self.controller.recognize_library_folders([folder])
+                roll_ids.append(self.controller.recognize_library_folder(folder))
             else:
                 roll_ids += self.controller.import_subfolders_as_rolls(folder)
         roll_ids = list(dict.fromkeys(roll_ids))
@@ -783,7 +788,7 @@ class LibraryTree(QWidget):
     @staticmethod
     def _set_tooltips(item: QTreeWidgetItem, entry: dict, missing: bool) -> None:
         folder_path = entry.get("folder_path", "")
-        if (item.data(0, _GONE_ROLE) or (False, 0))[1]:
+        if (_gone(item))[1]:
             item.setToolTip(0, tr("Some frames of this virtual roll are not on disk"))
             item.setToolTip(1, tr("Right-click the roll to locate a moved folder or to remove the missing frames."))
             return
@@ -810,7 +815,7 @@ class LibraryTree(QWidget):
         frames = self._frame_count(roll_id, entry)
         item.setData(0, _FRAMES_ROLE, frames)
         parts = [count_of(frames, "photo")]
-        gone = (item.data(0, _GONE_ROLE) or (False, 0))[1]
+        gone = (_gone(item))[1]
         if gone:
             parts.append(count_of(gone, "missing", "missing"))
         removed = self.controller.removed_frame_count(roll_id) if entry.get("kind") == "folder" else 0
@@ -922,7 +927,7 @@ class LibraryTree(QWidget):
                 analyze_action.setToolTip(BATCH_ANALYSIS_TOOLTIP if is_active else BATCH_ANALYSIS_DISABLED_TOOLTIP)
                 analyze_action.triggered.connect(self.controller.request_batch_normalization)
                 menu.addAction(tr("Rename…")).triggered.connect(lambda: self._rename_roll(roll_id, name))
-                folders_gone, gone = item.data(0, _GONE_ROLE) or (False, 0)
+                folders_gone, gone = _gone(item)
                 if folders_gone or folder_roll_missing(self.repo, roll_id):
                     locate_action = menu.addAction(tr("Locate Folder…"))
                     locate_action.setToolTip(

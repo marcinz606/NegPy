@@ -404,7 +404,7 @@ class GPUEngine:
             "geometry": 64,
             "normalization": 1264,
             "exposure": 480,
-            "transfer": 240,
+            "transfer": 208,
             "clahe_u": 32,
             "lab": 96,
             "lith": 64,
@@ -2037,7 +2037,6 @@ class GPUEngine:
         t_exp, t_contrast, t_hl_auto, t_sh_auto = transfer_auto_terms(
             t_e, t_exp0, t_contrast0, textural_range, metered_anchor, shadow_point, highlight_point
         )
-        t_tw3 = t_sw3 = (float(TRANSFER_CONSTANTS["transfer_knee_width"]),) * 3
         t_cmy = contrast_free_cmy(
             filtration_offsets(
                 (t_e.wb_cyan, t_e.wb_magenta, t_e.wb_yellow),
@@ -2084,10 +2083,8 @@ class GPUEngine:
                 float(tc["transfer_shoulder_knee"]),
                 float(t_baseline_gain),
             )
-            + struct.pack("ffff", t_toe3[0], t_toe3[1], t_toe3[2], 0.0)
+            + struct.pack("ffff", t_toe3[0], t_toe3[1], t_toe3[2], float(tc["transfer_knee_width"]))
             + struct.pack("ffff", t_sh3[0], t_sh3[1], t_sh3[2], 0.0)
-            + struct.pack("ffff", t_tw3[0], t_tw3[1], t_tw3[2], 0.0)
-            + struct.pack("ffff", t_sw3[0], t_sw3[1], t_sw3[2], 0.0)
             + struct.pack("ffff", t_cmy[0], t_cmy[1], t_cmy[2], 0.0)
             + struct.pack(
                 "ffff",
@@ -2289,9 +2286,7 @@ class GPUEngine:
                 exp.highlight_yellow * cmy_m,
                 _sh3[2],
             )
-            # Asymmetric H&D print-curve scalars; mirrors negpy_core print_curve.rs.
-            # Per-channel knee stretches occupy the dead scalar toe/shoulder/
-            # midtone_gamma slots and the former flare pad (see exposure.wgsl).
+            # Print-curve scalars and the per-channel knee stretches, in exposure.wgsl's order.
             + struct.pack(
                 "14fI3fIf",
                 _tw3[0],

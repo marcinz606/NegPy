@@ -211,8 +211,6 @@ def test_ir_detect_cutoff_mapping_and_direction():
 
 
 def test_ir_threshold_moves_the_attenuation_onset():
-    """A shallow dip (a residual image ghost) gets attenuation and a partial fill at a low
-    IR Threshold and is left alone at a high one; a deep dust core is repaired at both."""
     assert ir_attenuation_onset(0.0) == pytest.approx(_IR_GAIN_IDENTITY)
     assert ir_attenuation_onset(0.9) < ir_attenuation_onset(0.1)
     ratio = np.ones((160, 160), dtype=np.float32)

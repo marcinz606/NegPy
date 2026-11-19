@@ -56,6 +56,10 @@ def _source_key(settings: WorkspaceConfig) -> str:
     return "src" + manual_bake_token(settings.retouch)
 
 
+def _bake(proc: ImageProcessor, img, settings: WorkspaceConfig, key: str):
+    return proc._manual_bake(img, settings, key, proc._paint_plane(img, settings, None))
+
+
 class TestIncrementalMatchesFullRecompute:
     def test_appending_one_stroke_at_a_time(self):
         img, strokes = _scene()
@@ -63,8 +67,8 @@ class TestIncrementalMatchesFullRecompute:
         for n in range(1, len(strokes) + 1):
             settings = _config(strokes[:n])
             key = _source_key(settings)
-            got, got_wide = proc._manual_bake(img, settings, key)
-            want, want_wide = ImageProcessor()._manual_bake(img, settings, key)
+            got, got_wide = _bake(proc, img, settings, key)
+            want, want_wide = _bake(ImageProcessor(), img, settings, key)
             np.testing.assert_array_equal(np.asarray(got), np.asarray(want), err_msg=f"mismatch at {n} strokes")
             assert len(got_wide) == len(want_wide)
 
@@ -74,10 +78,10 @@ class TestIncrementalMatchesFullRecompute:
         stepwise = ImageProcessor()
         for n in range(1, len(strokes) + 1):
             settings = _config(strokes[:n])
-            out, _ = stepwise._manual_bake(img, settings, _source_key(settings))
+            out, _ = _bake(stepwise, img, settings, _source_key(settings))
 
         settings_all = _config(strokes)
-        direct_out, _ = ImageProcessor()._manual_bake(img, settings_all, _source_key(settings_all))
+        direct_out, _ = _bake(ImageProcessor(), img, settings_all, _source_key(settings_all))
         np.testing.assert_array_equal(np.asarray(out), np.asarray(direct_out))
 
     def test_a_stroke_that_finds_nothing_still_matches(self):
@@ -88,10 +92,10 @@ class TestIncrementalMatchesFullRecompute:
         clean_stroke = ([[0.4, 0.5], [0.5, 0.5], [0.6, 0.5]], _size_at_ref(6.0, shape), 0.0, 0.0)  # a drag over nothing
         proc = ImageProcessor()
         settings1 = _config(strokes[:1])
-        proc._manual_bake(img, settings1, _source_key(settings1))
+        _bake(proc, img, settings1, _source_key(settings1))
         settings2 = _config(strokes[:1] + [clean_stroke])
-        got, _ = proc._manual_bake(img, settings2, _source_key(settings2))
-        want, _ = ImageProcessor()._manual_bake(img, settings2, _source_key(settings2))
+        got, _ = _bake(proc, img, settings2, _source_key(settings2))
+        want, _ = _bake(ImageProcessor(), img, settings2, _source_key(settings2))
         np.testing.assert_array_equal(np.asarray(got), np.asarray(want))
 
     def test_removing_a_stroke_falls_back_and_still_matches(self):
@@ -100,11 +104,11 @@ class TestIncrementalMatchesFullRecompute:
         img, strokes = _scene()
         proc = ImageProcessor()
         settings3 = _config(strokes)
-        proc._manual_bake(img, settings3, _source_key(settings3))
+        _bake(proc, img, settings3, _source_key(settings3))
 
         settings2 = _config(strokes[:2])
-        got, _ = proc._manual_bake(img, settings2, _source_key(settings2))
-        want, _ = ImageProcessor()._manual_bake(img, settings2, _source_key(settings2))
+        got, _ = _bake(proc, img, settings2, _source_key(settings2))
+        want, _ = _bake(ImageProcessor(), img, settings2, _source_key(settings2))
         np.testing.assert_array_equal(np.asarray(got), np.asarray(want))
 
     def test_a_new_source_key_falls_back_and_still_matches(self):
@@ -113,9 +117,9 @@ class TestIncrementalMatchesFullRecompute:
         img, strokes = _scene()
         proc = ImageProcessor()
         settings = _config(strokes[:2])
-        proc._manual_bake(img, settings, _source_key(settings) + "|other")
-        got, _ = proc._manual_bake(img, settings, _source_key(settings))
-        want, _ = ImageProcessor()._manual_bake(img, settings, _source_key(settings))
+        _bake(proc, img, settings, _source_key(settings) + "|other")
+        got, _ = _bake(proc, img, settings, _source_key(settings))
+        want, _ = _bake(ImageProcessor(), img, settings, _source_key(settings))
         np.testing.assert_array_equal(np.asarray(got), np.asarray(want))
 
 
@@ -135,7 +139,7 @@ class TestIncrementalSkipsUnchangedWork:
         with patch.object(ip_mod, "paint_to_score", side_effect=counting):
             for n in range(1, len(strokes) + 1):
                 settings = _config(strokes[:n])
-                proc._manual_bake(img, settings, _source_key(settings))
+                _bake(proc, img, settings, _source_key(settings))
 
         assert seen_counts == [1, 1, 1], f"expected one new stroke scored per call, got {seen_counts}"
 
@@ -210,7 +214,7 @@ class TestPaintPlane:
             img[100 + (i - 100) // 6, i] = 0.95
         stroke = ([[0.2, 0.47], [0.5, 0.5], [0.8, 0.53]], _size_at_ref(20.0, (200, 200)), 0.0, 0.0)
         settings = _config([stroke])
-        _, masks = ImageProcessor()._manual_bake(img, settings, _source_key(settings))
+        _, masks = _bake(ImageProcessor(), img, settings, _source_key(settings))
         assert any(m[100, 100] for m in masks)
 
     def test_a_bright_scratch_survives_the_pooled_plane(self):

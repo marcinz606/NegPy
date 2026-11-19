@@ -52,8 +52,6 @@ def test_auto_red_shifts_density_by_what_the_median_gains() -> None:
 
 
 def test_a_hand_red_is_a_trim_on_the_fit_that_each_fit_applies_again() -> None:
-    """A target Red stores its ratio to the fit; a later fit with that trim sets the same ratio and fits
-    the shift for the Red it sets."""
     from negpy.features.process.fade_auto_red import auto_red
 
     points = tuple(np.linspace(1.0, 2.2, len(RANGE_PCT)))
@@ -88,7 +86,6 @@ def test_the_density_shift_adds_density_to_every_channel_after_the_fade() -> Non
 
 
 def test_a_hand_red_below_the_fit_s_floor_and_a_trim_above_one_hold_to_the_bounds() -> None:
-    """A short span fits AUTO_RED_MIN, and a hand Red may go below it; a trim past 1.0 holds Red at 1.0."""
     from negpy.features.process.fade_auto_red import AUTO_RED_MIN, auto_red
 
     points = tuple(np.linspace(1.0, 1.3, len(RANGE_PCT)))

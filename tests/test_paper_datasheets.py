@@ -28,7 +28,6 @@ def test_every_curve_file_names_a_profile():
 
 @pytest.mark.parametrize("key", STOCKS)
 def test_neutral_curve_follows_the_datasheet(key):
-    """The print curve at the datasheet's own ISO R, free only in exposure, stays on its neutral curve."""
     x, rgb = _sheet(key)
     d = rgb.mean(1)
     rng = default_grade_range()
@@ -47,7 +46,6 @@ def test_neutral_curve_follows_the_datasheet(key):
 
 @pytest.mark.parametrize("key", STOCKS)
 def test_maximum_density_follows_the_datasheet(key):
-    """d_max is the deepest layer's top, and a drop puts the other layers below it, yellow lowest."""
     _, rgb = _sheet(key)
     profile = PAPER_PROFILES[key]
     assert abs(profile.d_max - rgb.max()) < 0.1

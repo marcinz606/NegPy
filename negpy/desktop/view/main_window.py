@@ -995,14 +995,11 @@ class MainWindow(QMainWindow):
         self._on_zoom_info_changed(self.canvas.zoom_level)
 
     def _canvas_advisory(self) -> str:
-        """Standing warnings about the whole preview, one per state that makes it misleading."""
-        warnings = []
+        """A standing warning about a state that makes the whole preview misleading."""
         gray = self.controller.gray_proof_profile()
-        if gray:
-            warnings.append(
-                tr("Gray preview from the {value} profile. Choose another profile or turn off Proof on Screen.", value=choice_label(gray))
-            )
-        return " ".join(warnings)
+        if not gray:
+            return ""
+        return tr("Gray preview from the {value} profile. Choose another profile or turn off Proof on Screen.", value=choice_label(gray))
 
     def _on_zoom_info_changed(self, zoom: float) -> None:
         """The zoom readout: under the navigator while it is up, else at the strip's right end."""

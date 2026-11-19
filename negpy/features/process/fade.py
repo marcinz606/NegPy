@@ -455,23 +455,8 @@ def estimate_fade_with(
         red = estimate_red(g, b)
     table = None
     if red is not None and crossover:
-        table = _table_after(grid, refs, white, white_anchor, camera_raw, white_space, (red, g, b))
+        table = measure_crossover(*_faded_after(grid, refs, white, white_anchor, camera_raw, white_space, (red, g, b)))
     return FadeEstimate(red, g, b, why, white, table)
-
-
-def _table_after(
-    grid: ImageBuffer,
-    refs: NeutralAxisRefs,
-    white: Optional[tuple[float, float, float]],
-    white_anchor: bool,
-    camera_raw: bool,
-    white_space: str,
-    survivals: tuple[float, float, float],
-    shift: float = 0.0,
-) -> Optional[tuple[float, ...]]:
-    """The crossover table measured on the Estimate *grid* after *survivals* and *shift*, zero at the
-    midtone of *refs* (read above the anchor when one acts) through the same fade."""
-    return measure_crossover(*_faded_after(grid, refs, white, white_anchor, camera_raw, white_space, survivals, shift))
 
 
 def _faded_after(

@@ -2382,7 +2382,7 @@ class DesktopSessionManager(QObject):
         held = self._batch.locks.setdefault(roll_id, {})
         base = unforked_hash(asset["hash"])
         if base not in held:
-            held.update(rolls.card_locks_snapshot(self.repo, roll_id, None, [base]))
+            held.update(rolls.card_locks_snapshot(self.repo, roll_id, [base]))
 
     def relock_diverged_cards(self, before: Optional[WorkspaceConfig] = None) -> None:
         """Lock each roll card on which the restored config differs from the roll's: history, a work

@@ -248,7 +248,6 @@ def _info_135i() -> UsbDeviceInfo:
 
 
 def test_135i_is_listed_without_gl128_session_features(monkeypatch):
-    """The 135i is GL128 but locked: it offers no Prescan, Multi-Pass or Multi-Exposure."""
     _patch_enum(monkeypatch, [_info_135i()])
     device = PlustekBackend().list_devices()[0]
     caps = device.capabilities

@@ -65,8 +65,8 @@ class PaperProfile:
 
     channel_gamma — per-channel (R, G, B) slope multipliers (dye-layer contrast
     crossover), relative to G = 1. slope_gain — the straight-line slope over the one the
-    Grade gives, for a paper whose knees take much of its ISO R. base_tint_cmy — per-channel (C, M, Y) additions to the minimum
-    density floor (base tint, shows in highlights). print_color — the stock's dyes: a
+    Grade gives, for a paper whose knees take much of its ISO R. base_tint_cmy — per-channel
+    (C, M, Y) additions to the minimum density floor (shows in highlights). print_color — the stock's dyes: a
     DyeMatrix coupling D_rgb = M · D_dye above base, or a DyeLut from dye density to color.
     d_max_drop — how far each layer's (R, G, B) maximum dye density sits below d_max, in the
     kernel's dye densities, for a stock whose layers run out at different densities.

@@ -95,10 +95,7 @@ def auto_meter_for_mode(mode: str, current: bool) -> bool:
 
 def chroma_for_mono(was_mono: bool, now_mono: bool, saturation: float) -> float:
     """The Chroma a frame carries after a switch between a black-and-white and a color render.
-
-    A black-and-white frame hides Chroma, so a 0 it holds is a value the user cannot see. Leaving
-    black and white turns that 0 into the default; any other value, or any other switch, is kept.
-    """
+    A black-and-white frame hides Chroma, so leaving it turns a 0 into the default; any other value stays."""
     if was_mono and not now_mono and saturation == 0.0:
         return float(LabConfig.saturation)
     return saturation

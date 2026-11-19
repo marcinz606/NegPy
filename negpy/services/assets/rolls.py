@@ -972,24 +972,18 @@ def set_frame_override(
     _write(repo, store)
 
 
-def _card_keys(card_keys: Any) -> tuple:
-    if card_keys is None:
-        return tuple(ROLL_DEFAULT_FIELDS)
-    return (card_keys,) if isinstance(card_keys, str) else tuple(card_keys)
-
-
-def card_locks_snapshot(repo: Any, roll_id: str, card_keys: Any, hashes) -> Dict[str, Any]:
-    """For each of *hashes* (unforked) and each of *card_keys* (one key, several, or None for every card),
-    the baseline its lock holds, or None where the card follows the roll."""
-    keys = _card_keys(card_keys)
+def card_locks_snapshot(repo: Any, roll_id: str, hashes) -> Dict[str, Any]:
+    """For each of *hashes* (unforked) and each card, the baseline its lock holds, or None where the card follows the roll."""
     entry = roll_for_id(repo, roll_id) or {}
     overrides, baselines = entry.get("frame_overrides", {}), entry.get("frame_baselines", {})
-    return {h: {c: dict(baselines.get(h, {}).get(c, {})) if c in overrides.get(h, ()) else None for c in keys} for h in hashes}
+    return {
+        h: {c: dict(baselines.get(h, {}).get(c, {})) if c in overrides.get(h, ()) else None for c in ROLL_DEFAULT_FIELDS} for h in hashes
+    }
 
 
-def restore_card_locks(repo: Any, roll_id: str, card_keys: Any, snapshot: Dict[str, Any]) -> None:
+def restore_card_locks(repo: Any, roll_id: str, card_keys, snapshot: Dict[str, Any]) -> None:
     """Puts back the locks and baselines a card_locks_snapshot holds for *card_keys*. No-op for an unknown roll id."""
-    keys = set(_card_keys(card_keys))
+    keys = set(card_keys)
     store = _read(repo)
     entry = store.get(roll_id)
     if entry is None:

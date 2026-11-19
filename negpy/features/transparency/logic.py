@@ -410,7 +410,6 @@ def apply_transfer_curve(
     chroma (see logic.separation_damping_gain); inert at separation 1.0, same as on the print.
     """
     c = TRANSFER_CONSTANTS
-    base_width = float(c["transfer_knee_width"])
     wb_c, wb_k = wb_split_geometry()
     sh_c, hi_c, zone_k = zone_geometry()
     sep_k3 = per_channel_dye_separation(separation, separation_trims)
@@ -441,8 +440,7 @@ def apply_transfer_curve(
         "black_taper": ZONE_BLACK_TAPER,
         "toe": tuple(toe),
         "shoulder": tuple(shoulder),
-        "toe_width": (base_width,) * 3,
-        "shoulder_width": (base_width,) * 3,
+        "knee_width": float(c["transfer_knee_width"]),
         "toe_knee": float(c["transfer_toe_knee"]),
         "shoulder_knee": float(c["transfer_shoulder_knee"]),
         "sep_k": sep_k3,

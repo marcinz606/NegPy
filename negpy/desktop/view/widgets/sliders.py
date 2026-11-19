@@ -244,10 +244,7 @@ class BaseSlider(QWidget):
 
     def _schedule_emit(self) -> None:
         """Trailing debounce, with at most one frame per `_MAX_WAIT_MS` while the drag moves.
-
-        The handle must never wait on a render, so a move never emits by itself: an emit per move
-        pulls the whole per-render UI fan-out onto the handle's own thread.
-        """
+        A move never emits by itself: an emit per move puts the per-render UI work on the handle's thread."""
         if not self.max_wait.isActive():
             self.max_wait.start()
         self.timer.start(_EMIT_INTERVAL_MS)
