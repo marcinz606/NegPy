@@ -25,10 +25,6 @@ def _knees(toe: float = 0.0, shoulder: float = 0.0):
 
 class TestToeShoulderSmoothness(unittest.TestCase):
     def test_monotonic_over_full_slider_range(self):
-        """
-        The transfer must be non-increasing (input = density, output = brightness)
-        for every toe/shoulder/pivot combination, with no tone reversal.
-        """
         img = _ramp_image()
         for toe, shoulder, pivot in itertools.product((-1.0, 1.0), (-1.0, 1.0), (0.5, 0.79, 0.95)):
             params = (pivot, _SLOPE)
@@ -37,7 +33,6 @@ class TestToeShoulderSmoothness(unittest.TestCase):
             self.assertTrue(np.all(np.diff(row) <= 1e-5), f"tone reversal at toe={toe} shoulder={shoulder} pivot={pivot}")
 
     def test_toe_has_useful_strength(self):
-        """A full soft toe visibly opens the deep shadows."""
         img = np.full((4, 4, 3), 1.1, dtype=np.float32)
         params = (0.79, _SLOPE)
         base = float(apply_characteristic_curve(img, params, params, params)[0, 0, 0])

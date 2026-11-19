@@ -1570,7 +1570,7 @@ class TestAppController(unittest.TestCase):
                 counted=3,
                 outliers=["s4.tif"],
                 unread=["s5.tif"],
-                crossover=CrossoverPick("s2.tif", (0.0,) * 16, 3, 3, True),
+                crossover=CrossoverPick("s2.tif", True),
             )
         )
 
@@ -1988,8 +1988,6 @@ class TestAppController(unittest.TestCase):
         session.recording_batch = types.MethodType(DesktopSessionManager.recording_batch, session)
 
     def test_a_film_push_out_of_bw_restores_chroma_on_the_roll(self):
-        """Issue #1642 on a roll: a push only sets the roll's default, so each following frame
-        leaving B&W with Chroma 0 gets 1. A frame locked on Film keeps its own."""
         from negpy.features.process.models import ProcessMode, with_process_mode
         from negpy.services.assets import rolls
 
@@ -2622,7 +2620,6 @@ class TestAppController(unittest.TestCase):
         self.assertTrue(self.controller.proof_active())
 
     def test_gray_proof_profile_names_a_gray_proof_on_a_color_frame(self):
-        """Issue #1642: a Greyscale export profile, carried from a B&W roll, previews a color frame gray."""
         from negpy.domain.models import ColorSpace
         from negpy.features.process.models import ProcessMode, with_process_mode
 

@@ -37,14 +37,8 @@ DETECT_SCENES_TOOLTIP = tr("Detect Scenes: find the groups of frames under anoth
 
 
 class RollAnalysisSidebar(BaseSidebar):
-    """
-    The roll baseline this frame's Use Luma/Color Average axes read. Reanalyze runs Roll
-    Analysis, the same action the Library's own "Roll Analysis" offers. Use This Frame writes
-    the current frame's own bounds there instead. Both are enabled only for the loaded roll,
-    since both act on the files currently open. The From Another Roll fold holds a searchable
-    picker over every library roll, ticked once it has a baseline; a pick loads that baseline
-    at once.
-    """
+    """The roll baseline this frame's Use Luma/Color Average axes read. Reanalyze and Use This
+    Frame act on the open files, so only the loaded roll enables them."""
 
     def _init_ui(self) -> None:
         # With no roll open the body grays out under one hint; the hint stays readable outside it.

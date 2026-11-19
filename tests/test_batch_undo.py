@@ -151,7 +151,6 @@ def test_undo_keeps_a_later_rotation_and_puts_back_the_applied_fields(tmp_path):
 
 
 def test_a_roll_average_refresh_after_the_batch_keeps_the_undo_whole(tmp_path):
-    """The refresh writes new bounds with no action from the user, so no frame counts as kept."""
     session, repo = _session(tmp_path)
     session.sync_selected_settings(rows_for_fields(("density",)), scope="selection")
     floors = (0.1, 0.1, 0.1)
@@ -200,7 +199,6 @@ def test_a_later_change_to_an_applied_field_keeps_its_value(tmp_path):
 
 
 def test_a_card_with_a_kept_later_change_settles_its_lock(tmp_path):
-    """h2 follows the roll; the batch locks its card, a later change to the card's field stays, so the lock stays."""
     from negpy.services.assets import rolls
 
     session, repo = _session(tmp_path)
@@ -221,8 +219,6 @@ def test_a_card_with_a_kept_later_change_settles_its_lock(tmp_path):
 
 
 def test_undo_takes_back_a_roll_average_refresh_of_the_bounds_it_applied(tmp_path):
-    """Apply to Frames gives h2 the roll's baseline in place of its own picked one; the refresh then
-    moves it with the roll. Undo gives h2 its own baseline back, and no frame counts as kept."""
     from types import SimpleNamespace
 
     from negpy.desktop.controller import AppController
@@ -253,7 +249,6 @@ def test_undo_takes_back_a_roll_average_refresh_of_the_bounds_it_applied(tmp_pat
 
 
 def test_opening_a_frame_after_the_batch_is_no_later_change(tmp_path):
-    """The open frame shows overlays that its saved edit does not hold; they are no later change."""
     from negpy.services.assets import rolls
 
     session, repo, roll_id = _locked_frame(tmp_path, "metadata_process", "developer", "HC-110", "Rodinal")
@@ -266,7 +261,6 @@ def test_opening_a_frame_after_the_batch_is_no_later_change(tmp_path):
 
 
 def test_a_frame_the_batch_did_not_write_keeps_a_later_change(tmp_path):
-    """The source of Apply to Frames is rotated from another frame after the batch; Undo leaves it alone."""
     session, repo = _session(tmp_path)
     repo.save_file_settings("h1", session.state.config, file_path="/r/h1.tif")
     session.sync_selected_settings(rows_for_fields(("density",)), scope="selection")

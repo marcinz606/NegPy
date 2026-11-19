@@ -1184,9 +1184,6 @@ def test_import_folder_declined_at_the_confirm_opens_nothing(widget, tree_dirs, 
     widget.controller.open_library_folder.assert_not_called()
 
 
-# --- dropping folders on the Library ------------------------------------------
-
-
 def test_one_dropped_folder_imports_like_the_menu(widget, tree_dirs, monkeypatch):
     calls = []
     monkeypatch.setattr(widget, "import_folder", lambda path: calls.append(path) or True)
@@ -1196,13 +1193,13 @@ def test_one_dropped_folder_imports_like_the_menu(widget, tree_dirs, monkeypatch
 
 
 def test_several_dropped_roll_folders_become_rolls_and_none_opens(widget, tree_dirs):
-    widget.controller.recognize_library_folders.side_effect = lambda folders: folders
+    widget.controller.recognize_library_folder.side_effect = lambda folder: folder
     changed = []
     widget.rolls_changed.connect(lambda: changed.append(True))
     folders = [str(tree_dirs / "roll_b"), str(tree_dirs / "roll_a")]
 
     assert widget.import_dropped(folders) is True
-    assert [c.args[0] for c in widget.controller.recognize_library_folders.call_args_list] == [[f] for f in sorted(folders)]
+    assert [c.args[0] for c in widget.controller.recognize_library_folder.call_args_list] == sorted(folders)
     widget.controller.import_subfolders_as_rolls.assert_not_called()
     widget.controller.open_library_folder.assert_not_called()
     assert changed == [True]
@@ -1221,7 +1218,7 @@ def _real_imports(widget):
     from negpy.services.assets import rolls
 
     widget.controller.import_subfolders_as_rolls.side_effect = lambda parent: rolls.import_subfolders_as_rolls(widget.repo, parent)
-    widget.controller.recognize_library_folders.side_effect = lambda folders: [recognize_folder(widget.repo, f) for f in folders]
+    widget.controller.recognize_library_folder.side_effect = lambda folder: recognize_folder(widget.repo, folder)
 
 
 @pytest.mark.parametrize("child_first", [False, True])
@@ -1355,7 +1352,6 @@ def test_a_drop_outside_the_library_stays_with_the_window(widget, tree_dirs, dro
 
 
 def test_a_dropped_parent_folder_makes_each_roll_folder_a_roll(widget, tree_dirs):
-    """End to end: the drop, the deferred import, the subfolder walk and the roll list."""
     from negpy.services.assets import rolls
 
     widget.controller.import_subfolders_as_rolls.side_effect = lambda parent: rolls.import_subfolders_as_rolls(widget.repo, parent)

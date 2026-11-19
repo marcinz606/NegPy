@@ -70,7 +70,6 @@ def test_pick_crossover_takes_the_table_the_film_shares_over_one_scene_light():
         frames.append((f"f{i}", grid, zero, measure_crossover(grid, zero)))
     pick = pick_crossover(frames)
     assert pick is not None and pick.key in ("f0", "f1", "f2")
-    assert pick.tried == 3 and pick.helped >= 2
 
 
 def test_pick_crossover_skips_a_table_whose_grays_sit_in_few_tones(monkeypatch):

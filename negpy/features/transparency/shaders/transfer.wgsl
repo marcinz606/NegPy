@@ -13,11 +13,9 @@ struct TransferUniforms {
     toe_knee: f32,
     sh_knee: f32,
     baseline_gain: f32,
-    // Per-channel knee heights, knee widths and WB density offsets (w lane unused).
+    // Per-channel knee heights (toe.w = the knee width of both knees) and WB density offsets.
     toe: vec4<f32>,
     shoulder: vec4<f32>,
-    toe_width: vec4<f32>,
-    shoulder_width: vec4<f32>,
     cmy: vec4<f32>,
     // Zone Density: (shadow ΔD, highlight ΔD, shadow centre, highlight centre).
     zone: vec4<f32>,
@@ -157,11 +155,11 @@ fn shape(d_in: f32, ch: i32) -> f32 {
     // above its knee and the shoulder below its own.
     let t = params.toe[ch];
     if (t != 0.0) {
-        d = d - t * softplus(d - params.toe_knee, params.toe_width[ch]);
+        d = d - t * softplus(d - params.toe_knee, params.toe.w);
     }
     let s = params.shoulder[ch];
     if (s != 0.0) {
-        d = d + s * softplus(params.sh_knee - d, params.shoulder_width[ch]);
+        d = d + s * softplus(params.sh_knee - d, params.toe.w);
     }
 
     return d;

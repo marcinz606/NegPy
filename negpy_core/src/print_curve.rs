@@ -112,21 +112,18 @@ pub struct PrintCurve<'a> {
 /// The per-channel bounds the kernel's prologue derives.
 #[derive(Clone, Copy)]
 struct Bounds {
-    a_hl: [f64; 3],
-    a_sh: [f64; 3],
     d_min_eff: [f64; 3],
     d_max_eff: [f64; 3],
-    bpc_black: [f64; 3],
+    bpc_black: f64,
     use_split: bool,
 }
 
 fn bounds(p: &PrintCurve) -> Bounds {
     let mut b = Bounds {
-        a_hl: [0.0; 3],
-        a_sh: [0.0; 3],
         d_min_eff: [0.0; 3],
         d_max_eff: [0.0; 3],
-        bpc_black: [0.0; 3],
+        // BPC references the physical d_max, so a lowered d_max_eff stays lifted.
+        bpc_black: exp10_f64(-p.d_max),
         use_split: p
             .shadow_grade
             .iter()
@@ -134,8 +131,6 @@ fn bounds(p: &PrintCurve) -> Bounds {
             .any(|&g| g != 0.0),
     };
     for ch in 0..3 {
-        b.a_hl[ch] = p.a_sh_base;
-        b.a_sh[ch] = p.a_toe_base;
         let d_max_base = p.d_max - p.toe[ch] * p.toe_height;
         let dmn = (p.d_min_rgb[ch] + p.shoulder[ch] * p.sh_height).max(0.0);
         b.d_min_eff[ch] = dmn;
@@ -144,8 +139,6 @@ fn bounds(p: &PrintCurve) -> Bounds {
         } else {
             d_max_base
         };
-        // BPC references the physical d_max, so a lowered d_max_eff stays lifted.
-        b.bpc_black[ch] = exp10_f64(-p.d_max);
     }
     b
 }
@@ -400,7 +393,7 @@ fn run(
                 *x += p.shadow_density * w_zsh + p.highlight_density * w_zhi;
             }
         }
-        let (dmn, dmx, a_hl, a_sh) = (b.d_min_eff[ch], b.d_max_eff[ch], b.a_hl[ch], b.a_sh[ch]);
+        let (dmn, dmx, a_hl, a_sh) = (b.d_min_eff[ch], b.d_max_eff[ch], p.a_sh_base, p.a_toe_base);
         let (inv_hl, inv_sh) = (1.0 / p.shoulder_stretch[ch], 1.0 / p.toe_stretch[ch]);
         if inv_hl != 1.0 || inv_sh != 1.0 {
             // `knee_warp`: the identity at v_star, each side's stretch only on its own side.
@@ -476,7 +469,7 @@ fn run(
         }
     } else {
         for c in 0..3 {
-            let (black, bpc) = (b.bpc_black[c], p.bpc);
+            let (black, bpc) = (b.bpc_black, p.bpc);
             for i in 0..n {
                 let t = exp10_f64(-dens[c][i]);
                 let t = if bpc { (t - black) / (1.0 - black) } else { t };

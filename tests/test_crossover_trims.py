@@ -134,35 +134,21 @@ class TestKneeTrims(unittest.TestCase):
         hi_trim = self._render(0.0, toe_trims=(1.0, 0.0, 0.0))
         self.assertAlmostEqual(hi_trim[0], hi_base[0], delta=0.015, msg="toe trim leaked into highlights")
 
-    def test_shoulder_trim_acts_on_channel_highlights_only(self):
-        base = self._render(0.0)
-        trimmed = self._render(0.0, shoulder_trims=(1.0, 0.0, 0.0))
-        self.assertLess(trimmed[0], base[0] - 0.01, "red shoulder trim did not compress red highlights")
-        np.testing.assert_allclose(trimmed[1:], base[1:], atol=1e-7, err_msg="shoulder trim leaked into other channels")
-        sh_base = self._render(1.0)
-        sh_trim = self._render(1.0, shoulder_trims=(1.0, 0.0, 0.0))
-        self.assertAlmostEqual(sh_trim[0], sh_base[0], delta=0.015, msg="shoulder trim leaked into shadows")
-
     def test_monotonic_at_extreme_knee_trims(self):
         ramp = np.linspace(-0.2, 1.2, 256, dtype=np.float32).reshape(1, 256, 1).repeat(3, axis=2)
-        for toe_trims, sh_trims in (((1.0, -1.0, 0.0), (0.0, 0.0, 0.0)), ((0.0, 0.0, 0.0), (1.0, -1.0, 0.5))):
-            out = apply_characteristic_curve(ramp, self._PARAMS, self._PARAMS, self._PARAMS, toe_trims=toe_trims, shoulder_trims=sh_trims)
-            for ch in range(3):
-                self.assertTrue(
-                    np.all(np.diff(out[0, :, ch]) <= 1e-5),
-                    f"tone reversal ch={ch} toe={toe_trims} shoulder={sh_trims}",
-                )
+        toe_trims = (1.0, -1.0, 0.0)
+        out = apply_characteristic_curve(ramp, self._PARAMS, self._PARAMS, self._PARAMS, toe_trims=toe_trims)
+        for ch in range(3):
+            self.assertTrue(np.all(np.diff(out[0, :, ch]) <= 1e-5), f"tone reversal ch={ch}")
 
     def test_chart_matches_kernel_per_channel(self):
         """The chart's per-channel traces (one CharacteristicCurve per layer) must
         match the kernel with knee trims applied."""
         ramp = np.linspace(-0.2, 1.2, 256, dtype=np.float32).reshape(1, 256, 1).repeat(3, axis=2)
         pivot, slope = self._PARAMS
-        toe_trims, sh_trims = (0.6, 0.0, -0.4), (-0.3, 0.2, 0.0)
-        res_kernel = apply_characteristic_curve(
-            ramp, self._PARAMS, self._PARAMS, self._PARAMS, toe_trims=toe_trims, shoulder_trims=sh_trims
-        )
-        toe3, sh3 = per_channel_toe_shoulder(0.0, 0.0, toe_trims, sh_trims)
+        toe_trims = (0.6, 0.0, -0.4)
+        res_kernel = apply_characteristic_curve(ramp, self._PARAMS, self._PARAMS, self._PARAMS, toe_trims=toe_trims)
+        toe3, sh3 = per_channel_toe_shoulder(0.0, 0.0, toe_trims)
         for ch in range(3):
             curve = CharacteristicCurve(contrast=slope, pivot=pivot, toe=toe3[ch], shoulder=sh3[ch])
             density = np.asarray(curve(ramp[0, :, ch].astype(np.float32)))
@@ -204,7 +190,6 @@ class TestPrintKnees(unittest.TestCase):
             self.assertAlmostEqual(self._density(white, shoulder=shoulder), self._density(white), places=2)
 
     def test_reference_tone_holds(self):
-        """Under Snap too, and on a stock whose layers have their own maximum density."""
         ramp = np.linspace(0.0, 1.5, 4096, dtype=np.float32)
         for base in ({}, {"midtone_gamma": 0.5}, {"midtone_gamma": -0.5}, {"paper_profile": "kodak_portra_endura", "midtone_gamma": 0.5}):
             x_ref = float(np.interp(_TARGET, np.asarray(self._curve(**base)(ramp)), ramp))

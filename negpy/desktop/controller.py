@@ -761,7 +761,7 @@ class AppController(QObject):
         self._first_render_t0: Optional[float] = None
         self._export_start_time = 0.0
         self._export_errors: list[str] = []
-        self._export_folders: list[str] = []
+        self._export_folder = ""
         # (roll id, pushing frame, pushed cards, their roll fields before the push)
         self._frame_merge_trash = True
         self._discovery_running = False
@@ -2027,11 +2027,11 @@ class AppController(QObject):
             self._register_library_roots([parent_path])
         return roll_ids
 
-    def recognize_library_folders(self, folders: List[str]) -> List[str]:
-        """Recognize each folder as a roll without opening it; it is not an import source."""
-        roll_ids = [rolls.recognize_folder(self.session.repo, folder) for folder in folders]
-        self._register_library_roots(folders)
-        return roll_ids
+    def recognize_library_folder(self, folder: str) -> str:
+        """Recognize the folder as a roll without opening it; it is not an import source."""
+        roll_id = rolls.recognize_folder(self.session.repo, folder)
+        self._register_library_roots([folder])
+        return roll_id
 
     def rediscover_rolls(self) -> tuple[int, int]:
         """Walk every Import Subfolders source again under the current discovery filters;
@@ -6863,11 +6863,7 @@ class AppController(QObject):
             self._restore_chroma_leaving_mono(film_before)
             batch.roll_undo = lambda: self._restore_roll_push(roll_id, frame_hash, baselines, snapshot)
         self._roll_defaults_changed(roll_id, set(pushed))
-        message = tr("Applied to the roll: {value}", value=self._roll_card_names(pushed))
-        own = self._frames_keeping_own(roll_id, set(pushed))
-        if own:
-            message = tr("{message}. Frames that keep their own value: {count}", message=message, count=own)
-        self.set_status(message, 5000 if own else 3000)
+        self._report_roll_push(roll_id, set(pushed), self._roll_card_names(pushed))
         return len(set(pushed))
 
     def _film_followers(self, roll_id: str) -> Dict[str, tuple]:
@@ -6898,6 +6894,13 @@ class AppController(QObject):
         entry = rolls.roll_for_id(self.session.repo, roll_id) or {}
         overrides = entry.get("frame_overrides", {})
         return sum(1 for f in self.state.uploaded_files if cards & set(overrides.get(rolls.unforked_hash(f["hash"]), ())))
+
+    def _report_roll_push(self, roll_id: str, cards: set, names: str) -> None:
+        message = tr("Applied to the roll: {value}", value=names)
+        own = self._frames_keeping_own(roll_id, cards)
+        if own:
+            message = tr("{message}. Frames that keep their own value: {count}", message=message, count=own)
+        self.set_status(message, 5000 if own else 3000)
 
     def _restore_roll_push(self, roll_id: str, frame_hash: str, baselines: dict, snapshot: dict) -> None:
         """Gives the roll back the values a push replaced; the frame that pushed keeps its own again.
@@ -7051,11 +7054,7 @@ class AppController(QObject):
             self.set_roll_default("fade", **fields)
             batch.roll_undo = undo
         self._roll_defaults_changed(roll_id, {"fade"})
-        message = tr("Applied to the roll: {value}", value=tr("Crossover"))
-        own = self._frames_keeping_own(roll_id, {"fade"})
-        if own:
-            message = tr("{message}. Frames that keep their own value: {count}", message=message, count=own)
-        self.set_status(message, 5000 if own else 3000)
+        self._report_roll_push(roll_id, {"fade"}, tr("Crossover"))
 
     def _fade_roll_undo(self, roll_id: str, names: set, clear_hint: bool = False) -> Callable[[], None]:
         """The undo of a write of the roll's *names* fields: the roll gets its values back. *clear_hint* also
@@ -10684,8 +10683,8 @@ class AppController(QObject):
         elapsed = time.time() - self._export_start_time
         owner = self._active_batch if self._active_batch in ("export", "contact_sheet") else "export"
         self._end_batch(owner)
-        folders, self._export_folders = self._export_folders, []
-        self.export_finished.emit(elapsed, list(self._export_errors), folders[0] if len(folders) == 1 else "")
+        folder, self._export_folder = self._export_folder, ""
+        self.export_finished.emit(elapsed, list(self._export_errors), folder)
         quit_pending, self._launch_quit_pending = self._launch_quit_pending, None
         if quit_pending is not None and owner == "export" and not self._export_errors:
             self.launch_export_done.emit(quit_pending)
@@ -10701,8 +10700,8 @@ class AppController(QObject):
             self._contact_sheet_folder = ""
         self._update_thumbnail_from_state()
 
-    def _on_export_batch_written(self, folders: list) -> None:
-        self._export_folders = folders
+    def _on_export_batch_written(self, folder: str) -> None:
+        self._export_folder = folder
 
     def _on_contact_sheet_written(self, folder: str) -> None:
         self._contact_sheet_folder = folder

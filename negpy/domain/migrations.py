@@ -243,11 +243,8 @@ def migrate_flat_config(data: Dict[str, Any]) -> Dict[str, Any]:
     ):
         data["paper_profile"] = "pakon"
 
-    # A print edit with toe_width has the knee heights: Toe moved paper black, Shoulder moved
-    # paper white, and each width set the knee softness the slider sets now. Each slider takes
-    # the value that prints closest to its width's knee: Toe 0.12 per unit of width, Shoulder
-    # the log of its width on KNEE_SPAN_SHOULDER. Toe keeps its own value. A positive Shoulder
-    # scales to the closest roll-off; a negative one changed nothing.
+    # A print edit with toe_width set its knee softness by the widths, which Toe and Shoulder set now.
+    # Each slider takes the value that prints closest to its width's knee; a negative Shoulder did nothing.
     if "toe_width" in data and str(data.get("process_mode", "")) not in ("Transparency", "E-6") and not data.get("positive_source"):
 
         def _width(key: str) -> float:

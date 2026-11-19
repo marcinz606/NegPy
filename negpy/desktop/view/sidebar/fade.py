@@ -161,13 +161,17 @@ class FadeSidebar(BaseSidebar):
                 changes = {"fade_ratio_r": val, "fade_auto_red": False, "fade_density_shift": 0.0, "fade_red_trim": 1.0}
         self.controller.set_roll_default("fade", persist=persist, readback_metrics=persist, **changes)
 
-    def _restore_range(self, conf, target: Optional[float] = None) -> tuple[Optional[dict], str]:
-        """Restore Range's changes from Estimate's Red with no shift, with *target* as the hand Red."""
+    def _estimate_grid(self):
+        """(source, grid) of the open frame for Estimate; the grid is None with no image."""
         from negpy.desktop.workers.chart_fit import fade_estimate_grid
 
         source = self.controller.chart_fit_source()
-        grid = None if source is None else fade_estimate_grid(source)
-        if source is None or grid is None:
+        return source, None if source is None else fade_estimate_grid(source)
+
+    def _restore_range(self, conf, target: Optional[float] = None) -> tuple[Optional[dict], str]:
+        """Restore Range's changes from Estimate's Red with no shift, with *target* as the hand Red."""
+        source, grid = self._estimate_grid()
+        if grid is None:
             return None, tr("No image loaded to estimate from.")
         base = replace(conf, fade_ratio_r=estimate_red(conf.fade_ratio_g, conf.fade_ratio_b), fade_density_shift=0.0)
         return auto_red_changes(base, source.cam_xyz, source.camera_wb, grid, target)
@@ -235,12 +239,10 @@ class FadeSidebar(BaseSidebar):
     def _on_share_crossover(self) -> None:
         """Measures this frame's own table, whatever table it holds now, at the roll's survivals (its own
         where the roll has none): every frame that takes the table renders it after those."""
-        from negpy.desktop.workers.chart_fit import fade_estimate_grid
         from negpy.features.process.fade_estimate import measured_crossover
 
         conf = self.state.config.process
-        source = self.controller.chart_fit_source()
-        grid = None if source is None else fade_estimate_grid(source)
+        source, grid = self._estimate_grid()
         measured = (
             {}
             if grid is None
@@ -318,14 +320,11 @@ class FadeSidebar(BaseSidebar):
 
     def _run_estimate(self, white_anchor: bool, mix: Optional[float] = None, live: bool = False, keep_table: bool = False) -> None:
         """Estimate with *mix* (the stored Gray Mix when None); see `fade_estimate.run_estimate`."""
-        from negpy.desktop.workers.chart_fit import fade_estimate_grid
-
         conf = self.state.config.process
         persist = not live
         if render_path(conf) is RenderPath.PRINT:
             return
-        source = self.controller.chart_fit_source()
-        grid = None if source is None else fade_estimate_grid(source)
+        source, grid = self._estimate_grid()
         if grid is None:
             self._show_fade_hint(tr("No image loaded to estimate from."))
             if mix is not None:

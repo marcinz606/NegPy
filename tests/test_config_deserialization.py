@@ -208,7 +208,6 @@ class TestConfigDeserialization(unittest.TestCase):
         self.assertNotIn("toe_width", config.to_dict())
 
     def test_a_knee_width_becomes_the_knee_sharpness(self):
-        """A wide knee was a soft knee, which a positive Toe or Shoulder is now."""
         config = WorkspaceConfig.from_flat_dict({"toe": 0.25, "toe_width": 5.0, "shoulder": 0.0, "shoulder_width": 1.25})
         self.assertAlmostEqual(config.exposure.toe, 0.55)
         narrow = WorkspaceConfig.from_flat_dict({"toe": 0.0, "toe_width": 0.5, "shoulder_width": 2.5})

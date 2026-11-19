@@ -49,8 +49,6 @@ class FadeRollResult:
     no_grays: list[str] = field(default_factory=list)
     #: Frames that did not decode or gave no grid.
     unread: list[str] = field(default_factory=list)
-    #: Frames whose own range is short enough for Restore Range.
-    short_range: int = 0
     #: The frame whose crossover table helps the most other frames, None with none.
     crossover: Optional[CrossoverPick] = None
     reason: str = ""
@@ -173,8 +171,7 @@ class FadeRollWorker(QObject):
             if found is not None:
                 reds.append(found["fade_ratio_r"])
                 shift_at.append(lambda r, points_at=points_at, at=red: range_shift(points_at(at), points_at(r)))
-        result.short_range = sum(1 for r in reds if r <= red * AUTO_RED_HINT_RATIO)
-        if 2 * result.short_range > len(kept):
+        if 2 * sum(1 for r in reds if r <= red * AUTO_RED_HINT_RATIO) > len(kept):
             pooled_red = pool_red(reds, shift_at)
             if pooled_red is not None:
                 (red, shift), ranged = pooled_red, True

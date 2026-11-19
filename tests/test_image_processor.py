@@ -254,9 +254,8 @@ def test_detect_luma_reruns_the_gate_on_hair_threshold(monkeypatch) -> None:
 
 
 def test_ir_ratio_terms_downsamples_once_per_source(monkeypatch) -> None:
-    """_ir_bake and _detect_luma each call _ir_ratio_terms every render. The cache key is
-    the source shape, not the downsampled one, so the second call resolves it without
-    repaying the full-res erode+resize (~130ms on a 34MP scan)."""
+    """_ir_bake and _detect_luma each call _ir_ratio_terms every render. The cache key is the
+    source shape, so the second call does not downsample again."""
     import negpy.services.rendering.image_processor as ip
 
     ir = np.full((200, 200), 0.9, dtype=np.float32)

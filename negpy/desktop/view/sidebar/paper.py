@@ -215,18 +215,16 @@ class PaperSidebar(BaseSidebar):
             slider.dragStarted.connect(lambda b=base: self.controller.tone_drag_changed.emit(b))
             slider.dragEnded.connect(lambda: self.controller.tone_drag_changed.emit(""))
 
-        # The dye-separation trim lives on its own slider (differing trim vs global domain).
-        for slider, base in ((self.dye_separation_trim_slider, "dye_separation"),):
-            slider.valueChanged.connect(
-                lambda v, b=base: self.update_config_section(
-                    "exposure", render=True, persist=False, readback_metrics=False, **{self._curve_field(b): v}
-                )
+        self.dye_separation_trim_slider.valueChanged.connect(
+            lambda v: self.update_config_section(
+                "exposure", render=True, persist=False, readback_metrics=False, **{self._curve_field("dye_separation"): v}
             )
-            slider.valueCommitted.connect(
-                lambda v, b=base: self.update_config_section(
-                    "exposure", render=True, persist=True, readback_metrics=True, **{self._curve_field(b): v}
-                )
+        )
+        self.dye_separation_trim_slider.valueCommitted.connect(
+            lambda v: self.update_config_section(
+                "exposure", render=True, persist=True, readback_metrics=True, **{self._curve_field("dye_separation"): v}
             )
+        )
 
         for btn, field in ((self.paper_dmin_btn, "paper_dmin"), (self.paper_black_btn, "paper_black")):
             btn.toggled.connect(

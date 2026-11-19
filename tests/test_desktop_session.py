@@ -577,7 +577,6 @@ class TestDesktopSessionSync(unittest.TestCase):
         self.assertEqual(persisted(ProcessMode.C41), 0.0)
 
     def test_a_color_roll_opened_after_a_bw_roll_is_in_color(self):
-        """Issue #1642: a B&W roll's Chroma 0, carried to a fresh file, gives way on the switch to Color."""
         from negpy.desktop.sticky import STICKY_CONFIG_KEY, sticky_snapshot
         from negpy.features.process.models import with_process_mode
 

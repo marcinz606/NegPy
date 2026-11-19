@@ -50,11 +50,9 @@ _DETECT_HAIR_FILL_GAIN = 2.0  # cap on that σ, × the σ with hairs filled, so 
 # Below this normalized density the film is clear base or holder; noise there is not dust.
 _DETECT_PROXY_MIN = 0.15
 
-# Paint gate. A painted stroke marks a search area, not a stamp: only the marks the optical
-# detector finds under it are repaired, so clean grain under a generous brush stays
-# byte-identical. Dust is dense and a scratch thin (#791), so the detector runs on the
-# density and on its negative. One seed bar, no texture ramp: the paint says the mark is a
-# defect, so only clean grain has to stay under the bar.
+# Paint gate. A stroke marks a search area: only the marks the optical detector finds under it
+# are repaired. Dust is dense and a scratch thin, so the detector runs on the density and on its
+# negative. One seed bar, no texture ramp: only clean grain has to stay under the bar.
 _PAINT_Z = 5.0
 # Soft edge on the search area, so a defect crossing the brush rim does not repair to a
 # hard line.
@@ -63,9 +61,8 @@ _MANUAL_RIM_PX = 1.5
 # mark that fills it is not its own background; the cap bounds the windows of a wide brush.
 _PAINT_SIZE_MAX = 16.0
 
-# Transport scratches (#788): a nearly straight mark a few px wide running the length of
-# the film. Per pixel it sits under the paint gate's seed bar, so no per-pixel gate can
-# reach it. Only integrating along the line finds it.
+# Transport scratches: a nearly straight mark a few px wide along the film. Per pixel it sits
+# under the paint gate's seed bar, so only integrating along the line finds it.
 #
 # Cross-section band-pass: film grain is finer, image structure broader.
 _SCRATCH_FINE_PX = 1.2
@@ -375,14 +372,9 @@ def paint_to_score(
     averaged: Optional[ImageBuffer] = None,
 ) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
     """Painted heal strokes on the detection plane → ``(score, hair_mask)`` at its shape, each
-    None when empty. ``averaged`` is the same frame at the same shape without the min-pooling,
-    which erases a thin bright mark: the scratch pass reads it.
-
-    A stroke is a search area: the optical detector runs under it, on density for dust and on
-    negated density for a scratch, and clean film under the paint stays at 1. A click that
-    finds nothing takes its own footprint, so a click always repairs. Strokes carry raw-frame
-    normalized coordinates, so this runs before geometry.
-    """
+    None when empty. The scratch pass reads ``averaged``, the same frame without the min-pooling,
+    which erases a thin bright mark. A click that finds nothing takes its own footprint. Strokes
+    carry raw-frame normalized coordinates, so this runs before geometry."""
     entries: List[Tuple[List, float]] = [(list(s[0]), float(s[1])) for s in strokes]
     entries += [([[nx, ny]], float(size)) for nx, ny, size in legacy_spots]
     if not entries:
@@ -440,10 +432,8 @@ def paint_to_score(
             if float(np.ptp(pts, axis=0).max()) > radius:
                 continue
             compact = cover
-        found = None
         if compact.any():
             found = (1.0 - rim * (1.0 - _mask_to_score(compact, _DETECT_PAD_PX * film))).astype(np.float32)
-        if found is not None:
             np.minimum(score[y0:y1, x0:x1], found, out=score[y0:y1, x0:x1])
         hair[y0:y1, x0:x1][hairs] = 1
 
@@ -757,9 +747,8 @@ def ir_attenuation_onset(slider: float) -> float:
 def ir_defect_score(ratio: np.ndarray, cutoff: float, onset: float = _IR_GAIN_IDENTITY) -> np.ndarray:
     """Continuous defect score in ``[_IR_SCORE_FLOOR, 1]``: 1 = clean film at/above ``onset``,
     floor at/below ``cutoff`` (from ir_detect_cutoff). The 3×3 erode bleeds a defect's score
-    one pixel outward, covering sub-pixel hairs and the min-pool skirt. 3×3 at any detection
-    scale: a sampling allowance, not a film footprint — widening it with the plane re-fattens
-    the mask the finer detection just tightened."""
+    one pixel outward, over sub-pixel hairs and the min-pool skirt. It is a sampling allowance,
+    so it stays 3×3 at any detection scale."""
     span = max(onset - cutoff, 1e-4)
     constants = (cutoff, span, 1.0 - _IR_SCORE_FLOOR, _IR_SCORE_FLOOR)
     return negpy_core.ir_defect_score(np.ascontiguousarray(ratio, dtype=np.float32), constants)

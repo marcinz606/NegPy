@@ -63,7 +63,7 @@ def pool_red(reds: Sequence[float], shift_at: Sequence[Callable[[float], float]]
         return None
     r = np.array(reds, dtype=np.float64)
     keep = _kept(r)
-    if int(keep.sum()) < min(ROLL_MIN_FRAMES, len(r)):
+    if int(keep.sum()) < ROLL_MIN_FRAMES:
         keep = np.ones_like(keep)
     red = round(float(np.median(r[keep])), 2)
     return red, round(float(np.median([shift_at[i](red) for i in np.flatnonzero(keep)])), 4)
@@ -86,12 +86,8 @@ class CrossoverPick(NamedTuple):
     """The frame whose crossover table leaves the other frames of the roll the least lean."""
 
     key: str
-    table: tuple
-    #: Frames whose grays lean less with it than with none, at the strength from ROLL_CROSSOVER_STRENGTHS
-    #: that leaves the least lean, and the frames it was tried on.
-    helped: int
-    tried: int
-    #: Whether it leaves at most ROLL_CROSSOVER_CLEAR of the lean the frames keep with none.
+    #: Whether it leaves at most ROLL_CROSSOVER_CLEAR of the lean the frames keep with none, at the
+    #: strength from ROLL_CROSSOVER_STRENGTHS that leaves the least.
     clear: bool
 
 
@@ -139,7 +135,5 @@ def pick_crossover(frames: Sequence[tuple[str, np.ndarray, float, Optional[Seque
     strength = min(ROLL_CROSSOVER_STRENGTHS, key=lambda s: float(np.nanmedian(tries[s])))
     before = [alone[j] for j in range(len(usable)) if j != best]
     after = tries[strength]
-    helped = sum(1 for a, b in zip(after, before) if a < b)
     clear = float(np.nanmedian(after)) <= ROLL_CROSSOVER_CLEAR * float(np.nanmedian(before))
-    key, _, _, table = usable[best]
-    return CrossoverPick(key, tuple(table), helped, len(before), clear)
+    return CrossoverPick(usable[best][0], clear)

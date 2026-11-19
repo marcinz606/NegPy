@@ -572,18 +572,18 @@ class ImageProcessor:
         if degenerate:
             return img, None, True, None
         key = (source_key, round(float(ret.ir_threshold), 6), bool(ret.ir_attenuation), img.shape)
+        onset = ir_attenuation_onset(ret.ir_threshold)
         if key == self._ir_recon_key and self._ir_recon_value is not None:
             out, routed = self._ir_recon_value
         else:
             self._slow_step("removing IR dust")
-            onset = ir_attenuation_onset(ret.ir_threshold)
             score_det = ir_defect_score(ratio_det, ir_detect_cutoff(ret.ir_threshold, ret.ir_attenuation), onset)
             out = apply_ir_attenuation(img, ir_gain(ratio_det, img_det, gammas, onset)) if ret.ir_attenuation else img
             out = apply_score_repair(out, score_det)
             routed = route_wide_defects(score_det)
             self._ir_recon_key = key
             self._ir_recon_value = (out, routed)
-        return out, (ratio_det < ir_attenuation_onset(ret.ir_threshold)), False, routed
+        return out, (ratio_det < onset), False, routed
 
     def _hair_inpaint(self, img: np.ndarray, hair_masks: List[np.ndarray], cache_key: str, label: str = _DUST_STEP) -> np.ndarray:
         """Structure-following inpaint of detected hairs, baked into the source before
@@ -677,13 +677,11 @@ class ImageProcessor:
         img: np.ndarray,
         settings: WorkspaceConfig,
         source_key: str,
-        paint_planes: Optional[Tuple[np.ndarray, np.ndarray]] = None,
+        paint_planes: Optional[Tuple[np.ndarray, np.ndarray]],
     ) -> Tuple[np.ndarray, List[np.ndarray]]:
-        """Painted strokes and traced scratch lines repaired into the linear source, by the
-        same fill the IR and luma paths use (mirrors _ir_bake; the GPU re-uploads source each
-        frame, so the bake reaches both engines parity-free). Both hold raw-frame coordinates,
-        so this runs before geometry and needs no mapping. Returns the buffer and the masks the
-        caller inpaints: defects too wide for the fill, and painted hairs."""
+        """Painted strokes and traced scratch lines repaired into the linear source, by the fill
+        the IR and luma paths use. Both hold raw-frame coordinates, so this runs before geometry.
+        Returns the buffer and the masks the caller inpaints: defects too wide for the fill, and painted hairs."""
         ret = settings.retouch
         lines = tuple(getattr(ret, "scratch_lines", []))
         heal_strokes = tuple(ret.manual_heal_strokes)
@@ -696,8 +694,6 @@ class ImageProcessor:
             return self._manual_value
 
         self._slow_step("repairing dust")
-        if paint_planes is None:
-            paint_planes = self._paint_plane(img, settings, None)
         score, out, hair = self._manual_bake_incremental(img, paint_planes, heal_strokes, dust_spots, lines, threshold)
         routed = route_wide_defects(score, budget=None) if score is not None else None
         value = (out, [m for m in (routed, hair) if m is not None])
@@ -730,16 +726,9 @@ class ImageProcessor:
         lines: tuple,
         threshold: float,
     ) -> Tuple[Optional[np.ndarray], np.ndarray, Optional[np.ndarray]]:
-        """(combined_score, filled_buffer, painted_hair_mask) for the current strokes/spots/lines.
-
-        A painted session is almost always additive — one more stroke on top of the ones
-        already there — so when every list is a strict extension of what was baked last
-        time (same source image, same scratch threshold), only the *new* entries run
-        through detection, and `repair_components` only re-fills the connected components
-        they actually touch; everything else is copied from the previous fill unchanged.
-        Repainting from scratch costs the same as before either way: undoing past the
-        cached baseline, or a fresh source, falls back to it below.
-        """
+        """(combined_score, filled_buffer, painted_hair_mask) for the current strokes, spots and lines.
+        When every list extends the last bake (same source, same scratch threshold), only the new
+        entries are detected and only the components they touch are filled again."""
         can_extend = (
             self._manual_inc_img is img
             and threshold == self._manual_inc_threshold
@@ -833,10 +822,10 @@ class ImageProcessor:
         film_base: Optional[tuple] = None,
         wants_fade_grid: bool = False,
     ) -> Tuple[Any, Dict[str, Any]]:
-        """Executes rendering pipeline. Returns result (ndarray/GPUTexture) and metrics. ``source_baked``: *img* already holds the painted heals, so
-        they are not gated a second time on repaired film. ``skip_flatfield``: the export CPU
-        fallbacks pass an already flat-fielded buffer. ``gain_slices``: the ``slice_half`` cuts that took *img* out of the
-        decoded frame. ``source_orientation``: the EXIF orientation baked into *img*. The flat-field gain takes both."""
+        """Runs the pipeline; returns the result (ndarray or GPUTexture) and metrics. ``source_baked``:
+        *img* already holds the painted heals. ``skip_flatfield``: *img* is already flat-fielded.
+        ``gain_slices`` and ``source_orientation``: the ``slice_half`` cuts and the EXIF orientation
+        of *img*, for the flat-field gain."""
         # Flat-field is a source pre-correction, before geometry and crop. Folding its token
         # into source_hash invalidates the engine cache when it changes. Stitch buffers arrive
         # per-part flat-fielded, because correcting the composite canvas as one frame would
@@ -908,7 +897,7 @@ class ImageProcessor:
             if not source_baked:
                 img, manual_routed = self._manual_bake(img, settings, repair_hash, paint_planes)
             timing.lap("heal")
-            extra = [m for m in (ir_routed,) if m is not None] + manual_routed
+            extra = ([] if ir_routed is None else [ir_routed]) + manual_routed
             if extra:
                 hair_masks = hair_masks + extra  # never mutate the cached list
             # Inpaint long/twisted hairs into the source, where both engines see it. The token
@@ -1463,7 +1452,7 @@ class ImageProcessor:
         timing.lap("dust repair")
         f32_buffer, manual_routed = self._manual_bake(f32_buffer, params, detect_key, paint_planes)
         timing.lap("heal")
-        extra = [m for m in (ir_routed,) if m is not None] + manual_routed
+        extra = ([] if ir_routed is None else [ir_routed]) + manual_routed
         if extra:
             hair_masks = hair_masks + extra
         if hair_masks:
@@ -2089,7 +2078,7 @@ class ImageProcessor:
             detected, hair_masks = self._detect_luma(params, f32_buffer, detect_key)
             f32_buffer = self._luma_bake(f32_buffer, detected, detect_key + hair_bake_token(orig_ret))
             f32_buffer, manual_routed = self._manual_bake(f32_buffer, params, detect_key, paint_planes)
-            extra = [m for m in (ir_routed,) if m is not None] + manual_routed
+            extra = ([] if ir_routed is None else [ir_routed]) + manual_routed
             if extra:
                 hair_masks = hair_masks + extra
             if hair_masks:

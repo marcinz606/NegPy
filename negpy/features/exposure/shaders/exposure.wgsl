@@ -5,9 +5,7 @@ struct ExposureUniforms {
     cmy_offsets: vec4<f32>,
     shadow_cmy: vec4<f32>,
     highlight_cmy: vec4<f32>,
-    // Per-channel knee stretches (print_knees): six
-    // lanes in the ex-scalar toe/shoulder/midtone_gamma slots (those values ride
-    // the vec4 w-lanes) and the former flare pad, keeping the 256B layout.
+    // Per-channel knee stretches (print_knees): four lanes here, two further down.
     toe_stretch_r: f32,
     toe_stretch_g: f32,
     toe_stretch_b: f32,
@@ -257,14 +255,12 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     }
 
     let eps = 1e-6;
-    // Asymmetric H&D print curve (toe-linear-shoulder); mirrors the CPU print curve
-    // (negpy_core print_curve.rs). toe -> shadow (paper-black) bound, shoulder ->
-    // highlight (paper-white) bound. a_toe_base/a_sh_base carry shadow/highlight
-    // sharpness. Toe and Shoulder stretch the tone scale past each knee (knee_warp).
+    // Asymmetric H&D print curve; mirrors negpy_core print_curve.rs. toe is the shadow
+    // (paper-black) bound, shoulder the highlight (paper-white) bound.
     let inv_sh = 1.0 / vec3<f32>(params.toe_stretch_r, params.toe_stretch_g, params.toe_stretch_b);
     let inv_hl = 1.0 / vec3<f32>(params.shoulder_stretch_r, params.shoulder_stretch_g, params.shoulder_stretch_b);
-    let a_hl = vec3<f32>(params.a_sh_base);
-    let a_sh = vec3<f32>(params.a_toe_base);
+    let a_hl = params.a_sh_base;
+    let a_sh = params.a_toe_base;
     // Per-channel toe/shoulder, pre-scaled CPU-side (per_channel_toe_shoulder).
     // The uniform block is full at 256B, so the vec4 w-lanes carry them.
     let toe3 = vec3<f32>(params.pivots.w, params.slopes.w, params.curvatures.w);
@@ -368,9 +364,9 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         v = params.v_star + kd * (kinv + (1.0 - kinv) * inverseSqrt(1.0 + ku * ku));
 
         // Shoulder: smooth lower bound at paper white (highlights).
-        let v1 = d_min_eff[ch] + softplus(a_hl[ch] * (v - d_min_eff[ch])) / a_hl[ch];
+        let v1 = d_min_eff[ch] + softplus(a_hl * (v - d_min_eff[ch])) / a_hl;
         // Toe: smooth upper bound at paper black (shadows).
-        dens[ch] = d_max_eff[ch] - softplus(a_sh[ch] * (d_max_eff[ch] - v1)) / a_sh[ch];
+        dens[ch] = d_max_eff[ch] - softplus(a_sh * (d_max_eff[ch] - v1)) / a_sh;
     }
 
     // Dye unwanted absorptions: mix the densities above paper base.

@@ -112,7 +112,6 @@ def test_drag_on_clean_film_is_a_noop():
 
 
 def test_silent_click_fills_its_disc():
-    """A click always answers: with no mark under it, it repairs its own footprint."""
     img = _grainy(100, 100)
     score, hair = paint_to_score(img, [_click((100, 100), 12.0)], [])
     assert hair is None
@@ -297,7 +296,6 @@ def _two_speck_source(h=200, w=200, seed=7):
 
 
 def test_dust_stats_px_on_a_crop_matches_the_frame_windows():
-    """A crop detects with the windows of its frame, not of its own shape."""
     img = _grainy(400, 2400, seed=5)
     img[199:202, 1199:1202] *= 0.12
     dens = _density(img)

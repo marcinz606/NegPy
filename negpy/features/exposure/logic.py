@@ -5,6 +5,7 @@ import negpy_core
 import numpy as np
 
 from negpy.domain.types import ImageBuffer
+from negpy.features.exposure.models import ExposureConfig
 from negpy.features.exposure.papers import (
     PaperProfile,
     compose_density_matrices,
@@ -336,7 +337,6 @@ def apply_characteristic_curve(
     grade_map: Optional[np.ndarray] = None,
     bpc: bool = False,
     toe_trims: Tuple[float, float, float] = (0.0, 0.0, 0.0),
-    shoulder_trims: Tuple[float, float, float] = (0.0, 0.0, 0.0),
     snap_trims: Tuple[float, float, float] = (0.0, 0.0, 0.0),
     shadow_density: float = 0.0,
     highlight_density: float = 0.0,
@@ -377,8 +377,8 @@ def apply_characteristic_curve(
     dye_mix slot (see resolve_saturation_matrix/compose_density_matrices).
 
     separation_damping: tapers that separation by each pixel's own chroma
-    (see separation_damping_gain), which makes k per-pixel — so it leaves the
-    dye_mix slot to the paper's coupling and runs in the kernel instead."""
+    (see separation_damping_gain). That makes k per-pixel, so it runs in the kernel
+    and leaves the dye_mix slot to the paper's coupling."""
     c = effective_constants(paper)
     ts = c["toe_shoulder_strength"]
     if midtone_gamma is None:
@@ -417,7 +417,7 @@ def apply_characteristic_curve(
         key_params_arr = np.zeros((0, 4), dtype=np.float64)
         deltas_arr = np.zeros((1, 1), dtype=np.float32)
 
-    toe3, sh3 = per_channel_toe_shoulder(toe, shoulder, toe_trims, shoulder_trims)
+    toe3, sh3 = per_channel_toe_shoulder(toe, shoulder, toe_trims)
     ts3, ss3 = knee_stretch or (((1.0,) * 3,) * 2)
     flash_v, flash_gamma = preflash_params(frame_grade, d_min, paper, midtone_gamma)
     toe_k = [t * ts for t in toe3]
@@ -687,13 +687,9 @@ KNEE_REACH = 0.7
 
 
 def knee_warp(v: Any, v_star: float, d_min_eff: float, d_max_eff: float, toe_stretch: float, shoulder_stretch: float) -> Any:
-    """
-    Toe and Shoulder as a warp of the straight-line density about the reference tone v*:
-    x -> x/f + (1 - 1/f) * x / sqrt(1 + (x/r)^2), one f and r per side. It is the identity
-    with unit slope at v*, and each side's f acts only on its own side, so the reference
-    tone and the other knee hold. Past r the tone scale stretches by f into the paper's own
-    knee: f > 1 rolls off softer, f < 1 harder. Paper black and paper white stay.
-    """
+    """Toe and Shoulder as a warp of the straight-line density about the reference tone v*:
+    x -> x/f + (1 - 1/f) * x / sqrt(1 + (x/r)^2), one f and r per side. The slope at v* is 1 and
+    each f acts only on its own side. Past r the tone scale stretches by f: f > 1 rolls off softer."""
     x = np.asarray(v, dtype=np.float64) - v_star
     hl = x < 0.0
     r = np.where(hl, max(KNEE_REACH * (v_star - d_min_eff), 1e-6), max(KNEE_REACH * (d_max_eff - v_star), 1e-6))
@@ -710,13 +706,10 @@ def print_knees(
     shoulder_trims: Tuple[float, float, float] = (0.0, 0.0, 0.0),
     paper: Optional[PaperProfile] = None,
 ) -> Tuple[Tuple[float, float, float], ...]:
-    """
-    The print path's knees per channel: (toe3, sh3, toe_stretch3, shoulder_stretch3). toe3
-    and sh3 carry the grade-coupled baseline heights, and toe3 the paper's d_max_drop per
-    layer. The stretches are the Toe and Shoulder sliders (see knee_warp), 1 at slider 0.
-    Single source of truth for the CPU engine, the GPU uniforms and the chart.
-    The auto helpers meter against the paper's own knees, so a slider reshapes their result.
-    """
+    """The print path's knees per channel, (toe3, sh3, toe_stretch3, shoulder_stretch3), for the CPU
+    engine, the GPU uniforms and the chart. toe3 and sh3 carry the grade-coupled heights, toe3 also
+    the paper's d_max_drop per layer. The stretches are the Toe and Shoulder sliders (knee_warp),
+    1 at slider 0. The auto helpers meter against the paper's own knees."""
     c = effective_constants(paper)
     toe_base, sh_base = grade_coupled_shape(slope_g, 0.0, 0.0)
     drop = (0.0, 0.0, 0.0) if paper is None else paper.d_max_drop
@@ -1055,8 +1048,6 @@ def auto_base_slope(
     """Shared straight-line slope before the per-layer gammas: Grade on the effective range,
     raised to Auto Grade's Shadow Reach floor. The floor holds the meter's grade and a harder
     one; a softer grade scales the floored meter slope by its ISO R ratio, so it prints softer."""
-    from negpy.features.exposure.models import ExposureConfig
-
     grade_range, gain = effective_grade_range(auto_normalize_contrast, lum_range, textural_range), slope_gain(paper)
     slope = grade_to_slope(grade, grade_range, gain)
     if auto_normalize_contrast and shadow_point is not None:

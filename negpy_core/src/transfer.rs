@@ -33,8 +33,7 @@ pub struct Transfer {
     pub black_taper: f32,
     pub toe: [f32; 3],
     pub shoulder: [f32; 3],
-    pub toe_width: [f32; 3],
-    pub shoulder_width: [f32; 3],
+    pub knee_width: f32,
     pub toe_knee: f32,
     pub shoulder_knee: f32,
     pub sep_k: [f32; 3],
@@ -112,15 +111,11 @@ impl Transfer {
             });
         }
         if self.toe[ch] != 0.0 {
-            let (a, k, w) = (self.toe[ch], self.toe_knee, self.toe_width[ch]);
+            let (a, k, w) = (self.toe[ch], self.toe_knee, self.knee_width);
             d.iter_mut().for_each(|v| *v -= a * softplus(*v - k, w));
         }
         if self.shoulder[ch] != 0.0 {
-            let (a, k, w) = (
-                self.shoulder[ch],
-                self.shoulder_knee,
-                self.shoulder_width[ch],
-            );
+            let (a, k, w) = (self.shoulder[ch], self.shoulder_knee, self.knee_width);
             d.iter_mut().for_each(|v| *v += a * softplus(k - *v, w));
         }
     }

@@ -44,13 +44,10 @@ def missing_member_folders(entry: Optional[dict]) -> list[str]:
     return [folder for folder in member_folders(entry) if not os.path.isdir(folder)]
 
 
-def entry_missing(entry: Optional[dict]) -> bool:
-    """True when a folder roll's folder, or a folder of a virtual roll's frames, is not on disk."""
-    return entry_folder_missing(entry) or bool(missing_member_folders(entry))
-
-
 def roll_missing(repo: Any, roll_id: str) -> bool:
-    return entry_missing(rolls.roll_for_id(repo, roll_id))
+    """True when a folder roll's folder, or a folder of a virtual roll's frames, is not on disk."""
+    entry = rolls.roll_for_id(repo, roll_id)
+    return entry_folder_missing(entry) or bool(missing_member_folders(entry))
 
 
 def gone_member_paths(entry: Optional[dict]) -> list[str]:
