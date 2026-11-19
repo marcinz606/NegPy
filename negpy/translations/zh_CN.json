@@ -964,6 +964,7 @@
   "Edit the folder names library discovery skips": "编辑图库发现时跳过的文件夹名称",
   "Edit the selected preset: rename it or change which settings it stores": "编辑所选预设，重命名或更改保存的设置",
   "Edit the toolbar (which controls it shows, in what order)": "编辑工具栏中的控件及顺序",
+  "Edited cards: {cards}": "已编辑卡片：{cards}",
   "Effects": "效果",
   "Effort": "编码力度",
   "Eject Now": "立即弹出",

@@ -964,6 +964,7 @@
   "Edit the folder names library discovery skips": "ライブラリ検出でスキップするフォルダー名を編集",
   "Edit the selected preset: rename it or change which settings it stores": "選択したプリセットを編集します — 名前を変更するか、保存する設定を変更します",
   "Edit the toolbar (which controls it shows, in what order)": "ツールバーを編集（表示するコントロールとその順序）",
+  "Edited cards: {cards}": "編集されたカード: {cards}",
   "Effects": "エフェクト",
   "Effort": "エンコード強度",
   "Eject Now": "今すぐ取り出す",

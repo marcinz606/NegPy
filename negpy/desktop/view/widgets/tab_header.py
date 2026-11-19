@@ -98,6 +98,9 @@ class TabHeader(CollapsibleSection):
         self.title_label.setText(
             tr("{value} of {value1} edited", value=len(edited), value1=count_of(len(live), "card")) if edited else tr("No cards edited")
         )
+        self.title_label.setToolTip(
+            wrap_tooltip(tr("Edited cards: {cards}", cards=", ".join(s._title_text for s in edited))) if edited else ""
+        )
         self._sync_cards_button()
 
     def _live_sections(self) -> list:

@@ -13,8 +13,8 @@ from negpy.desktop.view.widgets.tab_header import TabHeader
 from negpy.desktop.view.widgets.segmented_choice import ToggleMenuButton
 
 
-def _card(count: int, hidden: bool = False) -> CollapsibleSection:
-    section = CollapsibleSection("Card")
+def _card(count: int, hidden: bool = False, title: str = "Card") -> CollapsibleSection:
+    section = CollapsibleSection(title)
     section.set_modified(count)
     section.setVisible(not hidden)
     return section
@@ -32,6 +32,20 @@ def test_the_state_line_says_so_when_nothing_is_edited():
     header.bind([_card(0), _card(0)])
 
     assert header.title_label.text() == "No cards edited"
+
+
+def test_the_state_line_tooltip_names_the_edited_cards():
+    header = TabHeader("Exposure")
+    density, paper, hidden = _card(1, title="Density"), _card(0, title="Paper"), _card(1, hidden=True, title="Toning")
+    header.bind([density, paper, hidden])
+
+    assert "Edited cards: Density" in header.title_label.toolTip()
+    assert "Paper" not in header.title_label.toolTip()
+    assert "Toning" not in header.title_label.toolTip()
+
+    density.set_modified(0)
+    header.refresh()
+    assert header.title_label.toolTip() == ""
 
 
 def test_the_cards_button_collapses_then_expands_every_card():

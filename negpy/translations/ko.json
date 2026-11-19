@@ -964,6 +964,7 @@
   "Edit the folder names library discovery skips": "라이브러리 검색이 건너뛰는 폴더 이름 편집",
   "Edit the selected preset: rename it or change which settings it stores": "선택한 사전 설정 편집 - 이름을 바꾸거나 저장하는 설정을 변경합니다.",
   "Edit the toolbar (which controls it shows, in what order)": "툴바 편집(표시할 컨트롤과 순서)",
+  "Edited cards: {cards}": "수정된 카드: {cards}",
   "Effects": "효과",
   "Effort": "인코딩 강도",
   "Eject Now": "지금 꺼내기",
