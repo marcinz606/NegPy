@@ -5,6 +5,7 @@ from unittest.mock import MagicMock
 
 import pytest
 from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QColor, QIcon, QImage, QPixmap
 from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QDialog
 
@@ -68,6 +69,17 @@ def _choose(dlg: AssignCaptureTimesDialog, path: str) -> None:
 
 def _slots(dlg: AssignCaptureTimesDialog) -> list[int]:
     return [h.index for h in dlg.strip.hits() if h.kind == "slot"]
+
+
+def _compare(dlg: AssignCaptureTimesDialog) -> None:
+    dlg.view_choice.setCurrentIndex(dlg.view_choice.findData("compare"))
+
+
+A, B, C = "/r/a.heic", "/r/b.heic", "/r/c.heic"
+
+
+def _abc(dlg: AssignCaptureTimesDialog, n: int = 3) -> None:
+    _ready(dlg, *(_photo(path, 10 + i, 0) for i, path in enumerate((A, B, C)[:n])))
 
 
 def test_a_roll_without_a_day_blocks_apply(dialog) -> None:
@@ -346,9 +358,161 @@ def test_the_opener_writes_what_the_dialog_applies(qapp, monkeypatch) -> None:
     monkeypatch.setattr(module.AssignCaptureTimesDialog, "exec", run)
     assert open_assign_capture_times_dialog(None, mgr) == 3
     assert [f.name for f in opened[0].plan.frames] == ["f0", "f1", "f2"]
+    assert opened[0]._pictures is not None and not opened[0].bw_toggle.isChecked()
     assert opened[0]._scan_times["h0"] == datetime(2026, 11, 14, 18, 0, tzinfo=timezone.utc)
     assert mgr.state.config.metadata.capture_date == "2026-10-25 12:00:00"
     saved = {c.args[0]: c.args[1] for c in mgr.repo.save_file_settings.call_args_list}
     assert saved["h2"].metadata.capture_date == "2026-10-25 12:02:00"
     assert saved["h2"].metadata.capture_time_source == "start"
     assert json.loads(saved["h0"].metadata.capture_plan)["own"]["day"] == "2026-10-25"
+
+
+def test_slots_keep_the_time_order_of_the_placed_photos(dialog) -> None:
+    _abc(dialog)
+    dialog.plan.place(A, 0)
+    dialog.plan.place(C, 2)
+    dialog._refresh()
+    _choose(dialog, B)
+    assert _slots(dialog) == [0, 1, 2]
+
+
+def test_a_drop_that_breaks_the_time_order_shows_the_allowed_gaps(dialog) -> None:
+    _abc(dialog, 2)
+    dialog.plan.place(B, 0)
+    dialog._refresh()
+    dialog.strip.photoDropped.emit(A, 2)
+    assert A not in dialog.plan.placed and dialog._armed == A
+    assert _slots(dialog) == [-1, 0]
+    assert "older photos" in dialog.action_text.text()
+
+
+def test_compare_folds_the_strip_and_shows_a_piece_of_it_large(dialog) -> None:
+    _abc(dialog, 2)
+    dialog.plan.place(A, 0)
+    dialog._refresh()
+    _compare(dialog)
+    assert dialog.pages.currentIndex() == 1 and not dialog.strip_fold.is_open()
+    assert dialog._cmp_path == B and dialog._cmp_gap == 0
+    assert [(i.kind, i.ident, i.role) for i in dialog.cmp_row.items()][1:5] == [
+        ("frame", "h0", "frame"),
+        ("photo", A, "placed"),
+        ("photo", B, "current"),
+        ("frame", "h1", "frame"),
+    ]
+    assert [i.role for i in dialog.cmp_row.items()][::5] == ["context", "context"]
+    assert dialog.cmp_gap_label.text() == "Between F01 and F02"
+    dialog.view_choice.setCurrentIndex(dialog.view_choice.findData("panels"))
+    assert dialog.pages.currentIndex() == 0 and dialog.strip_fold.is_open()
+
+
+def test_enter_places_the_photo_and_opens_the_next_one(dialog) -> None:
+    _abc(dialog)
+    _compare(dialog)
+    assert (dialog._cmp_path, dialog._cmp_gap) == (A, -1)
+    dialog._compare_move(1)
+    dialog._compare_toggle()
+    assert dialog.plan.placed == {A: 0} and (dialog._cmp_path, dialog._cmp_gap) == (B, 0)
+    dialog._compare_move(-1)
+    assert dialog._cmp_gap == 0 and not dialog.earlier_btn.isEnabled()
+    dialog._on_compare_item("photo", A, "placed")
+    assert dialog._cmp_path == A
+
+
+def test_enter_on_a_photo_in_its_own_gap_takes_it_out(dialog) -> None:
+    _abc(dialog, 1)
+    dialog.plan.place(A, 1)
+    dialog._refresh()
+    _compare(dialog)
+    assert (dialog._cmp_path, dialog._cmp_gap) == (A, 1) and "Remove from Strip" in dialog.place_btn.text()
+    dialog._compare_toggle()
+    assert dialog.plan.placed == {} and dialog._cmp_gap == 1 and "Place Here" in dialog.place_btn.text()
+
+
+def test_skip_leaves_a_photo_out_and_shows_the_next(dialog) -> None:
+    _abc(dialog, 2)
+    _compare(dialog)
+    dialog._compare_skip()
+    assert dialog._cmp_path == B and dialog._skipped == {A} and dialog.plan.placed == {}
+    dialog._compare_skip()
+    assert "All photos are placed or skipped" in dialog.cmp_msg.text()
+
+
+def test_a_frame_click_in_compare_moves_the_photo_next_to_it(dialog) -> None:
+    _abc(dialog, 1)
+    _compare(dialog)
+    dialog.strip.frameClicked.emit(2)
+    assert dialog._cmp_gap == 1
+    dialog.strip.frameClicked.emit(0)
+    assert dialog._cmp_gap == 0
+
+
+def test_the_compare_keys_only_act_in_compare_or_quick_look(dialog) -> None:
+    assert not any(k.isEnabled() for k in dialog._compare_keys)
+    _abc(dialog, 1)
+    _compare(dialog)
+    assert all(k.isEnabled() for k in dialog._compare_keys)
+
+
+def test_escape_leaves_quick_look_then_compare_before_it_closes(dialog) -> None:
+    _abc(dialog, 1)
+    dialog.show()
+    _compare(dialog)
+    dialog._on_space()
+    assert dialog.quick_look.isVisible() and dialog._ql_item == ("photo", A)
+    QTest.keyClick(dialog, Qt.Key.Key_Escape)
+    assert not dialog.quick_look.isVisible() and dialog._view == "compare"
+    QTest.keyClick(dialog, Qt.Key.Key_Escape)
+    assert dialog._view == "panels" and dialog.isVisible()
+
+
+def test_quick_look_steps_along_the_strip(dialog) -> None:
+    _abc(dialog, 1)
+    dialog.plan.place(A, 0)
+    dialog._refresh()
+    dialog.show()
+    dialog.strip.quickLookRequested.emit("frame", "0")
+    assert dialog.quick_look.isVisible() and dialog._ql_item == ("frame", "h0")
+    dialog._on_arrow(1)
+    assert dialog._ql_item == ("photo", A)
+    dialog._on_arrow(1)
+    assert dialog._ql_item == ("frame", "h1") and dialog.quick_look.caption().startswith("F02")
+
+
+def test_photos_show_in_black_and_white_on_a_bw_roll(qapp) -> None:
+    dlg = _open(qapp, bw_roll=True)
+    image = QImage(40, 30, QImage.Format.Format_RGB32)
+    image.fill(QColor("red"))
+    dlg._on_reference_thumbnail(A, image)
+    assert dlg.bw_toggle.isChecked() and dlg._photo_pixmap(A).toImage().isGrayscale()
+    dlg.bw_toggle.setChecked(False)
+    assert not dlg._photo_pixmap(A).toImage().isGrayscale()
+    dlg.done(QDialog.DialogCode.Rejected)
+
+
+def test_frame_size_sets_the_strip_height_and_is_remembered(qapp) -> None:
+    repo = FakeRepo()
+    first = _open(qapp, repo=repo)
+    height = first.strip.height()
+    first._step_frame_size(1)
+    assert first.strip.height() > height and first.strip.thumb_height() == module._FRAME_SIZES[3]
+    first.done(QDialog.DialogCode.Rejected)
+    second = _open(qapp, repo=repo)
+    assert second.strip.thumb_height() == module._FRAME_SIZES[3]
+    second.done(QDialog.DialogCode.Rejected)
+
+
+def test_a_vertical_frame_shows_whole_and_narrower(qapp) -> None:
+    thumbnails = {"h0": QIcon(QPixmap(100, 150)), "h1": QIcon(QPixmap(150, 100))}
+    dlg = AssignCaptureTimesDialog(None, {"roll": _frames(2)}, thumbnails)
+    tall, wide = (h.rect for h in dlg.strip.hits() if h.kind == "frame")
+    assert tall.width() < wide.width() == round(dlg.strip.thumb_height() * 1.5)
+    dlg.done(QDialog.DialogCode.Rejected)
+
+
+def test_a_large_frame_picture_replaces_the_thumbnail(dialog) -> None:
+    image = QImage(300, 200, QImage.Format.Format_RGB32)
+    image.fill(QColor("gray"))
+    dialog._on_frame_picture("h0", image)
+    assert dialog.frame_picture.pixmap().width() == 300
+    dialog._on_frame_picture("h1", QImage())
+    assert "h1" in dialog._frame_failed

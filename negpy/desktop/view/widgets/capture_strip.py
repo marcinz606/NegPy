@@ -1,33 +1,39 @@
 """The film strip of Assign Capture Times: frames in film order, the reference photos placed in the
-gaps between frames, the cuts between segments, and a bar under each segment."""
+gaps between frames, the cuts between segments, and a bar under each segment. Every picture shows
+whole, as wide as its shape at the chosen height."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional
+from typing import Callable, Optional
 
 import qtawesome as qta
-from PyQt6.QtCore import QEvent, QPoint, QRect, QRectF, Qt, pyqtSignal
+from PyQt6.QtCore import QEvent, QPoint, QRect, QRectF, QSize, Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPen, QPixmap
 from PyQt6.QtWidgets import QListWidget, QToolTip, QWidget
 
 from negpy.desktop.view.styles.theme import THEME
 from negpy.kernel.system.i18n import tr
 
-FRAME_W = 80
-PHOTO_W = 64
 THUMB_H = 54
+MIN_W = 40  # a frame or photo is at least this wide, so its name and time fit
 LINE_H = 15
 CUT_W = 12
 SLOT_W = 24
 BAR_H = 20
 PAD = THEME.space_md
 TOP = THEME.space_sm
-NAME_Y = TOP + THUMB_H + THEME.space_xs
-TIME_Y = NAME_Y + LINE_H
-BAR_Y = TIME_Y + LINE_H + THEME.space_sm
-HEIGHT = BAR_Y + BAR_H + THEME.space_sm
+FRAME_ASPECT = 3 / 2
+PHOTO_ASPECT = 4 / 3
 _BADGE = 17
+
+
+def strip_height(thumb_h: int) -> int:
+    """The strip's height for a picture height: picture, name, time and the segment bar."""
+    return TOP + thumb_h + THEME.space_xs + 2 * LINE_H + THEME.space_sm + BAR_H + THEME.space_sm
+
+
+HEIGHT = strip_height(THUMB_H)
 
 
 @dataclass(frozen=True)
@@ -51,11 +57,12 @@ class StripPhoto:
     tooltip: str = ""
     segment: int = 0
     error: bool = False
+    ghost: bool = False  # the photo under Compare, drawn dashed where it would go
 
 
 @dataclass(frozen=True)
 class _Hit:
-    kind: str  # "frame", "photo", "cut", "slot" or "segment"
+    kind: str  # "frame", "photo", "ghost", "cut", "slot" or "segment"
     rect: QRect
     index: int  # frame or segment index, else the gap
     sub: int = 0  # for a cut: the photos of the gap before it
@@ -66,7 +73,7 @@ class _Hit:
 class CaptureStrip(QWidget):
     """Paints the strip and reports clicks. Gap g sits between frame g and frame g + 1; gap -1 is
     before the first frame. Each gap between two frames has a cut line before and after each of its
-    photos. While a photo is chosen or dragged, every gap shows a + to drop it in."""
+    photos. While a photo is chosen or dragged, each gap where it keeps the time order shows a +."""
 
     frameClicked = pyqtSignal(int)
     cutClicked = pyqtSignal(int, int)
@@ -74,6 +81,8 @@ class CaptureStrip(QWidget):
     slotClicked = pyqtSignal(int)
     segmentClicked = pyqtSignal(int)
     photoDropped = pyqtSignal(str, int)
+    quickLookRequested = pyqtSignal(str, str)  # "frame" and its index, or "photo" and its path
+    sizeStepped = pyqtSignal(int)  # +1 or -1 from Ctrl and the wheel
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -83,12 +92,17 @@ class CaptureStrip(QWidget):
         self._segments: list[str] = []
         self._frame_pixmaps: dict[int, QPixmap] = {}
         self._photo_pixmaps: dict[str, QPixmap] = {}
+        self._scaled: dict[tuple, QPixmap] = {}
         self._selected_frame = -1
         self._selected_photo = ""
         self._selected_segment = -1
         self._armed = False
         self._moving = ""
         self._dragging = False
+        self._slot_range: Optional[tuple[int, int]] = None
+        self._drag_range: Optional[tuple[int, int]] = None
+        self._gap_rule: Optional[Callable[[str], tuple[int, int]]] = None
+        self._thumb_h = THUMB_H
         self._hits: list[_Hit] = []
         self._hover: Optional[_Hit] = None
         self._drop_gap: Optional[int] = None
@@ -112,21 +126,40 @@ class CaptureStrip(QWidget):
         selected_segment: int = -1,
         armed: bool = False,
         moving: str = "",
+        slot_range: Optional[tuple[int, int]] = None,
     ) -> None:
         """`cuts` maps a cut gap to the number of its photos before the cut; `segments` holds a label
-        per segment."""
+        per segment. `slot_range` limits the + slots to the gaps first..last."""
         self._frames, self._gaps, self._cuts, self._segments = frames, gaps, cuts, segments
         self._selected_frame, self._selected_photo, self._selected_segment = selected_frame, selected_photo, selected_segment
-        self._armed, self._moving = armed, moving
+        self._armed, self._moving, self._slot_range = armed, moving, slot_range
         self._relayout()
 
+    def set_gap_rule(self, rule: Callable[[str], tuple[int, int]]) -> None:
+        """The (first, last) gaps a dragged photo may go to."""
+        self._gap_rule = rule
+
+    def set_thumb_height(self, height: int) -> None:
+        if height != self._thumb_h:
+            self._thumb_h = height
+            self._scaled.clear()
+            self.setFixedHeight(strip_height(height))
+            self._relayout()
+
+    def thumb_height(self) -> int:
+        return self._thumb_h
+
     def set_frame_pixmap(self, index: int, pixmap: QPixmap) -> None:
+        reshaped = _aspect(self._frame_pixmaps.get(index)) != _aspect(pixmap)
         self._frame_pixmaps[index] = pixmap
-        self.update()
+        self._forget_scaled(("frame", index))
+        self._relayout() if reshaped else self.update()
 
     def set_photo_pixmap(self, path: str, pixmap: QPixmap) -> None:
+        reshaped = _aspect(self._photo_pixmaps.get(path)) != _aspect(pixmap)
         self._photo_pixmaps[path] = pixmap
-        self.update()
+        self._forget_scaled(("photo", path))
+        self._relayout() if reshaped else self.update()
 
     def rect_of(self, kind: str, index: int = -2, path: str = "") -> Optional[QRect]:
         """Where a frame or a placed photo is, for scrolling it into view."""
@@ -136,12 +169,35 @@ class CaptureStrip(QWidget):
     def hits(self) -> list[_Hit]:
         return list(self._hits)
 
+    def hovered_item(self) -> Optional[tuple[str, str]]:
+        """("frame", index) or ("photo", path) under the pointer, for Quick Look."""
+        hit = self._hover
+        if hit is None:
+            return None
+        if hit.kind == "frame":
+            return "frame", str(hit.index)
+        if hit.kind in ("photo", "ghost"):
+            return "photo", hit.path
+        return None
+
     # ── layout ────────────────────────────────────────────────────────────
+    def _width(self, pixmap: Optional[QPixmap], default: float) -> int:
+        ratio = _aspect(pixmap) or default
+        return max(MIN_W, round(self._thumb_h * ratio))
+
+    def _allowed(self, gap: int) -> bool:
+        rule = self._drag_range if self._dragging else self._slot_range
+        if rule is None:
+            return True
+        first, last = rule
+        return first > last or first <= gap <= last
+
     def _relayout(self) -> None:
         hits: list[_Hit] = []
         n = len(self._frames)
         slots = self._armed or self._dragging
         spans: dict[int, list[int]] = {}
+        bar_y = self._bar_y()
         x = PAD
 
         def span(segment: int, left: int, right: int) -> None:
@@ -150,39 +206,52 @@ class CaptureStrip(QWidget):
 
         def cut(g: int, k: int) -> None:
             nonlocal x
-            hits.append(_Hit("cut", QRect(x, TOP, CUT_W, THUMB_H), g, k, tooltip=self._cut_tip(g, k)))
+            hits.append(_Hit("cut", QRect(x, TOP, CUT_W, self._thumb_h), g, k, tooltip=self._cut_tip(g, k)))
             x += CUT_W + PAD
 
         def gap(g: int) -> None:
             nonlocal x
             x += PAD
             inner = 0 <= g < n - 1
-            photos = self._gaps.get(g, [])
-            for k, photo in enumerate(photos):
+            k = 0
+            for photo in self._gaps.get(g, []):
+                width = self._width(self._photo_pixmaps.get(photo.path), PHOTO_ASPECT)
+                if photo.ghost:
+                    hits.append(_Hit("ghost", QRect(x, 0, width, bar_y), g, k, photo.path, photo.tooltip))
+                    x += width + PAD
+                    continue
                 if inner:
                     cut(g, k)
-                hits.append(_Hit("photo", QRect(x, 0, PHOTO_W, BAR_Y), g, k, photo.path, photo.tooltip))
-                span(photo.segment, x, x + PHOTO_W)
-                x += PHOTO_W + PAD
+                hits.append(_Hit("photo", QRect(x, 0, width, bar_y), g, k, photo.path, photo.tooltip))
+                span(photo.segment, x, x + width)
+                x += width + PAD
+                k += 1
             if inner:
-                cut(g, len(photos))
-            if slots:
-                hits.append(_Hit("slot", QRect(x, TOP, SLOT_W, THUMB_H), g, tooltip=self._slot_tip(g)))
+                cut(g, k)
+            if slots and self._allowed(g):
+                hits.append(_Hit("slot", QRect(x, TOP, SLOT_W, self._thumb_h), g, tooltip=self._slot_tip(g)))
                 x += SLOT_W + PAD
 
         gap(-1)
         for i, frame in enumerate(self._frames):
-            hits.append(_Hit("frame", QRect(x, 0, FRAME_W, BAR_Y), i, tooltip=frame.tooltip))
-            span(frame.segment, x, x + FRAME_W)
-            x += FRAME_W
+            width = self._width(self._frame_pixmaps.get(i), FRAME_ASPECT)
+            hits.append(_Hit("frame", QRect(x, 0, width, bar_y), i, tooltip=frame.tooltip))
+            span(frame.segment, x, x + width)
+            x += width
             gap(i)
         for segment, (left, right) in sorted(spans.items()):
             label = self._segments[segment] if segment < len(self._segments) else ""
-            hits.append(_Hit("segment", QRect(left, BAR_Y, right - left, BAR_H), segment, tooltip=label))
+            hits.append(_Hit("segment", QRect(left, bar_y, right - left, BAR_H), segment, tooltip=label))
         self._hits = hits
         self._hover = None
         self.setFixedWidth(x + PAD)
         self.update()
+
+    def _name_y(self) -> int:
+        return TOP + self._thumb_h + THEME.space_xs
+
+    def _bar_y(self) -> int:
+        return self._name_y() + 2 * LINE_H + THEME.space_sm
 
     def _cut_tip(self, g: int, k: int) -> str:
         if g not in self._cuts:
@@ -211,6 +280,7 @@ class CaptureStrip(QWidget):
         painters = {
             "frame": self._paint_frame,
             "photo": self._paint_photo,
+            "ghost": self._paint_photo,
             "cut": self._paint_cut,
             "slot": self._paint_slot,
             "segment": self._paint_segment,
@@ -219,14 +289,26 @@ class CaptureStrip(QWidget):
             painters[hit.kind](p, hit)
         p.end()
 
-    def _thumb(self, p: QPainter, rect: QRect, pixmap: Optional[QPixmap]) -> None:
+    def _forget_scaled(self, key: tuple) -> None:
+        for cached in [k for k in self._scaled if k[:2] == key]:
+            del self._scaled[cached]
+
+    def _thumb(self, p: QPainter, rect: QRect, pixmap: Optional[QPixmap], key: tuple) -> None:
+        """The whole picture, fitted into the box."""
         inner = rect.adjusted(2, 2, -2, -2)
+        p.fillRect(inner, QColor(THEME.bg_input))
         if pixmap is None or pixmap.isNull():
-            p.fillRect(inner, QColor(THEME.bg_input))
             return
-        scaled = pixmap.scaled(inner.size(), Qt.AspectRatioMode.KeepAspectRatioByExpanding, Qt.TransformationMode.SmoothTransformation)
-        sx, sy = (scaled.width() - inner.width()) // 2, (scaled.height() - inner.height()) // 2
-        p.drawPixmap(inner, scaled, QRect(sx, sy, inner.width(), inner.height()))
+        ratio = self.devicePixelRatioF()
+        size = QSize(round(inner.width() * ratio), round(inner.height() * ratio))
+        cache_key = (*key, size.width(), size.height())
+        scaled = self._scaled.get(cache_key)
+        if scaled is None:
+            scaled = pixmap.scaled(size, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+            scaled.setDevicePixelRatio(ratio)
+            self._scaled[cache_key] = scaled
+        w, h = round(scaled.width() / ratio), round(scaled.height() / ratio)
+        p.drawPixmap(QRect(inner.x() + (inner.width() - w) // 2, inner.y() + (inner.height() - h) // 2, w, h), scaled)
 
     def _border(self, p: QPainter, rect: QRect, color: str, width: int, dashed: bool = False) -> None:
         pen = QPen(QColor(color), width)
@@ -255,9 +337,9 @@ class CaptureStrip(QWidget):
 
     def _paint_frame(self, p: QPainter, hit: _Hit) -> None:
         frame = self._frames[hit.index]
-        thumb = QRect(hit.rect.x(), TOP, FRAME_W, THUMB_H)
+        thumb = QRect(hit.rect.x(), TOP, hit.rect.width(), self._thumb_h)
         p.setOpacity(0.35 if frame.muted else (0.45 if frame.rejected else 1.0))
-        self._thumb(p, thumb, self._frame_pixmaps.get(hit.index))
+        self._thumb(p, thumb, self._frame_pixmaps.get(hit.index), ("frame", hit.index))
         selected = hit.index == self._selected_frame and not self._selected_photo
         color = THEME.border_checked_hover if selected else (THEME.border_focus if self._hovered(hit) else THEME.border_input)
         self._border(p, thumb, color, 2 if selected else 1)
@@ -268,35 +350,37 @@ class CaptureStrip(QWidget):
             p.setBrush(QColor(THEME.mark_edited))
             p.drawEllipse(QPoint(thumb.x() + 8, thumb.bottom() - 7), 3, 3)
         p.setOpacity(1.0)
-        self._text(p, hit.rect.x() + 1, NAME_Y, FRAME_W - 2, frame.name, THEME.text_secondary)
+        name_y = self._name_y()
+        self._text(p, hit.rect.x() + 1, name_y, hit.rect.width() - 2, frame.name, THEME.text_secondary)
         time_color = {"error": THEME.error_text, "warning": THEME.warn_amber}.get(frame.state, THEME.text_primary)
-        self._text(p, hit.rect.x() + 1, TIME_Y, FRAME_W - 2, frame.time, time_color)
+        self._text(p, hit.rect.x() + 1, name_y + LINE_H, hit.rect.width() - 2, frame.time, time_color)
 
     def _paint_photo(self, p: QPainter, hit: _Hit) -> None:
-        photo = next((ph for ph in self._gaps.get(hit.index, []) if ph.path == hit.path), None)
+        photo = next((ph for ph in self._gaps.get(hit.index, []) if ph.path == hit.path and ph.ghost == (hit.kind == "ghost")), None)
         if photo is None:
             return
-        thumb = QRect(hit.rect.x(), TOP, PHOTO_W, THUMB_H)
-        p.setOpacity(0.4 if hit.path == self._moving else 1.0)
-        self._thumb(p, thumb, self._photo_pixmaps.get(hit.path))
-        self._border(p, thumb, THEME.error if photo.error else THEME.warn_amber, 2)
-        if hit.path == self._selected_photo:
+        thumb = QRect(hit.rect.x(), TOP, hit.rect.width(), self._thumb_h)
+        p.setOpacity(0.4 if hit.path == self._moving else (0.55 if photo.ghost else 1.0))
+        self._thumb(p, thumb, self._photo_pixmaps.get(hit.path), ("photo", hit.path))
+        self._border(p, thumb, THEME.error if photo.error else THEME.warn_amber, 2, dashed=photo.ghost)
+        if hit.path == self._selected_photo and not photo.ghost:
             self._border(p, thumb.adjusted(-3, -3, 3, 3), THEME.text_primary, 1)
         self._badge(p, thumb.x() + 3, thumb.y() + 3, self._phone_icon)
         p.setOpacity(1.0)
-        self._text(p, hit.rect.x() + 1, NAME_Y, PHOTO_W - 2, photo.time, THEME.error_text if photo.error else THEME.warn_amber)
-        self._text(p, hit.rect.x() + 1, TIME_Y, PHOTO_W - 2, photo.name, THEME.text_hint)
+        name_y = self._name_y()
+        self._text(p, hit.rect.x() + 1, name_y, hit.rect.width() - 2, photo.time, THEME.error_text if photo.error else THEME.warn_amber)
+        self._text(p, hit.rect.x() + 1, name_y + LINE_H, hit.rect.width() - 2, photo.name, THEME.text_hint)
 
     def _paint_cut(self, p: QPainter, hit: _Hit) -> None:
         x = hit.rect.center().x()
         if self._cuts.get(hit.index) == hit.sub:
             p.setPen(QPen(QColor(THEME.border_checked_hover), 3))
-            p.drawLine(x, TOP, x, BAR_Y + BAR_H)
+            p.drawLine(x, TOP, x, self._bar_y() + BAR_H)
             p.setBrush(QColor(THEME.bg_card))
-            p.drawEllipse(QPoint(x, TOP + THUMB_H // 2), 4, 4)
+            p.drawEllipse(QPoint(x, TOP + self._thumb_h // 2), 4, 4)
             return
         p.setPen(QPen(QColor(THEME.border_focus if self._hovered(hit) else THEME.border_input), 2))
-        p.drawLine(x, TOP + 6, x, TOP + THUMB_H - 6)
+        p.drawLine(x, TOP + 6, x, TOP + self._thumb_h - 6)
 
     def _paint_slot(self, p: QPainter, hit: _Hit) -> None:
         if self._drop_gap == hit.index or self._hovered(hit):
@@ -313,7 +397,10 @@ class CaptureStrip(QWidget):
         p.setBrush(QColor(THEME.bg_checked if selected else THEME.bg_input))
         p.drawRoundedRect(QRectF(hit.rect).adjusted(0.5, 0.5, -0.5, -0.5), THEME.radius_md, THEME.radius_md)
         p.setPen(QColor(THEME.text_primary if selected else THEME.text_secondary))
-        inner = hit.rect.adjusted(THEME.space_md, 0, -THEME.space_md, 0)
+        # The label stays in view while a long segment scrolls past.
+        visible = self.visibleRegion().boundingRect()
+        left = max(hit.rect.left(), visible.left() if not visible.isEmpty() else hit.rect.left()) + THEME.space_md
+        inner = QRect(left, hit.rect.y(), max(0, hit.rect.right() - THEME.space_md - left), hit.rect.height())
         p.drawText(
             inner,
             Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
@@ -339,7 +426,7 @@ class CaptureStrip(QWidget):
         if event.button() != Qt.MouseButton.LeftButton:
             return
         hit = self._hit_at(event.position().toPoint())
-        if hit is None:
+        if hit is None or hit.kind == "ghost":
             return
         if hit.kind == "frame":
             self.frameClicked.emit(hit.index)
@@ -351,6 +438,22 @@ class CaptureStrip(QWidget):
             self.segmentClicked.emit(hit.index)
         else:
             self.slotClicked.emit(hit.index)
+
+    def mouseDoubleClickEvent(self, event) -> None:  # noqa: N802
+        if event.button() != Qt.MouseButton.LeftButton:
+            return
+        hit = self._hit_at(event.position().toPoint())
+        if hit is not None and hit.kind == "frame":
+            self.quickLookRequested.emit("frame", str(hit.index))
+        elif hit is not None and hit.kind in ("photo", "ghost"):
+            self.quickLookRequested.emit("photo", hit.path)
+
+    def wheelEvent(self, event) -> None:  # noqa: N802
+        if event.modifiers() & (Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.MetaModifier) and event.angleDelta().y():
+            self.sizeStepped.emit(1 if event.angleDelta().y() > 0 else -1)
+            event.accept()
+            return
+        event.ignore()
 
     def event(self, event) -> bool:
         if event.type() == QEvent.Type.ToolTip:
@@ -377,9 +480,11 @@ class CaptureStrip(QWidget):
         return min(slots, key=lambda h: abs(h.rect.center().x() - pos.x())).index
 
     def dragEnterEvent(self, event) -> None:  # noqa: N802
-        if not self._dragged_path(event):
+        path = self._dragged_path(event)
+        if not path:
             event.ignore()
             return
+        self._drag_range = self._gap_rule(path) if self._gap_rule is not None else None
         self._dragging = True
         self._relayout()
         event.acceptProposedAction()
@@ -401,5 +506,13 @@ class CaptureStrip(QWidget):
 
     def _end_drag(self) -> None:
         self._dragging = False
+        self._drag_range = None
         self._drop_gap = None
         self._relayout()
+
+
+def _aspect(pixmap: Optional[QPixmap]) -> float:
+    """Width over height, or 0 for no picture."""
+    if pixmap is None or pixmap.isNull() or pixmap.height() == 0:
+        return 0.0
+    return pixmap.width() / pixmap.height()

@@ -449,24 +449,26 @@ Klicke mit der rechten Maustaste auf eine Hälfte für **Teilung für dieses Bil
 *   **Zeitzone**: auf welche Zone die Uhr bei der Aufnahme eingestellt war. Leer übernimmt die Zone des Orts, die das Feld anzeigt. Gib eine Zone wie `Europe/Berlin` ein, um eine andere zu wählen. Der Export schreibt den UTC-Versatz für das Aufnahmedatum, damit Foto-Apps das Bild neben Fotos vom Handy einordnen.
 *   **Zeiten zuweisen…**: gibt den gewählten Bildern oder der ganzen Rolle einen Tag, eine Zeit in Filmreihenfolge, eine Zeitzone und einen Ort. Die Zeiten können von Fotos kommen, die du am selben Tag mit dem Handy aufgenommen hast.
 
-<!-- panel:assign_capture_times src:7a1ca091 -->
+<!-- panel:assign_capture_times src:6ee5fcea -->
 ### Aufnahmezeiten zuweisen
 
-Gibt jedem Bild einen Tag, eine Zeit, eine Zeitzone und einen Ort, damit Foto-Apps die Bilder in Filmreihenfolge neben die Fotos von deinem Handy sortieren.
+Gibt jedem Bild Tag, Zeit, Zeitzone und Ort, damit Foto-Apps die Bilder neben deine Handyfotos sortieren.
 
 *   **Gewählte Bilder** oder **Ganze Rolle**: die Bilder, die **Anwenden** schreibt. Die anderen erscheinen abgeblendet, zählen aber mit.
-*   **Vorwärts** oder **Rückwärts**: die Reihenfolge auf dem Film. Wähle **Rückwärts**, wenn der Scanner den Film mit dem letzten Bild zuerst eingezogen hat.
-*   **Filmstreifen**: die Bilder in der Reihenfolge der Aufnahme, mit ihren Zeiten. Klicke auf ein Foto unter **Referenzfotos** und dann auf das **+** zwischen den zwei Bildern, zwischen denen du es aufgenommen hast, oder ziehe das Foto dorthin. Bilder zwischen zwei Fotos bekommen gleiche Schritte.
-*   Wähle ein Foto im Streifen, um es zu **Verschieben** oder **Aus Streifen entfernen**.
-*   Klicke auf eine Linie im Streifen, um die Rolle dort zu teilen, wo du eine Weile nicht fotografiert hast.
-*   Klicke auf ein Bild, um es zu bearbeiten. Ein Wert, den du an einem Bild setzt, gilt auch für die Bilder danach im Abschnitt, bis zu einem Bild mit eigenem Wert. Ein Punkt markiert Bilder mit eigenem Wert, und **×** lässt ein Bild wieder dem Bild davor folgen.
-*   **Zeit**: eine Zeit, die du nur für dieses Bild eingibst.
-*   **Tag** und **Zeitschritt**: Sie bestimmen die Zeit der Bilder ohne Foto in der Nähe, ab 12:00.
-*   **Ort** und **Zeitzone**: Ein gewählter Ort oder eine gewählte Zone hat Vorrang. Ohne sie behält ein Bild seinen Ort oder übernimmt Ort und Zeitzone des zeitlich nächsten Fotos.
-*   **Fotos hinzufügen…**: fügt Fotos von deinem Handy hinzu (HEIC oder JPEG), oder ziehe die Dateien auf den Dialog. **Foto entfernen** nimmt das gewählte Foto heraus. **Tag des Abschnitts** zeigt nur die Fotos vom Tag des Bilds.
-*   **Vorschau**: jedes Bild mit Zeit, Ort und Quelle. **Mit Handyfotos** fügt deine Fotos in der Reihenfolge hinzu, die Foto-Apps verwenden.
+*   **Bilder und Fotos** oder **Vergleichen**: bearbeite die Bilder, oder vergleiche jedes Handyfoto groß mit den Bildern um es herum.
+*   **Vorwärts** oder **Rückwärts**: wähle **Rückwärts**, wenn der Scanner den Film mit dem letzten Bild zuerst eingezogen hat.
+*   **Fotos in S/W**: deine Handyfotos in Schwarzweiß, wie der Film.
+*   **Filmstreifen**: die Bilder in Filmreihenfolge. Klicke auf ein Foto unter **Referenzfotos** und dann auf das **+** zwischen den zwei Bildern, zwischen denen du es aufgenommen hast, oder ziehe es dorthin. Ein Foto steht nur nach älteren und vor neueren Fotos. **Bildgröße** setzt die Höhe der Bilder.
+*   Wähle ein Foto im Streifen, um es zu **Verschieben** oder **Aus Streifen entfernen**. Klicke auf eine Linie, um die Rolle dort zu teilen, wo du nicht fotografiert hast.
+*   **Vergleichen**: das Foto groß zwischen zwei Bildern. Die Pfeiltasten, **Frühere Lücke** und **Spätere Lücke** verschieben es. **Hier einsetzen** oder `Enter` setzt es dort ein und zeigt das nächste Foto, oder nimmt ein eingesetztes Foto heraus. **Überspringen** lässt es weg.
+*   `Leertaste` oder ein Doppelklick zeigt ein Bild groß; die Pfeiltasten gehen den Streifen entlang.
+*   Klicke auf ein Bild, um es zu bearbeiten. Ein Wert, den du an einem Bild setzt, gilt auch für die nächsten Bilder im Abschnitt, bis zu einem Bild mit eigenem Wert. **×** entfernt ihn.
+*   **Zeit**: eine Zeit nur für dieses Bild. **Tag** und **Zeitschritt** bestimmen die Zeit der Bilder ohne Foto in der Nähe.
+*   **Ort** und **Zeitzone**: ein gewählter Wert hat Vorrang. Sonst behält ein Bild seinen Ort oder übernimmt Ort und Zone des nächsten Fotos.
+*   **Fotos hinzufügen…**: fügt Handyfotos hinzu (HEIC oder JPEG), oder ziehe sie auf den Dialog. **Foto entfernen** nimmt das gewählte Foto heraus.
+*   **Vorschau**: Zeit, Ort und Quelle jedes Bilds. **Mit Handyfotos** fügt deine Fotos in der Reihenfolge hinzu, die Foto-Apps verwenden.
 
-Eine rote Meldung sperrt **Anwenden**: Setze den fehlenden Tag, oder prüfe die Fotos und die Richtung. **Anwenden** schreibt das Datum, die Zeitzone und den Ort jedes Bilds, und Rückgängig nimmt alles in einem Schritt zurück. Wenn du den Dialog wieder öffnest, behält jedes Bild seine Zeit, bis du seinen Abschnitt änderst.
+Eine rote Meldung sperrt **Anwenden**: Setze den fehlenden Tag, oder prüfe die Fotos und die Richtung. Rückgängig nimmt ein **Anwenden** in einem Schritt zurück.
 
 <!-- panel:metadata_process src:9dd71862 -->
 ### Entwicklung

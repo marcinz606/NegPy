@@ -449,24 +449,26 @@ Høyreklikk en halvdel for **Juster delingen for dette bildet…** og **Tilbakes
 *   **Tidssone**: sonen klokken var stilt på da bildet ble tatt. Tom bruker sonen til stedet, som feltet viser. Skriv inn en sone som `Europe/Berlin` for å velge en annen. Eksporten skriver UTC-forskyvningen for opptaksdatoen, slik at bildeapper sorterer bildet sammen med bilder fra telefonen.
 *   **Tildel tider…**: gir de valgte bildene, eller hele rullen, en dag, et tidspunkt i filmrekkefølge, en tidssone og et sted. Tidene kan komme fra foto du tok med telefonen samme dag.
 
-<!-- panel:assign_capture_times src:7a1ca091 -->
+<!-- panel:assign_capture_times src:6ee5fcea -->
 ### Tildel opptakstider
 
-Gir hvert bilde en dag, et tidspunkt, en tidssone og et sted, slik at bildeapper sorterer bildene i filmrekkefølge ved siden av fotoene fra telefonen.
+Gir hvert bilde dag, tid, tidssone og sted, slik at bildeapper sorterer bildene ved siden av telefonfotoene dine.
 
 *   **Valgte bilder** eller **Hele rullen**: bildene som **Bruk** skriver til. De andre vises dempet, men teller fortsatt med.
-*   **Forover** eller **Bakover**: rekkefølgen på filmen. Bruk **Bakover** når skanneren trakk inn filmen med det siste bildet først.
-*   **Filmstripe**: bildene i den rekkefølgen du tok dem, med tidene sine. Klikk på et foto under **Referansefoto**, og klikk deretter på **+** mellom de to bildene du tok det mellom, eller dra fotoet dit. Bilder mellom to foto får like trinn.
-*   Velg et foto i stripen for å bruke **Flytt** eller **Ta ut av stripen**.
-*   Klikk på en linje i stripen for å dele rullen der du sluttet å fotografere en stund.
-*   Klikk på et bilde for å redigere det. En verdi satt på et bilde gjelder også for bildene etter det i segmentet, fram til et bilde med egen verdi. En prikk merker bilder med egen verdi, og **×** får et bilde til å følge bildet før igjen.
-*   **Tid**: en tid som du skriver inn for bare dette bildet.
-*   **Dag** og **Tidstrinn**: de gir tid til bildene uten foto i nærheten, fra kl. 12:00.
-*   **Sted** og **Tidssone**: et valgt sted eller en valgt sone går foran. Uten det beholder et bilde stedet det har, eller tar stedet og tidssonen til fotoet som er nærmest i tid.
-*   **Legg til foto…**: legger til foto fra telefonen (HEIC eller JPEG), eller slipp filene på dialogen. **Fjern foto** tar ut det valgte fotoet. **Segmentets dag** viser bare fotoene fra dagen til bildet.
-*   **Forhåndsvisning**: hvert bilde med tid, sted og kilde. **Med telefonfoto** legger til fotoene dine i rekkefølgen fotoapper sorterer dem i.
+*   **Bilder og foto** eller **Sammenlign**: rediger bildene, eller sammenlign hvert telefonfoto stort med bildene rundt det.
+*   **Forover** eller **Bakover**: bruk **Bakover** når skanneren trakk inn filmen med det siste bildet først.
+*   **Foto i S/H**: telefonfotoene dine i svart-hvitt, som filmen.
+*   **Filmstripe**: bildene i filmrekkefølge. Klikk på et foto under **Referansefoto**, og deretter på **+** mellom de to bildene du tok det mellom, eller dra det dit. Et foto kan bare stå etter eldre foto og før nyere foto. **Bildestørrelse** angir høyden på bildene.
+*   Velg et foto i stripen for å bruke **Flytt** eller **Ta ut av stripen**. Klikk på en linje for å dele rullen der du sluttet å fotografere.
+*   **Sammenlign**: fotoet stort mellom to bilder. Piltastene, **Forrige luke** og **Neste luke** flytter det. **Sett inn her** eller `Enter` setter det inn der og viser neste foto, eller tar ut et foto som er satt inn. **Hopp over** lar det stå utenfor.
+*   `Mellomrom` eller et dobbeltklikk viser et bilde stort; piltastene går langs stripen.
+*   Klikk på et bilde for å redigere det. En verdi satt på et bilde gjelder også for de neste bildene i segmentet, fram til et bilde med egen verdi. **×** fjerner den.
+*   **Tid**: en tid bare for dette bildet. **Dag** og **Tidstrinn** gir tid til bildene uten foto i nærheten.
+*   **Sted** og **Tidssone**: en valgt verdi går foran. Ellers beholder et bilde stedet sitt, eller tar sted og sone fra nærmeste foto.
+*   **Legg til foto…**: legger til telefonfoto (HEIC eller JPEG), eller slipp dem på dialogen. **Fjern foto** tar ut det valgte fotoet.
+*   **Forhåndsvisning**: tid, sted og kilde for hvert bilde. **Med telefonfoto** legger til fotoene dine i rekkefølgen fotoapper sorterer dem i.
 
-En rød melding sperrer **Bruk**: angi dagen som mangler, eller sjekk fotoene og retningen. **Bruk** skriver datoen, tidssonen og stedet for hvert bilde, og Angre fjerner alt i ett trinn. Når du åpner dialogen igjen, beholder hvert bilde tiden sin til du endrer segmentet.
+En rød melding sperrer **Bruk**: angi dagen som mangler, eller sjekk fotoene og retningen. Angre tar tilbake en **Bruk** i ett trinn.
 
 <!-- panel:metadata_process src:9dd71862 -->
 ### Prosess

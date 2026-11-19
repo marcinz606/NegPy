@@ -22,6 +22,7 @@ from negpy.features.metadata.capture_times import (
     PLACE_FRAME,
     PLACE_SEGMENT,
     SEGMENTS_OUT_OF_ORDER,
+    SOURCE_BETWEEN,
     SOURCE_TYPED,
     FrameSettings,
     FrameTime,
@@ -269,17 +270,59 @@ class CapturePlan:
         photos = [self.photo(p) for p, g in self.placed.items() if g == gap]
         return sorted((p for p in photos if p is not None), key=photo_moment)
 
+    def allowed_gaps(self, path: str) -> tuple[int, int]:
+        """(first, last) gaps where a photo keeps the time order of the other placed photos: after
+        every older one and before every newer one. first > last when those photos already
+        contradict each other (after Reverse); the rule then gives way."""
+        first, last = -1, len(self.frames) - 1
+        photo = self.photo(path)
+        if photo is None or photo.local is None:
+            return first, last
+        moment = photo_moment(photo)
+        for other, gap in self.placed.items():
+            placed = self.photo(other)
+            if other == path or placed is None or placed.local is None:
+                continue
+            if photo_moment(placed) < moment:
+                first = max(first, gap)
+            elif photo_moment(placed) > moment:
+                last = min(last, gap)
+        return first, last
+
+    def keeps_order(self, path: str, gap: int) -> bool:
+        first, last = self.allowed_gaps(path)
+        return first > last or first <= gap <= last
+
+    def suggested_gap(self, path: str, results: dict[str, FrameTime]) -> int:
+        """Where to show a photo first: its gap when placed; else the gap whose two frames, timed
+        between placed photos, hold the photo's time; else just after the newest older photo."""
+        if path in self.placed:
+            return self.placed[path]
+        first, last = self.allowed_gaps(path)
+        photo = self.photo(path)
+        if photo is None or photo.local is None or first > last:
+            return first if first <= last else -1
+        moment = photo_moment(photo)
+        for gap in range(max(first, 0), min(last, len(self.frames) - 2) + 1):
+            before, after = results.get(self.frames[gap].key), results.get(self.frames[gap + 1].key)
+            if before and after and before.source == after.source == SOURCE_BETWEEN and _instant(before) <= moment < _instant(after):
+                return gap
+        return first
+
     def place(self, path: str, gap: int) -> bool:
-        """Put a photo in a gap. A photo has one place: False when it has one, or has no time."""
+        """Put a photo in a gap. A photo has one place and keeps the time order of the placed
+        photos: False when it has a place, has no time, or would break that order."""
         photo = self.photo(path)
         if photo is None or photo.local is None or path in self.placed or not -1 <= gap < len(self.frames):
+            return False
+        if not self.keeps_order(path, gap):
             return False
         self.placed[path] = gap
         self._release(gap, gap + 1)
         return True
 
     def move(self, path: str, gap: int) -> bool:
-        if path not in self.placed or not -1 <= gap < len(self.frames):
+        if path not in self.placed or not -1 <= gap < len(self.frames) or not self.keeps_order(path, gap):
             return False
         self._release(self.placed[path], self.placed[path] + 1, gap, gap + 1)
         self.placed[path] = gap
@@ -494,6 +537,12 @@ def _is_own_place(m: MetadataConfig, entry: dict) -> bool:
         return True
     written = entry.get("gps")
     return written is not None and written != [m.gps_latitude, m.gps_longitude]
+
+
+def _instant(frame: FrameTime) -> datetime:
+    """The UTC moment of a timed frame when it has an offset, else its local time, as photo_moment."""
+    local = frame.local or datetime.min
+    return local - frame.offset if frame.offset is not None else local
 
 
 def _moment(frame: FrameTime, other: FrameTime) -> datetime:

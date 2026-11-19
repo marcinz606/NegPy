@@ -5,10 +5,10 @@ from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from PyQt6.QtCore import QDate, QRect, QRectF, QSize, Qt
-from PyQt6.QtGui import QColor, QFont, QFontMetrics, QIcon, QImage, QPainter, QPen, QPixmap
+from PyQt6.QtGui import QColor, QFont, QFontMetrics, QIcon, QImage, QKeySequence, QPainter, QPen, QPixmap, QShortcut
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QCalendarWidget,
@@ -18,11 +18,13 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLineEdit,
+    QListView,
     QListWidget,
     QListWidgetItem,
     QMenu,
     QPushButton,
     QScrollArea,
+    QStackedWidget,
     QStyle,
     QStyledItemDelegate,
     QTableWidget,
@@ -37,15 +39,17 @@ from negpy.desktop.view.styles.templates import (
     hint_label,
     icon_button,
     labeled_action,
+    labeled_toggle,
     pin_dialog_default,
     section_subheader,
     set_hint_kind,
     wrap_tooltip,
 )
 from negpy.desktop.view.styles.theme import THEME
-from negpy.desktop.view.widgets.capture_strip import HEIGHT as STRIP_HEIGHT
+from negpy.desktop.view.widgets.capture_compare import CompareItem, CompareRow, PictureBox, QuickLook
 from negpy.desktop.view.widgets.capture_strip import CaptureStrip, StripFrame, StripPhoto
 from negpy.desktop.view.widgets.dialog_geometry import remember_dialog_geometry
+from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.desktop.view.widgets.fold import group_fold
 from negpy.desktop.view.widgets.granular_settings_dialog import build_scope_row
 from negpy.desktop.view.widgets.location_picker_dialog import LocationPickerDialog
@@ -53,9 +57,11 @@ from negpy.desktop.view.widgets.searchable_gear_combo import SearchableGearCombo
 from negpy.desktop.view.widgets.section_help_dialog import SectionHelpDialog, has_guide
 from negpy.desktop.view.widgets.segmented_choice import SegmentedChoice
 from negpy.desktop.view.widgets.step_combo import StepCombo
+from negpy.desktop.workers.frame_pictures import FramePictures
 from negpy.desktop.workers.reference_thumbnails import ReferenceThumbnails
 from negpy.features.metadata.capture import place_summary
 from negpy.features.metadata.capture_plan import CapturePlan, Place, PlanFrame, photo_moment
+from negpy.features.process.models import ProcessMode
 from negpy.features.metadata.capture_times import (
     AFTER_SCAN,
     DST_CHANGE,
@@ -80,8 +86,13 @@ from negpy.kernel.system.text import count_of
 from negpy.services.assets.thumbnails import asset_thumbnail_key
 
 _GUIDE_KEY = "assign_capture_times"
-_FRAME_PIXMAP = QSize(160, 108)
-_REFERENCE_THUMB = 128
+_FRAME_PIXMAP = QSize(512, 512)  # the frame's thumbnail at its full size; the strip scales it
+_REFERENCE_THUMB = 256
+_PHOTO_LARGE = 1200
+_FRAME_SIZES = (54, 80, 110, 150, 200)  # Frame Size 1 to 5: the picture height in the strip
+_SIZE_KEY = "assign_capture_times_frame_size"
+_LARGE_KEPT = 32  # large frame and photo pictures kept in memory
+_QUEUE_ICON = QSize(64, 48)
 _PHOTO_SUFFIXES = (".heic", ".heif", ".jpg", ".jpeg")
 _PHOTO_FILTER = mark("Photos (*.heic *.HEIC *.heif *.jpg *.jpeg *.JPG *.JPEG)")
 _STEP_CHOICES = (
@@ -160,6 +171,44 @@ class _ReferenceCard(QStyledItemDelegate):
         painter.restore()
 
 
+_QUEUE_ROLE = Qt.ItemDataRole.UserRole + 2
+
+
+class _QueueCard(QStyledItemDelegate):
+    """A phone photo in the Compare queue: its picture, its time, and its place in the strip in the
+    color of its state. The lines come in the item's queue role as (time, state, color)."""
+
+    SIZE = QSize(_QUEUE_ICON.width() + 2 * THEME.space_2xl, _QUEUE_ICON.height() + 44)
+
+    def sizeHint(self, _option, _index) -> QSize:  # noqa: N802
+        return self.SIZE
+
+    def paint(self, painter: QPainter, option, index) -> None:
+        when, state, color = index.data(_QUEUE_ROLE) or ("", "", THEME.text_secondary)
+        selected = bool(option.state & QStyle.StateFlag.State_Selected)
+        rect = option.rect.adjusted(2, 2, -2, -2)
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setPen(QPen(QColor(THEME.border_checked if selected else THEME.border_input), 1))
+        painter.setBrush(QColor(THEME.bg_checked if selected else THEME.bg_input))
+        painter.drawRoundedRect(QRectF(rect).adjusted(0.5, 0.5, -0.5, -0.5), THEME.radius_md, THEME.radius_md)
+        thumb = QRect(rect.x() + THEME.space_sm, rect.y() + THEME.space_sm, rect.width() - 2 * THEME.space_sm, _QUEUE_ICON.height())
+        icon = index.data(Qt.ItemDataRole.DecorationRole)
+        if isinstance(icon, QIcon) and not icon.isNull():
+            icon.paint(painter, thumb, Qt.AlignmentFlag.AlignCenter)
+        font = QFont(option.font)
+        font.setPixelSize(THEME.font_size_small)
+        painter.setFont(font)
+        metrics = QFontMetrics(font)
+        y = thumb.bottom() + THEME.space_xs
+        for text, tone in ((when, THEME.text_primary), (state, color)):
+            line = QRect(rect.x() + THEME.space_sm, y, rect.width() - 2 * THEME.space_sm, metrics.height())
+            painter.setPen(QColor(tone))
+            painter.drawText(line, Qt.AlignmentFlag.AlignCenter, metrics.elidedText(text, Qt.TextElideMode.ElideRight, line.width()))
+            y += metrics.height()
+        painter.restore()
+
+
 def _short_name(name: str) -> str:
     """The frame number of a scan name such as "26-11-14 R01 F037"."""
     parts = name.split()
@@ -179,6 +228,8 @@ class AssignCaptureTimesDialog(QDialog):
         scope: str = "roll",
         scan_times: Optional[dict[str, datetime]] = None,
         repo=None,
+        sources: Optional[dict[str, tuple[dict, Any]]] = None,
+        bw_roll: bool = False,
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle(tr("Assign Capture Times"))
@@ -190,13 +241,34 @@ class AssignCaptureTimesDialog(QDialog):
         self._results: dict[str, FrameTime] = {}
         self._issues: list[Issue] = []
         self._changes: dict[str, dict] = {}
-        self._reference_icons: dict[str, QIcon] = {}
         self._sel_frame = 0
         self._sel_photo = ""
         self._armed = ""
         self._notice = ""
+        # Compare: the photo under comparison, the gap it is shown in, and the photos left out.
+        self._view = "panels"
+        self._cmp_path = ""
+        self._cmp_gap = 0
+        self._cmp_msg = ""
+        self._skipped: set[str] = set()
+        # Phone photos as read (small for cards and the strip, large for Compare and Quick Look),
+        # and the pixmaps shown, which follow Photos in B&W.
+        self._photo_small: dict[str, QImage] = {}
+        self._photo_large: dict[str, QImage] = {}
+        self._photo_shown: dict[tuple[str, int, bool], QPixmap] = {}
+        self._asked_small: set[str] = set()
+        self._asked_large: set[str] = set()
+        # Frames rendered large with their edits, by frame key; failed ones keep their thumbnail.
+        self._frame_large: dict[str, QPixmap] = {}
+        self._frame_failed: set[str] = set()
+        self._ql_item: Optional[tuple[str, str]] = None  # ("frame", key) or ("photo", path)
         self._loader = ReferenceThumbnails(self)
         self._loader.loaded.connect(self._on_reference_thumbnail)
+        self._large_loader = ReferenceThumbnails(self)
+        self._large_loader.loaded.connect(self._on_large_photo)
+        self._pictures = FramePictures(sources, parent=self) if sources else None
+        if self._pictures is not None:
+            self._pictures.ready.connect(self._on_frame_picture)
         # The plan always holds the whole roll: values and photos on frames outside a selection
         # still shape the times. The scope only chooses the frames that Apply writes.
         self.plan = CapturePlan(frames_by_scope.get("roll", []))
@@ -206,34 +278,40 @@ class AssignCaptureTimesDialog(QDialog):
         root = QVBoxLayout(self)
         root.setContentsMargins(THEME.space_2xl, THEME.space_2xl, THEME.space_2xl, THEME.space_2xl)
         root.setSpacing(THEME.space_lg)
-        root.addLayout(self._build_top_row(scope))
-        root.addLayout(self._build_strip_header())
-        root.addWidget(self._build_strip())
-        root.addLayout(self._build_action_bar())
-        body = QHBoxLayout()
-        body.setSpacing(THEME.space_2xl)
-        body.addWidget(self._build_frame_panel(), 2)
-        body.addWidget(self._build_reference_panel(), 3)
-        root.addLayout(body, 1)
-        preview_row, self.preview_fold = self._build_preview()
-        root.addLayout(preview_row)
-        root.addWidget(self.preview_fold, 1)
+        root.addLayout(self._build_top_row(scope, bw_roll))
+        strip_row, self.strip_fold = self._build_strip_fold()
+        root.addLayout(strip_row)
+        root.addWidget(self.strip_fold)
+        self.pages = QStackedWidget()
+        self.pages.addWidget(self._build_panels_page())
+        self.pages.addWidget(self._build_compare_page())
+        root.addWidget(self.pages, 1)
         self.status = hint_label()
         root.addWidget(self.status)
         root.addLayout(self._build_footer())
+        self.quick_look = QuickLook(self)
+        self.quick_look.closed.connect(self._on_quick_look_closed)
+        self._build_keys()
 
+        self._apply_frame_size(self._saved_frame_size())
         self._load_frame_pixmaps()
         self._refresh()
         self.resize(1100, 760)
         remember_dialog_geometry(self, repo, "assign_capture_times")
 
     # ── layout ────────────────────────────────────────────────────────────
-    def _build_top_row(self, scope: str) -> QHBoxLayout:
+    def _build_top_row(self, scope: str, bw_roll: bool) -> QHBoxLayout:
         sel = len(self._frames_by_scope.get("selection", []))
         roll = len(self._frames_by_scope.get("roll", []))
         row, self.scope_choice = build_scope_row(sel, roll)
         self.scope_choice.setCurrentIndex(self.scope_choice.findData(scope))
         self.scope_choice.currentChanged.connect(self._on_scope_changed)
+        self.view_choice = SegmentedChoice(
+            (("", tr("Frames and Photos")), ("", tr("Compare"))),
+            tr("Edit the frame values, or compare each phone photo with the frames around it, large"),
+            data=("panels", "compare"),
+        )
+        self.view_choice.currentChanged.connect(self._on_view_changed)
         self.direction_choice = SegmentedChoice(
             (("", tr("Forward")), ("", tr("Reverse"))),
             tr("Reverse when the scanner fed the film last frame first: the strip then shows the frames in the order you shot them"),
@@ -241,16 +319,35 @@ class AssignCaptureTimesDialog(QDialog):
         )
         self.direction_choice.setCurrentIndex(1 if self.plan.reverse else 0)
         self.direction_choice.currentChanged.connect(self._on_direction_changed)
-        row.addSpacing(THEME.space_2xl)
-        row.addWidget(self.direction_choice)
+        # A button reads a single & as a mnemonic mark.
+        label = tr("Photos in B&W").replace("&", "&&")
+        self.bw_toggle = labeled_toggle("fa5s.adjust", label, bw_roll, tr("Show the phone photos in black and white, like the film"))
+        self.bw_toggle.toggled.connect(self._on_bw_toggled)
+        # Checked, the label turns semibold and outgrows the size hint of the regular weight.
+        self.bw_toggle.setMinimumWidth(self.bw_toggle.sizeHint().width() + THEME.space_xl)
+        # In line after the scope choice, before the row's stretch.
+        for index, widget in enumerate((self.view_choice, self.direction_choice, self.bw_toggle)):
+            row.insertSpacing(1 + 2 * index, THEME.space_2xl)
+            row.insertWidget(2 + 2 * index, widget)
         return row
 
-    def _build_strip_header(self) -> QHBoxLayout:
-        row = QHBoxLayout()
-        row.addWidget(section_subheader(tr("Film Strip")))
+    def _build_strip_fold(self):
         self.strip_note = hint_label()
-        row.addWidget(self.strip_note, 1)
-        return row
+        self.strip_note.setWordWrap(False)
+        self.size_slider = CompactSlider(tr("Frame Size"), 1, len(_FRAME_SIZES), 3, step=1, precision=1)
+        self.size_slider.setToolTip(wrap_tooltip(tr("The height of the frames in the film strip; Ctrl and the mouse wheel also change it")))
+        self.size_slider.setFixedWidth(240)
+        self.size_slider.valueChanged.connect(lambda value: self._apply_frame_size(round(value)))
+        row, fold = group_fold(
+            "assign_capture_times_strip",
+            tr("Film Strip"),
+            self._build_strip(),
+            self._build_action_bar(),
+            buttons=(self.strip_note, self.size_slider),
+            default_open=True,
+        )
+        fold.button.toggled.connect(self._on_strip_folded)
+        return row, fold
 
     def _build_strip(self) -> QScrollArea:
         self.strip = CaptureStrip()
@@ -260,13 +357,125 @@ class AssignCaptureTimesDialog(QDialog):
         self.strip.slotClicked.connect(self._on_slot_clicked)
         self.strip.segmentClicked.connect(self._on_segment_clicked)
         self.strip.photoDropped.connect(self._on_photo_dropped)
+        self.strip.quickLookRequested.connect(self._on_strip_quick_look)
+        self.strip.sizeStepped.connect(lambda step: self._step_frame_size(step))
+        self.strip.set_gap_rule(self.plan.allowed_gaps)
         self.strip_scroll = QScrollArea()
         self.strip_scroll.setWidget(self.strip)
         self.strip_scroll.setWidgetResizable(False)
         self.strip_scroll.setFrameShape(QFrame.Shape.NoFrame)
         self.strip_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.strip_scroll.setFixedHeight(STRIP_HEIGHT + self.strip_scroll.horizontalScrollBar().sizeHint().height() + THEME.space_sm)
+        # The segment labels follow the visible part of the strip.
+        self.strip_scroll.horizontalScrollBar().valueChanged.connect(lambda _v: self.strip.update())
         return self.strip_scroll
+
+    def _build_panels_page(self) -> QWidget:
+        page = QWidget()
+        col = QVBoxLayout(page)
+        col.setContentsMargins(0, 0, 0, 0)
+        col.setSpacing(THEME.space_lg)
+        body = QHBoxLayout()
+        body.setSpacing(THEME.space_2xl)
+        body.addWidget(self._build_frame_panel(), 2)
+        body.addWidget(self._build_reference_panel(), 3)
+        col.addLayout(body, 1)
+        preview_row, self.preview_fold = self._build_preview()
+        col.addLayout(preview_row)
+        col.addWidget(self.preview_fold, 1)
+        return page
+
+    def _build_compare_page(self) -> QWidget:
+        page = QWidget()
+        col = QVBoxLayout(page)
+        col.setContentsMargins(0, 0, 0, 0)
+        col.setSpacing(THEME.space_md)
+        self.cmp_title = section_subheader("")
+        self.cmp_detail = hint_label()
+        col.addWidget(self.cmp_title)
+        col.addWidget(self.cmp_detail)
+        self.cmp_row = CompareRow()
+        self.cmp_row.itemClicked.connect(self._on_compare_item)
+        self.cmp_row.quickLookRequested.connect(self._quick_look)
+        col.addWidget(self.cmp_row, 1)
+        nav = QHBoxLayout()
+        self.earlier_btn = labeled_action("fa5s.arrow-left", tr("Earlier Gap"), tr("Show the photo one gap earlier in the film strip"))
+        self.later_btn = labeled_action("fa5s.arrow-right", tr("Later Gap"), tr("Show the photo one gap later in the film strip"))
+        self.earlier_btn.clicked.connect(lambda: self._compare_move(-1))
+        self.later_btn.clicked.connect(lambda: self._compare_move(1))
+        middle = QVBoxLayout()
+        middle.setSpacing(THEME.space_xs)
+        self.cmp_gap_label = section_subheader("")
+        self.cmp_segment = hint_label()
+        for label in (self.cmp_gap_label, self.cmp_segment):
+            label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            middle.addWidget(label)
+        nav.addWidget(self.earlier_btn)
+        nav.addLayout(middle, 1)
+        nav.addWidget(self.later_btn)
+        col.addLayout(nav)
+        actions = QHBoxLayout()
+        actions.setSpacing(THEME.space_md)
+        self.place_btn = labeled_action(
+            "fa5s.check", tr("Place Here"), tr("Put the photo in this gap, or take it out when it is already here"), primary=True
+        )
+        self.skip_btn = labeled_action("fa5s.forward", tr("Skip"), tr("Leave this photo out of the strip and show the next one"))
+        self.place_btn.clicked.connect(self._compare_toggle)
+        self.skip_btn.clicked.connect(self._compare_skip)
+        for button in (self.earlier_btn, self.later_btn, self.place_btn, self.skip_btn):
+            button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        actions.addWidget(self.place_btn)
+        actions.addWidget(self.skip_btn)
+        actions.addWidget(
+            hint_label(
+                tr(
+                    "Keys: left and right arrows change the gap, Enter places or removes, S skips, up and down arrows change the photo, Space opens Quick Look."
+                )
+            ),
+            1,
+        )
+        col.addLayout(actions)
+        self.cmp_msg = hint_label()
+        col.addWidget(self.cmp_msg)
+        self.queue = QListWidget()
+        self.queue.setViewMode(QListView.ViewMode.IconMode)
+        self.queue.setFlow(QListView.Flow.LeftToRight)
+        self.queue.setWrapping(False)
+        self.queue.setMovement(QListView.Movement.Static)
+        self.queue.setIconSize(_QUEUE_ICON)
+        self.queue.setItemDelegate(_QueueCard(self.queue))
+        self.queue.setUniformItemSizes(True)
+        grid = _QueueCard.SIZE + QSize(THEME.space_md, THEME.space_md)
+        self.queue.setGridSize(grid)
+        self.queue.setFixedHeight(grid.height() + self.queue.horizontalScrollBar().sizeHint().height() + THEME.space_md)
+        self.queue.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.queue.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.queue.itemClicked.connect(lambda item: self._compare_show(item.data(Qt.ItemDataRole.UserRole)))
+        col.addWidget(self.queue)
+        return page
+
+    def _build_keys(self) -> None:
+        """Keys of the dialog. The Compare and Quick Look keys only act while those are shown, so
+        the arrows and Enter keep their usual work in the fields and lists."""
+
+        def key(sequence, slot) -> QShortcut:
+            shortcut = QShortcut(QKeySequence(sequence), self)
+            shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+            shortcut.activated.connect(slot)
+            return shortcut
+
+        self._compare_keys = [
+            key(Qt.Key.Key_Left, lambda: self._on_arrow(-1)),
+            key(Qt.Key.Key_Right, lambda: self._on_arrow(1)),
+            key(Qt.Key.Key_Up, lambda: self._compare_step(-1)),
+            key(Qt.Key.Key_Down, lambda: self._compare_step(1)),
+            key(Qt.Key.Key_Return, self._compare_toggle),
+            key(Qt.Key.Key_Enter, self._compare_toggle),
+            key(Qt.Key.Key_S, self._compare_skip),
+        ]
+        key(Qt.Key.Key_Space, self._on_space)
+        for sequence, step in (("+", 1), ("=", 1), ("-", -1)):
+            key(sequence, lambda step=step: self._step_frame_size(step))
+        self._sync_keys()
 
     def _build_action_bar(self) -> QHBoxLayout:
         row = QHBoxLayout()
@@ -292,6 +501,11 @@ class AssignCaptureTimesDialog(QDialog):
         col.addWidget(self.frame_header)
         self.frame_reach = hint_label()
         col.addWidget(self.frame_reach)
+        self.frame_picture = PictureBox(150)
+        self.frame_picture.clicked.connect(
+            lambda: self._quick_look("frame", self.plan.frames[self._position()].key) if self.plan.frames else None
+        )
+        col.addWidget(self.frame_picture)
 
         self.time_edit = QLineEdit()
         self.time_edit.setToolTip(wrap_tooltip(tr("A known time for this frame, in its time zone")))
@@ -482,15 +696,28 @@ class AssignCaptureTimesDialog(QDialog):
             return result.zone
         return f"{result.zone} · UTC{offset_text(result.offset)}"
 
+    def _gap_text(self, gap: int) -> str:
+        names = [_short_name(f.name) for f in self.plan.frames]
+        if not names:
+            return ""
+        if gap < 0:
+            return tr("Before {name}", name=names[0])
+        if gap >= len(names) - 1:
+            return tr("After {name}", name=names[-1])
+        return tr("Between {first} and {second}", first=names[gap], second=names[gap + 1])
+
     # ── state to view ─────────────────────────────────────────────────────
     def _refresh(self) -> None:
         self._results, self._issues = self.plan.compute(self._scan_times)
         self._flags = self._flags_by_id()
         self._fill_strip()
         self._fill_action_bar()
-        self._fill_frame_panel()
-        self._fill_references()
-        self._fill_preview()
+        if self._view == "compare":
+            self._fill_compare()
+        else:
+            self._fill_frame_panel()
+            self._fill_references()
+            self._fill_preview()
         self._show_issues()
 
     def _flags_by_id(self) -> dict[str, list[tuple[str, str]]]:
@@ -516,6 +743,7 @@ class AssignCaptureTimesDialog(QDialog):
         return self.plan.segment_at(min(self._sel_frame, len(self.plan.frames) - 1))
 
     def _fill_strip(self) -> None:
+        compared = self.plan.photo(self._cmp_path) if self._view == "compare" else None
         frames = []
         for i, frame in enumerate(self.plan.frames):
             result = self._results.get(frame.key)
@@ -551,11 +779,18 @@ class AssignCaptureTimesDialog(QDialog):
                         error=name in self._flags,
                     )
                 )
-                icon = self._reference_icons.get(photo.path)
-                if icon is not None and not icon.isNull():
-                    self.strip.set_photo_pixmap(photo.path, icon.pixmap(QSize(_REFERENCE_THUMB, _REFERENCE_THUMB)))
-                elif photo.path not in self._reference_icons:
-                    self._request_thumbnail(photo.path)
+                self._push_strip_photo(photo.path)
+        if compared is not None and compared.local is not None and self.plan.gap_of(compared.path) != self._cmp_gap:
+            # Compare shows the photo dashed where it would go, among the photos of that gap in time order.
+            row = gaps.setdefault(self._cmp_gap, [])
+            at = sum(1 for p in self.plan.refs_at(self._cmp_gap) if p.path != compared.path and photo_moment(p) <= photo_moment(compared))
+            row.insert(
+                at,
+                StripPhoto(
+                    compared.path, compared.local.strftime("%H:%M"), Path(compared.path).stem, self._gap_text(self._cmp_gap), ghost=True
+                ),
+            )
+            self._push_strip_photo(compared.path)
         moving = self._armed if self._armed in self.plan.placed else ""
         self.strip.set_content(
             frames,
@@ -567,6 +802,7 @@ class AssignCaptureTimesDialog(QDialog):
             selected_segment=self._selected_segment(),
             armed=bool(self._armed),
             moving=moving,
+            slot_range=self.plan.allowed_gaps(self._armed) if self._armed else None,
         )
         placed = len(self.plan.placed)
         self.strip_note.setText(
@@ -617,6 +853,8 @@ class AssignCaptureTimesDialog(QDialog):
         _, last = self.plan.bounds()[self.plan.segment_at(pos)]
         end = next((i - 1 for i in range(pos + 1, last + 1) if self.plan.own_of(i)), last)
         self.frame_header.setText(tr("Frame {frame}", frame=_short_name(frame.name)))
+        self.frame_picture.set_pixmap(self._frame_pixmap(frame.key))
+        self._want_frames([frame.key])
         if end > pos:
             self.frame_reach.setText(
                 tr(
@@ -689,7 +927,7 @@ class AssignCaptureTimesDialog(QDialog):
         self.references.clear()
         for photo in photos:
             card = self._card_lines(photo)
-            item = QListWidgetItem(self._reference_icons.get(photo.path, QIcon()), f"{card['time']}\n{card['name']}")
+            item = QListWidgetItem(self._photo_icon(photo.path), f"{card['time']}\n{card['name']}")
             item.setData(Qt.ItemDataRole.UserRole, photo.path)
             item.setData(_CARD_ROLE, card)
             item.setToolTip(self._where_text(photo.path) if photo.path in self.plan.placed else self._photo_name(photo.path))
@@ -855,17 +1093,456 @@ class AssignCaptureTimesDialog(QDialog):
         first, second = moment(a), moment(b)
         return round(abs((second - first).total_seconds()) / 3600) if first and second else 0
 
+    # ── pictures ──────────────────────────────────────────────────────────
     def _request_thumbnail(self, path: str) -> None:
-        if path not in self._reference_icons:
-            self._reference_icons[path] = QIcon()
+        if path not in self._asked_small:
+            self._asked_small.add(path)
             if Path(path).parent != Path("."):
                 self._loader.request(path, _REFERENCE_THUMB)
 
+    def _request_large_photo(self, path: str) -> None:
+        if path not in self._asked_large:
+            self._asked_large.add(path)
+            if Path(path).parent != Path("."):
+                self._large_loader.request(path, _PHOTO_LARGE)
+
+    def _photo_pixmap(self, path: str, large: bool = False) -> Optional[QPixmap]:
+        """The photo as shown: large when asked and loaded, else small; in black and white when
+        Photos in B&W is on. None before it is read."""
+        image = self._photo_large.get(path) if large else None
+        image = image if image is not None else self._photo_small.get(path)
+        if image is None or image.isNull():
+            return None
+        bw = self.bw_toggle.isChecked()
+        key = (path, image.cacheKey(), bw)
+        pixmap = self._photo_shown.get(key)
+        if pixmap is None:
+            pixmap = QPixmap.fromImage(image.convertToFormat(QImage.Format.Format_Grayscale8) if bw else image)
+            self._photo_shown[key] = pixmap
+        return pixmap
+
+    def _photo_icon(self, path: str) -> QIcon:
+        pixmap = self._photo_pixmap(path)
+        return QIcon(pixmap) if pixmap is not None else QIcon()
+
+    def _push_strip_photo(self, path: str) -> None:
+        pixmap = self._photo_pixmap(path, large=True)
+        if pixmap is not None:
+            self.strip.set_photo_pixmap(path, pixmap)
+        else:
+            self._request_thumbnail(path)
+
+    def _show_photo_everywhere(self, path: str) -> None:
+        """A photo was read, or Photos in B&W changed: update every place that shows it."""
+        icon = self._photo_icon(path)
+        for i in range(self.references.count()):
+            item = self.references.item(i)
+            if item.data(Qt.ItemDataRole.UserRole) == path:
+                item.setIcon(icon)
+        for i in range(self.queue.count()):
+            item = self.queue.item(i)
+            if item.data(Qt.ItemDataRole.UserRole) == path:
+                item.setIcon(icon)
+        large = self._photo_pixmap(path, large=True)
+        if large is not None:
+            self.strip.set_photo_pixmap(path, large)
+            self.cmp_row.set_pixmap("photo", path, large)
+            if self._ql_item == ("photo", path):
+                self.quick_look.set_pixmap(large)
+
+    def _frame_pixmap(self, key: str) -> Optional[QPixmap]:
+        """The frame rendered large when ready, else its thumbnail."""
+        if key in self._frame_large:
+            return self._frame_large[key]
+        icon = self._thumbnails.get(key)
+        return icon.pixmap(_FRAME_PIXMAP) if icon is not None and not icon.isNull() else None
+
+    def _want_frames(self, keys: list[str]) -> None:
+        """Render these frames large, in this order, when they are not yet."""
+        if self._pictures is not None:
+            self._pictures.request([k for k in keys if k not in self._frame_large and k not in self._frame_failed])
+
+    def _keep_few(self, kept: dict) -> None:
+        """Forget the oldest large pictures over the limit; a later look renders them again."""
+        while len(kept) > _LARGE_KEPT:
+            kept.pop(next(iter(kept)))
+
+    def _on_frame_picture(self, key: str, image: QImage) -> None:
+        if image.isNull():
+            self._frame_failed.add(key)
+            return
+        pixmap = QPixmap.fromImage(image)
+        self._frame_large[key] = pixmap
+        self._keep_few(self._frame_large)
+        position = self.plan.position_of(key)
+        if position >= 0:
+            self.strip.set_frame_pixmap(position, pixmap)
+        self.cmp_row.set_pixmap("frame", key, pixmap)
+        if self._ql_item == ("frame", key):
+            self.quick_look.set_pixmap(pixmap)
+        if self._view == "panels" and self.plan.frames and self.plan.frames[self._position()].key == key:
+            self.frame_picture.set_pixmap(pixmap)
+
+    def _on_large_photo(self, path: str, image: QImage) -> None:
+        if image.isNull():
+            return
+        self._photo_large[path] = image
+        self._keep_few(self._photo_large)
+        self._show_photo_everywhere(path)
+
     def _load_frame_pixmaps(self) -> None:
         for i, frame in enumerate(self.plan.frames):
-            icon = self._thumbnails.get(frame.key)
-            if icon is not None and not icon.isNull():
-                self.strip.set_frame_pixmap(i, icon.pixmap(_FRAME_PIXMAP))
+            pixmap = self._frame_pixmap(frame.key)
+            if pixmap is not None:
+                self.strip.set_frame_pixmap(i, pixmap)
+
+    # ── frame size ────────────────────────────────────────────────────────
+    def _saved_frame_size(self) -> int:
+        saved = self._repo.get_global_setting(_SIZE_KEY) if self._repo is not None else None
+        return saved if isinstance(saved, int) and 1 <= saved <= len(_FRAME_SIZES) else 3
+
+    def _apply_frame_size(self, size: int) -> None:
+        size = max(1, min(len(_FRAME_SIZES), size))
+        if round(self.size_slider.value()) != size:
+            self.size_slider.blockSignals(True)
+            self.size_slider.setValue(size)
+            self.size_slider.blockSignals(False)
+        self.strip.set_thumb_height(_FRAME_SIZES[size - 1])
+        self.strip_scroll.setFixedHeight(self.strip.height() + self.strip_scroll.horizontalScrollBar().sizeHint().height() + THEME.space_sm)
+        if self._repo is not None:
+            self._repo.save_global_setting(_SIZE_KEY, size)
+
+    def _step_frame_size(self, step: int) -> None:
+        self._apply_frame_size(round(self.size_slider.value()) + step)
+
+    # ── Compare ───────────────────────────────────────────────────────────
+    def _photos_in_order(self) -> list:
+        """The photos that can be placed, in time order."""
+        return [p for p in self.plan.references if p.local is not None]
+
+    def _next_open(self, after: str) -> str:
+        """The next photo in time order that is neither placed nor skipped, from the start again."""
+        order = self._photos_in_order()
+        start = next((i for i, p in enumerate(order) if p.path == after), -1)
+        for k in range(1, len(order) + 1):
+            photo = order[(start + k) % len(order)]
+            if photo.path not in self.plan.placed and photo.path not in self._skipped:
+                return photo.path
+        return ""
+
+    def _compare_bounds(self) -> tuple[int, int]:
+        first, last = self.plan.allowed_gaps(self._cmp_path)
+        return (-1, len(self.plan.frames) - 1) if first > last else (first, last)
+
+    def _open_compare(self) -> None:
+        self._view = "compare"
+        order = self._photos_in_order()
+        if order:
+            chosen = self._chosen_photo()
+            self._compare_show(chosen if self.plan.photo(chosen) in order else (self._next_open("") or order[0].path), refresh=False)
+        else:
+            self._cmp_path = ""
+        self._armed, self._notice = "", ""
+        self.pages.setCurrentIndex(1)
+        self.strip_fold.set_open(False)
+        self._sync_keys()
+        self._refresh()
+
+    def _leave_compare(self) -> None:
+        if self._view != "compare":
+            return
+        self._view = "panels"
+        if self.plan.frames:
+            self._sel_frame = max(0, min(len(self.plan.frames) - 1, self._cmp_gap))
+        self._sel_photo, self._cmp_msg = "", ""
+        self.view_choice.blockSignals(True)
+        self.view_choice.setCurrentIndex(self.view_choice.findData("panels"))
+        self.view_choice.blockSignals(False)
+        self.pages.setCurrentIndex(0)
+        self.strip_fold.set_open(True)
+        self._sync_keys()
+        self._refresh()
+
+    def _compare_show(self, path: str, refresh: bool = True) -> None:
+        """Compare this photo, in its gap or where its time puts it."""
+        if self.plan.photo(path) is None:
+            return
+        self._cmp_path, self._cmp_msg = path, ""
+        self._cmp_gap = self.plan.suggested_gap(path, self._results)
+        if refresh:
+            self._refresh()
+            self._scroll_to_compared()
+
+    def _compare_move(self, step: int) -> None:
+        if self._view != "compare" or not self._cmp_path:
+            return
+        first, last = self._compare_bounds()
+        self._cmp_gap = max(first, min(last, self._cmp_gap + step))
+        self._cmp_msg = ""
+        self._refresh()
+        self._scroll_to_compared()
+
+    def _compare_toggle(self) -> None:
+        """Enter: take the photo out when it is shown in its own gap, else put it here and go on to
+        the next photo in time order."""
+        path = self._cmp_path
+        if self._view != "compare" or not path:
+            return
+        if self.plan.gap_of(path) == self._cmp_gap:
+            self.plan.remove(path)
+            self._refresh()
+            return
+        done = self.plan.move(path, self._cmp_gap) if path in self.plan.placed else self.plan.place(path, self._cmp_gap)
+        if done:
+            self._skipped.discard(path)
+            self._results, self._issues = self.plan.compute(self._scan_times)
+            following = self._next_open(path)
+            if following:
+                self._compare_show(following, refresh=False)
+            else:
+                self._cmp_msg = tr("All photos are placed or skipped. Check the frame values, then click Apply.")
+        self._refresh()
+        self._scroll_to_compared()
+
+    def _compare_skip(self) -> None:
+        path = self._cmp_path
+        if self._view != "compare" or not path or path in self.plan.placed:
+            return
+        self._skipped.add(path)
+        following = self._next_open(path)
+        if following:
+            self._compare_show(following, refresh=False)
+        else:
+            self._cmp_msg = tr("All photos are placed or skipped. Check the frame values, then click Apply.")
+        self._refresh()
+
+    def _compare_step(self, step: int) -> None:
+        if self._view != "compare" or self.quick_look.isVisible():
+            return
+        order = self._photos_in_order()
+        index = next((i for i, p in enumerate(order) if p.path == self._cmp_path), 0)
+        target = max(0, min(len(order) - 1, index + step)) if order else -1
+        if target >= 0 and order[target].path != self._cmp_path:
+            self._compare_show(order[target].path)
+
+    def _scroll_to_compared(self) -> None:
+        rect = self.strip.rect_of("ghost", path=self._cmp_path) or self.strip.rect_of("photo", path=self._cmp_path)
+        if rect is not None:
+            self.strip_scroll.ensureVisible(rect.center().x(), rect.center().y(), self.strip_scroll.width() // 2, 0)
+
+    def _compare_items(self) -> list[CompareItem]:
+        """The frames around the gap, the photos in it and next to it, as in the strip."""
+        g, n, frames = self._cmp_gap, len(self.plan.frames), self.plan.frames
+        compared = self.plan.photo(self._cmp_path)
+
+        def frame(i: int, role: str) -> CompareItem:
+            if not 0 <= i < n:
+                empty = "" if role == "context" else (tr("Start of the roll") if i < 0 else tr("End of the roll"))
+                return CompareItem("frame", f"#{i}", role, empty=empty or " ")
+            result = self._results.get(frames[i].key)
+            when = result.local.strftime("%H:%M") if result and result.local else ""
+            return CompareItem("frame", frames[i].key, role, _short_name(frames[i].name), "" if role == "context" else when)
+
+        def photo(p, role: str) -> CompareItem:
+            when = p.local.strftime("%H:%M") if p.local else ""
+            if role == "current":
+                return CompareItem("photo", p.path, role, self._photo_name(p.path), when)
+            return CompareItem("photo", p.path, role, when, Path(p.path).stem if role == "placed" else "")
+
+        in_gap = [p for p in self.plan.refs_at(g) if p.path != compared.path] + [compared]
+        in_gap.sort(key=photo_moment)
+        return [
+            frame(g - 1, "context"),
+            *(photo(p, "near") for p in self.plan.refs_at(g - 1) if p.path != compared.path),
+            frame(g, "frame"),
+            *(photo(p, "current" if p.path == compared.path else "placed") for p in in_gap),
+            frame(g + 1, "frame"),
+            *(photo(p, "near") for p in self.plan.refs_at(g + 1) if p.path != compared.path),
+            frame(g + 2, "context"),
+        ]
+
+    def _fill_compare(self) -> None:
+        compared = self.plan.photo(self._cmp_path)
+        has_photo = compared is not None and compared.local is not None
+        for widget in (self.earlier_btn, self.later_btn, self.place_btn):
+            widget.setEnabled(has_photo)
+        if not has_photo:
+            self.cmp_title.setText(tr("No phone photos"))
+            self.cmp_detail.setText(tr("Add photos under Frames and Photos, then compare them here."))
+            self.cmp_row.set_items([])
+            self.cmp_gap_label.setText("")
+            self.cmp_segment.setText("")
+            self.skip_btn.setVisible(False)
+            self.queue.clear()
+            return
+        g, at = self._cmp_gap, self.plan.gap_of(compared.path)
+        order = self._photos_in_order()
+        self.cmp_title.setText(f"{self._photo_name(compared.path)} · {compared.local.strftime('%Y-%m-%d %H:%M:%S')}")
+        place = place_summary("", "", "", compared.latitude, compared.longitude) if compared.latitude is not None else tr("No place")
+        state = (
+            self._placed_text(compared.path) if at is not None else (tr("Skipped") if compared.path in self._skipped else tr("Not placed"))
+        )
+        parts = [place]
+        if compared.offset is not None:
+            parts.append(f"UTC{offset_text(compared.offset)}")
+        parts += [state, tr("Photo {n} of {count}", n=order.index(compared) + 1, count=len(order))]
+        self.cmp_detail.setText(" · ".join(parts))
+
+        items = self._compare_items()
+        self.cmp_row.set_items(items)
+        frame_keys = [i.ident for i in items if i.kind == "frame" and not i.empty]
+        for item in items:
+            if item.empty:
+                continue
+            if item.kind == "frame":
+                pixmap = self._frame_pixmap(item.ident)
+            else:
+                self._request_large_photo(item.ident)
+                pixmap = self._photo_pixmap(item.ident, large=True)
+                if pixmap is None:
+                    self._request_thumbnail(item.ident)
+            if pixmap is not None:
+                self.cmp_row.set_pixmap(item.kind, item.ident, pixmap)
+        ahead = [f.key for f in self.plan.frames[max(0, g + 3) : g + 6]] + [f.key for f in self.plan.frames[max(0, g - 2) : max(0, g - 1)]]
+        self._want_frames(frame_keys[1:-1] + frame_keys[:1] + frame_keys[-1:] + ahead)
+
+        first, last = self._compare_bounds()
+        self.earlier_btn.setEnabled(g > first)
+        self.later_btn.setEnabled(g < last)
+        self.cmp_gap_label.setText(self._gap_text(g))
+        self.cmp_segment.setText(self._segment_label(self.plan.segment_at(self._gap_frame(g + 1 if g < 0 else g))))
+        self.place_btn.setText(tr("Remove from Strip") if at == g else tr("Place Here"))
+        self.skip_btn.setVisible(at is None)
+        self.cmp_msg.setText(self._cmp_msg)
+        self._fill_queue(order)
+
+    def _fill_queue(self, order: list) -> None:
+        self.queue.clear()
+        for photo in order:
+            gap = self.plan.gap_of(photo.path)
+            names = [_short_name(f.name) for f in self.plan.frames]
+            if gap is not None and 0 <= gap < len(names) - 1:
+                state, color = f"{names[gap]}–{names[gap + 1]}", THEME.warn_amber
+            elif gap is not None:
+                state, color = self._gap_text(gap), THEME.warn_amber
+            elif photo.path in self._skipped:
+                state, color = tr("Skipped"), THEME.text_hint
+            else:
+                state, color = tr("Not placed"), THEME.text_secondary
+            when = photo.local.strftime("%H:%M")
+            item = QListWidgetItem(self._photo_icon(photo.path), f"{when} {state}")
+            item.setData(Qt.ItemDataRole.UserRole, photo.path)
+            item.setData(_QUEUE_ROLE, (when, state, color))
+            item.setToolTip(f"{self._photo_name(photo.path)} · {photo.local.strftime('%Y-%m-%d %H:%M:%S')}")
+            self.queue.addItem(item)
+            if photo.path == self._cmp_path:
+                item.setSelected(True)
+                self.queue.scrollToItem(item)
+            self._request_thumbnail(photo.path)
+
+    # ── Quick Look ────────────────────────────────────────────────────────
+    def _quick_look(self, kind: str, ident: str) -> None:
+        """Show a frame (by key) or a photo (by path) as large as the dialog allows."""
+        if kind == "frame":
+            position = self.plan.position_of(ident)
+            if position < 0:
+                return
+            frame = self.plan.frames[position]
+            result = self._results.get(frame.key)
+            when = result.local.strftime("%Y-%m-%d %H:%M:%S") if result and result.local else tr("No time")
+            caption, detail = f"{frame.name} · {when}", self._source_text(result)
+            pixmap = self._frame_pixmap(frame.key)
+            neighbours = [f.key for f in self.plan.frames[max(0, position - 1) : position + 2] if f.key != frame.key]
+            self._want_frames([frame.key, *neighbours])
+        else:
+            photo = self.plan.photo(ident)
+            if photo is None:
+                return
+            when = photo.local.strftime("%Y-%m-%d %H:%M:%S") if photo.local else tr("No capture time")
+            caption = f"{self._photo_name(ident)} · {when}"
+            detail = self._placed_text(ident) or tr("Not placed")
+            self._request_large_photo(ident)
+            pixmap = self._photo_pixmap(ident, large=True)
+        self._ql_item = (kind, ident)
+        self.quick_look.show_picture(pixmap, caption, detail)
+        self._sync_keys()
+
+    def _quick_look_sequence(self) -> list[tuple[str, str]]:
+        """Frames and placed photos in strip order."""
+        sequence = [("photo", p.path) for p in self.plan.refs_at(-1)]
+        for i, frame in enumerate(self.plan.frames):
+            sequence.append(("frame", frame.key))
+            sequence += [("photo", p.path) for p in self.plan.refs_at(i)]
+        return sequence
+
+    def _quick_look_step(self, step: int) -> None:
+        sequence = self._quick_look_sequence()
+        if self._ql_item in sequence:
+            index = sequence.index(self._ql_item) + step
+            if 0 <= index < len(sequence):
+                self._quick_look(*sequence[index])
+
+    def _on_quick_look_closed(self) -> None:
+        self._ql_item = None
+        self._sync_keys()
+
+    def _on_strip_quick_look(self, kind: str, ident: str) -> None:
+        if kind == "frame":
+            self._quick_look("frame", self.plan.frames[int(ident)].key)
+        else:
+            self._quick_look("photo", ident)
+
+    def _on_space(self) -> None:
+        if self.quick_look.isVisible():
+            self.quick_look.close_view()
+            return
+        item = self.strip.hovered_item() if self.strip_fold.is_open() else None
+        if item is not None and item[0] == "frame":
+            item = ("frame", self.plan.frames[int(item[1])].key)
+        if item is None and self._view == "compare":
+            item = self.cmp_row.hovered_item() or (("photo", self._cmp_path) if self._cmp_path else None)
+        if item is None and self.plan.frames and self._view == "panels":
+            item = ("frame", self.plan.frames[self._position()].key)
+        if item is not None:
+            self._quick_look(*item)
+
+    def _on_arrow(self, step: int) -> None:
+        if self.quick_look.isVisible():
+            self._quick_look_step(step)
+        else:
+            self._compare_move(step)
+
+    def _sync_keys(self) -> None:
+        active = self._view == "compare" or self.quick_look.isVisible()
+        for shortcut in self._compare_keys:
+            shortcut.setEnabled(active)
+
+    # ── view, size and B&W events ─────────────────────────────────────────
+    def _on_view_changed(self, _index: int) -> None:
+        if self.view_choice.currentData() == "compare":
+            self._open_compare()
+        else:
+            self._leave_compare()
+
+    def _on_strip_folded(self, open_: bool) -> None:
+        if open_ and self._view == "compare":
+            self._fill_strip()
+            self._scroll_to_compared()
+
+    def _on_bw_toggled(self, _on: bool) -> None:
+        for path in set(self._photo_small) | set(self._photo_large):
+            self._show_photo_everywhere(path)
+        self._refresh()
+
+    def _on_compare_item(self, kind: str, ident: str, role: str) -> None:
+        """A side frame steps the photo toward it; a photo of the row is compared next; the large
+        frames and the compared photo open in Quick Look."""
+        if role == "context":
+            self._compare_move(-1 if self.plan.position_of(ident) < self._cmp_gap else 1)
+        elif kind == "photo" and role in ("placed", "near"):
+            self._compare_show(ident)
+        else:
+            self._quick_look(kind, ident)
 
     def _scroll_to_photo(self, path: str) -> None:
         rect = self.strip.rect_of("photo", path=path)
@@ -896,6 +1573,9 @@ class AssignCaptureTimesDialog(QDialog):
         if done:
             self._armed, self._notice, self._sel_photo = "", "", path
             self._sel_frame = self._gap_frame(gap)
+        elif self.plan.photo(path) is not None and not self.plan.keeps_order(path, gap):
+            # Show the gaps that keep the time order instead.
+            self._armed, self._notice = path, tr("A photo goes after the older photos and before the newer ones.")
         self._refresh()
         if done:
             self._scroll_to_photo(path)
@@ -923,6 +1603,13 @@ class AssignCaptureTimesDialog(QDialog):
         self._refresh()
 
     def _on_frame_clicked(self, index: int) -> None:
+        if self._view == "compare":
+            # Compare next to the clicked frame, on the side that faces the photo.
+            first, last = self._compare_bounds()
+            gap = index - 1 if index > self._cmp_gap else index
+            self._cmp_gap = max(first, min(last, gap))
+            self._refresh()
+            return
         if self._armed:
             self._notice = tr("Photos go between frames. Click a + next to the frame.")
             self._fill_action_bar()
@@ -941,6 +1628,9 @@ class AssignCaptureTimesDialog(QDialog):
         self._refresh()
 
     def _on_strip_photo_clicked(self, path: str) -> None:
+        if self._view == "compare":
+            self._compare_show(path)
+            return
         if self._armed:
             return
         self._select_photo(path)
@@ -1097,14 +1787,12 @@ class AssignCaptureTimesDialog(QDialog):
     def _on_reference_thumbnail(self, path: str, image: QImage) -> None:
         if image.isNull():
             return
-        icon = QIcon(QPixmap.fromImage(image))
-        self._reference_icons[path] = icon
-        for i in range(self.references.count()):
-            item = self.references.item(i)
-            if item.data(Qt.ItemDataRole.UserRole) == path:
-                item.setIcon(icon)
-        if path in self.plan.placed:
-            self.strip.set_photo_pixmap(path, icon.pixmap(QSize(_REFERENCE_THUMB, _REFERENCE_THUMB)))
+        self._photo_small[path] = image
+        self._show_photo_everywhere(path)
+        small = self._photo_pixmap(path)
+        if small is not None and path not in self._photo_large:
+            self.strip.set_photo_pixmap(path, small)
+            self.cmp_row.set_pixmap("photo", path, small)
 
     def dragEnterEvent(self, event) -> None:  # noqa: N802
         if any(url.toLocalFile().lower().endswith(_PHOTO_SUFFIXES) for url in event.mimeData().urls()):
@@ -1117,9 +1805,17 @@ class AssignCaptureTimesDialog(QDialog):
         event.acceptProposedAction()
 
     def keyPressEvent(self, event) -> None:  # noqa: N802
-        if event.key() == Qt.Key.Key_Escape and self._armed:
-            self._disarm()
-            return
+        if event.key() == Qt.Key.Key_Escape:
+            # Esc steps back one level: Quick Look, then Compare, then placing; only then it closes.
+            if self.quick_look.isVisible():
+                self.quick_look.close_view()
+                return
+            if self._view == "compare":
+                self._leave_compare()
+                return
+            if self._armed:
+                self._disarm()
+                return
         if event.key() in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace) and self.references.hasFocus() and self._chosen_photo():
             self._on_remove_photo()
             return
@@ -1143,6 +1839,9 @@ class AssignCaptureTimesDialog(QDialog):
 
     def done(self, result: int) -> None:
         self._loader.stop()
+        self._large_loader.stop()
+        if self._pictures is not None:
+            self._pictures.stop()
         super().done(result)
 
     def changes(self) -> dict[str, dict]:
@@ -1168,13 +1867,14 @@ def open_assign_capture_times_dialog(parent, session) -> int:
     roll = [i for i in session.asset_model.visible_actual_indices_ordered() if 0 <= i < len(files)]
     chosen = set(state.selected_indices) | {state.selected_file_idx}
 
+    configs = {idx: state.config if idx == state.selected_file_idx else session.config_for_asset(files[idx]) for idx in roll}
+
     def plan_frame(idx: int) -> PlanFrame:
         asset = files[idx]
-        config = state.config if idx == state.selected_file_idx else session.config_for_asset(asset)
         return PlanFrame(
             key=asset["hash"],
             name=Path(asset.get("name") or asset["path"]).stem,
-            metadata=config.metadata,
+            metadata=configs[idx].metadata,
             rejected=bool(asset.get("excluded")),
         )
 
@@ -1189,8 +1889,13 @@ def open_assign_capture_times_dialog(parent, session) -> int:
         icon = state.thumbnails.get(asset_thumbnail_key(files[idx]))
         if icon is not None:
             thumbnails[files[idx]["hash"]] = icon if isinstance(icon, QIcon) else QIcon(icon)
+    # Each frame's file and edits, for the large pictures of Compare and Quick Look.
+    sources = {files[idx]["hash"]: (files[idx], configs[idx]) for idx in roll}
+    bw_roll = 2 * sum(1 for idx in roll if configs[idx].process.process_mode == ProcessMode.BW) > len(roll)
     scope = "selection" if len(frames_by_scope["selection"]) > 1 else "roll"
-    dialog = AssignCaptureTimesDialog(parent, frames_by_scope, thumbnails, scope=scope, scan_times=scan_times, repo=session.repo)
+    dialog = AssignCaptureTimesDialog(
+        parent, frames_by_scope, thumbnails, scope=scope, scan_times=scan_times, repo=session.repo, sources=sources, bw_roll=bw_roll
+    )
     if dialog.exec() != QDialog.DialogCode.Accepted:
         return 0
     return session.assign_capture_times(dialog.changes())

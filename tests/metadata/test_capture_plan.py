@@ -320,3 +320,33 @@ class TestSegmentOrder:
         plan.set_typed("h2", datetime(2026, 10, 25, 9, 0))
         _, issues = plan.compute()
         assert [(i.code, i.frames, i.is_error) for i in issues] == [(SEGMENTS_OUT_OF_ORDER, ("h2", "h1"), False)]
+
+
+class TestTimeOrder:
+    def test_a_photo_only_goes_after_older_and_before_newer_photos(self) -> None:
+        a, b, c = _photo("/r/a.heic", 10, 0), _photo("/r/b.heic", 11, 0), _photo("/r/c.heic", 12, 0)
+        plan = _plan(6, a, b, c)
+        assert plan.place(a.path, 0) and plan.place(c.path, 3)
+        assert plan.allowed_gaps(b.path) == (0, 3)
+        assert not plan.place(b.path, 4) and not plan.place(b.path, -1)
+        assert plan.place(b.path, 2)
+        assert not plan.move(c.path, 1) and plan.move(c.path, 4)
+
+    def test_photos_that_contradict_each_other_lift_the_rule(self) -> None:
+        a, b, c = _photo("/r/a.heic", 10, 0), _photo("/r/b.heic", 11, 0), _photo("/r/c.heic", 12, 0)
+        plan = _plan(6, a, b, c)
+        plan.place(a.path, 1)
+        plan.place(c.path, 3)
+        plan.set_reverse(True)
+        first, last = plan.allowed_gaps(b.path)
+        assert first > last and plan.place(b.path, 0)
+
+    def test_a_photo_starts_where_the_frame_times_hold_its_time(self) -> None:
+        a, b, c, d = (_photo(f"/r/{n}.heic", hh, mm) for n, hh, mm in (("a", 10, 0), ("b", 10, 40), ("c", 12, 0), ("d", 12, 30)))
+        plan = _plan(8, a, b, c, d)
+        plan.place(a.path, 0)
+        plan.place(c.path, 6)
+        results, _ = plan.compute()
+        assert plan.suggested_gap(b.path, results) == 2
+        assert plan.suggested_gap(d.path, results) == 6
+        assert plan.suggested_gap(a.path, results) == 0
