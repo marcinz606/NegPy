@@ -635,12 +635,21 @@ class LibraryTree(QWidget):
         found, dropped = self.controller.rediscover_rolls()
         self.reload()
         if found or dropped:
-            new, gone = count_of(found, "new roll"), count_of(dropped, "filtered roll")
+            new, hidden = count_of(found, "new roll"), count_of(dropped, "roll")
             if found and dropped:
-                message = tr("Found {value}, removed {value1}", value=new, value1=gone)
+                message = tr(
+                    "Found {value}. Discovery Filters hid {value1}. A hidden roll keeps its settings and shows again when you remove its filter.",
+                    value=new,
+                    value1=hidden,
+                )
+            elif dropped:
+                message = tr(
+                    "Discovery Filters hid {value}. A hidden roll keeps its settings and shows again when you remove its filter.",
+                    value=hidden,
+                )
             else:
-                message = tr("Found {value}", value=new) if found else tr("Removed {value}", value=gone)
-            self.controller.set_status(message, 3000)
+                message = tr("Found {value}", value=new)
+            self.controller.set_status(message, 6000 if dropped else 3000)
             self.rolls_changed.emit()
 
     def reload(self) -> None:
