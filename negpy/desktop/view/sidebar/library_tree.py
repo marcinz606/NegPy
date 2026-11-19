@@ -635,7 +635,7 @@ class LibraryTree(QWidget):
         found, dropped = self.controller.rediscover_rolls()
         self.reload()
         if found or dropped:
-            new, hidden = count_of(found, "new roll"), count_of(dropped, "roll")
+            new, hidden = count_of(found, "roll"), count_of(dropped, "roll")
             if found and dropped:
                 message = tr(
                     "Found {value}. Discovery Filters hid {value1}. A hidden roll keeps its settings and shows again when you remove its filter.",
@@ -1108,8 +1108,9 @@ class LibraryTree(QWidget):
         """Forget the rolls the row shows, not every roll under its folders: a roll opened
         on its own, or one the filter hides, can sit in one of them."""
         if confirm_delete_named(self, tr("Folder"), item.text(0), informative=_DELETE_FOLDER_ROW):
-            self.controller.delete_rolls(self._leaf_roll_ids(item))
-            rolls.forget_import_sources(self.repo, item.data(0, _FOLDER_ROLE))
+            folders = item.data(0, _FOLDER_ROLE)
+            self.controller.delete_rolls([*self._leaf_roll_ids(item), *rolls.hidden_rolls_under(self.repo, folders)])
+            rolls.forget_import_sources(self.repo, folders)
             self.reload()
             self.rolls_changed.emit()
 

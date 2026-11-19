@@ -1828,7 +1828,8 @@ class AppController(QObject):
         saved = self.session.repo.get_global_setting("session_active_roll")
         if not isinstance(saved, str):
             return self._roll_id_for_restored_paths(paths)
-        return saved if saved and rolls.roll_for_id(self.session.repo, saved) else None
+        repo = self.session.repo
+        return saved if saved and rolls.roll_for_id(repo, saved) and not rolls.is_hidden(repo, saved) else None
 
     def _roll_id_for_restored_paths(self, paths: List[str]) -> Optional[str]:
         """The one roll every restored path agrees on, or None: the same "only when
@@ -2041,9 +2042,10 @@ class AppController(QObject):
         before = {roll_id for roll_id, _entry in rolls.all_rolls_sorted(repo)}
         for source in rolls.import_sources(repo):
             rolls.import_subfolders_as_rolls(repo, source, skip_dismissed=True)
-        if self.state.active_roll_id and self.state.active_roll_id not in before:
+        listed = {roll_id for roll_id, _entry in rolls.all_rolls_sorted(repo)}
+        if self.state.active_roll_id and self.state.active_roll_id not in listed:
             self._leave_open_roll()
-        return len({roll_id for roll_id, _entry in rolls.all_rolls_sorted(repo)} - before), dropped
+        return len(listed - before), dropped
 
     def delete_rolls(self, roll_ids: List[str]) -> None:
         """Forget *roll_ids* with the edits made only in them. The open roll closes first, so no
@@ -2104,6 +2106,10 @@ class AppController(QObject):
             if folder_roll_missing(self.session.repo, roll_id):
                 self.roll_folder_missing.emit(roll_id)
                 return
+            # Opening the folder by hand shows a roll a Discovery Filter hides; Refresh hides it again.
+            if rolls.is_hidden(self.session.repo, roll_id):
+                rolls.recognize_folder(self.session.repo, entry["folder_path"])
+                self.library_cleared.emit()
             paths = [entry["folder_path"]]
             self._extras_notice = roll_id if self._unnoticed_extras(roll_id, entry) else None
         else:
@@ -2182,6 +2188,13 @@ class AppController(QObject):
         existing = rolls.folder_roll_id_for_path(self.session.repo, folder)
         if existing:
             name = (rolls.roll_for_id(self.session.repo, existing) or {}).get("name") or folder
+            if rolls.is_hidden(self.session.repo, existing):
+                return (
+                    "blocked",
+                    tr("“{name}” is a folder roll that Discovery Filters hide. Open its folder to show it.", name=name),
+                    None,
+                    [],
+                )
             return "blocked", tr("“{name}” is already a folder roll, so open it from the Library.", name=name), None, []
         return "ready", "", folder, missing
 

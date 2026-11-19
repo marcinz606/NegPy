@@ -295,6 +295,21 @@ def prune_filtered_rolls(repo: Any) -> int:
     return len(dropped)
 
 
+def is_hidden(repo: Any, roll_id: Optional[str]) -> bool:
+    """Whether a Discovery Filter hides *roll_id* from every roll list."""
+    return bool(roll_id) and bool((_view(repo).get(roll_id) or {}).get(FILTERED))
+
+
+def hidden_rolls_under(repo: Any, folders: Sequence[str]) -> List[str]:
+    """The hidden folder rolls at or under one of *folders*."""
+    keys = [_folder_key(folder) for folder in folders]
+    return [
+        roll_id
+        for roll_id, entry in _view(repo).items()
+        if entry.get(FILTERED) and any(_under(_folder_key(entry.get("folder_path") or ""), key) for key in keys)
+    ]
+
+
 def forget_import_sources(repo: Any, folders: List[str]) -> None:
     """Forget every import source at or under one of *folders* that no remaining folder roll
     sits under: Refresh still walks a source for the rolls it keeps."""
