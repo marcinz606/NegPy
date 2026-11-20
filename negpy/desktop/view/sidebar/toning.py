@@ -1,4 +1,5 @@
 from negpy.kernel.system.i18n import tr
+from negpy.kernel.system.config import DEFAULT_WORKSPACE_CONFIG
 from negpy.desktop.view.sidebar.base import BaseSidebar
 from negpy.desktop.view.styles.templates import hint_label, section_subheader
 from negpy.desktop.view.widgets.fold import show_while
@@ -14,6 +15,7 @@ class ToningSidebar(BaseSidebar):
 
     def _init_ui(self) -> None:
         conf = self.state.config.toning
+        default = DEFAULT_WORKSPACE_CONFIG.toning
 
         self.chemical_header = section_subheader(tr("CHEMICAL TONING"))
         self.chemical_header.setToolTip(tr("Toners act in the order shown, and a later toner does not change what an earlier one toned."))
@@ -23,15 +25,15 @@ class ToningSidebar(BaseSidebar):
         self.alt_process_hint.setVisible(False)
         self.layout.addWidget(self.alt_process_hint)
 
-        self.selenium_slider = CompactSlider(tr("Selenium"), 0.0, 2.0, conf.selenium_strength)
-        self.sepia_slider = CompactSlider(tr("Sepia"), 0.0, 2.0, conf.sepia_strength)
-        self.gold_slider = CompactSlider(tr("Gold"), 0.0, 2.0, conf.gold_strength)
+        self.selenium_slider = CompactSlider(tr("Selenium"), 0.0, 2.0, default.selenium_strength, value=conf.selenium_strength)
+        self.sepia_slider = CompactSlider(tr("Sepia"), 0.0, 2.0, default.sepia_strength, value=conf.sepia_strength)
+        self.gold_slider = CompactSlider(tr("Gold"), 0.0, 2.0, default.gold_strength, value=conf.gold_strength)
         self.gold_slider.setToolTip(tr("Gold toner, B&W negatives only: blue-black tones, or orange-red highlights over sepia."))
-        self.blue_slider = CompactSlider(tr("Iron Blue"), 0.0, 2.0, conf.blue_strength)
+        self.blue_slider = CompactSlider(tr("Iron Blue"), 0.0, 2.0, default.blue_strength, value=conf.blue_strength)
         self.blue_slider.setToolTip(tr("Iron blue toner, B&W negatives only: blue shadows and navy blacks."))
-        self.copper_slider = CompactSlider(tr("Copper"), 0.0, 2.0, conf.copper_strength)
+        self.copper_slider = CompactSlider(tr("Copper"), 0.0, 2.0, default.copper_strength, value=conf.copper_strength)
         self.copper_slider.setToolTip(tr("Copper toner, B&W negatives only: pink to brick-red tones, with weaker blacks."))
-        self.vanadium_slider = CompactSlider(tr("Vanadium"), 0.0, 2.0, conf.vanadium_strength)
+        self.vanadium_slider = CompactSlider(tr("Vanadium"), 0.0, 2.0, default.vanadium_strength, value=conf.vanadium_strength)
         self.vanadium_slider.setToolTip(tr("Vanadium toner, B&W negatives only: green midtones and highlights while blacks stay black."))
         for slider in (
             self.selenium_slider,
@@ -45,14 +47,18 @@ class ToningSidebar(BaseSidebar):
 
         self.layout.addWidget(section_subheader(tr("SPLIT TONING")))
 
-        self.shadow_hue_slider = HueSlider("Shadow Hue", conf.shadow_tint_hue)
-        self.shadow_str_slider = CompactSlider(tr("Shadow Strength"), 0.0, 1.0, conf.shadow_tint_strength)
+        self.shadow_hue_slider = HueSlider("Shadow Hue", default.shadow_tint_hue, value=conf.shadow_tint_hue)
+        self.shadow_str_slider = CompactSlider(
+            tr("Shadow Strength"), 0.0, 1.0, default.shadow_tint_strength, value=conf.shadow_tint_strength
+        )
         self.layout.addWidget(self.shadow_str_slider)
         shadow_hue_rail = SliderGroup(self.shadow_hue_slider)
         self.layout.addWidget(shadow_hue_rail)
 
-        self.highlight_hue_slider = HueSlider("Highlight Hue", conf.highlight_tint_hue)
-        self.highlight_str_slider = CompactSlider(tr("Highlight Strength"), 0.0, 1.0, conf.highlight_tint_strength)
+        self.highlight_hue_slider = HueSlider("Highlight Hue", default.highlight_tint_hue, value=conf.highlight_tint_hue)
+        self.highlight_str_slider = CompactSlider(
+            tr("Highlight Strength"), 0.0, 1.0, default.highlight_tint_strength, value=conf.highlight_tint_strength
+        )
         self.layout.addWidget(self.highlight_str_slider)
         highlight_hue_rail = SliderGroup(self.highlight_hue_slider)
         self.layout.addWidget(highlight_hue_rail)

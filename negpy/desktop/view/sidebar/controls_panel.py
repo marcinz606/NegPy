@@ -128,6 +128,7 @@ _DEFAULT_ALTPROC = AltProcessConfig()
 _DEFAULT_GEOMETRY = DEFAULT_WORKSPACE_CONFIG.geometry
 _DEFAULT_PROCESS = DEFAULT_WORKSPACE_CONFIG.process
 _DEFAULT_FINISH = FinishConfig()
+_DEFAULT_RETOUCH = DEFAULT_WORKSPACE_CONFIG.retouch
 _DEFAULT_FLATFIELD = FlatFieldConfig()
 _DEFAULT_CONFIG = DEFAULT_WORKSPACE_CONFIG
 
@@ -1278,6 +1279,11 @@ class ControlsPanel(QWidget):
         lab_count = sum(
             [
                 lab.saturation != _lab.saturation and not unused_in_mode("lab", "saturation", cfg),
+                # Skin Protection only steers a Chroma change, and Radius a sharpen.
+                lab.skin_protection != _lab.skin_protection
+                and lab.saturation != _lab.saturation
+                and not unused_in_mode("lab", "skin_protection", cfg),
+                lab.sharpen_radius != _lab.sharpen_radius and lab.sharpen > 0,
                 lab.clahe_strength != _lab.clahe_strength,
                 lab.sharpen != _lab.sharpen,
                 lab.chroma_denoise != _lab.chroma_denoise and not unused_in_mode("lab", "chroma_denoise", cfg),
@@ -1344,10 +1350,28 @@ class ControlsPanel(QWidget):
         )
 
         ret = cfg.retouch
-        # Heal-tool clicks and scratch polylines both commit into manual_heal_strokes, where
-        # manual_dust_spots is the legacy list, so count them or the Finish tab's edited dot
-        # never lights for healed images.
-        retouch_count = int(ret.dust_remove) + len(ret.manual_dust_spots) + len(ret.manual_heal_strokes)
+        _ret = _DEFAULT_RETOUCH
+        # Every repair that reaches the pixels, and each setting while it steers one. The Clone
+        # brush settings only set the next stroke, which keeps its own copy.
+        ir_on = ret.ir_dust_remove and self.controller.state.has_ir
+        retouch_count = sum(
+            [
+                ret.dust_remove,
+                ir_on,
+                len(ret.manual_dust_spots),
+                len(ret.manual_heal_strokes),
+                len(ret.scratch_lines),
+                len(ret.dust_exclusion_strokes),
+                len(ret.clone_strokes),
+                *(
+                    (getattr(ret, f) != getattr(_ret, f) for f in ("dust_threshold", "dust_hair_threshold", "dust_size"))
+                    if ret.dust_remove
+                    else ()
+                ),
+                ir_on and ret.ir_threshold != _ret.ir_threshold,
+                bool(ret.scratch_lines) and ret.scratch_threshold != _ret.scratch_threshold,
+            ]
+        )
 
         _fin = _DEFAULT_FINISH
         fin = cfg.finish

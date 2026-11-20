@@ -218,3 +218,49 @@ def test_a_color_stock_and_chroma_on_a_bw_frame_are_no_edit(qapp):
     controller.state.config = bw_paper
     panel._sync_modified_dots()
     assert panel.paper_section.modified_count == 1
+
+
+def _retouch_count(controller, panel, has_ir=False, **retouch) -> int:
+    cfg = DEFAULT_WORKSPACE_CONFIG
+    controller.state.config = replace(cfg, retouch=replace(cfg.retouch, **retouch))
+    controller.state.has_ir = has_ir
+    panel._sync_modified_dots()
+    return panel.retouch_section.modified_count
+
+
+def test_every_retouch_repair_counts(qapp):
+    controller, panel = _panel()
+    stroke = ([[0.5, 0.5]], 6.0, 0.01, 0.0, 1.0, 0.5, True)
+    assert _retouch_count(controller, panel) == 0
+    assert _retouch_count(controller, panel, clone_strokes=[stroke, stroke]) == 2
+    assert _retouch_count(controller, panel, scratch_lines=[(0.1, 0.1, 0.2, 0.9, 4.0)]) == 1
+    assert _retouch_count(controller, panel, ir_dust_remove=True, has_ir=True) == 1
+
+
+def test_a_retouch_setting_counts_only_while_it_steers_a_repair(qapp):
+    controller, panel = _panel()
+    assert _retouch_count(controller, panel, dust_threshold=0.8) == 0
+    assert _retouch_count(controller, panel, dust_remove=True, dust_threshold=0.8) == 2
+    # IR Removal carried onto a scan with no IR channel does nothing.
+    assert _retouch_count(controller, panel, ir_dust_remove=True, ir_threshold=0.8) == 0
+    assert _retouch_count(controller, panel, ir_dust_remove=True, ir_threshold=0.8, has_ir=True) == 2
+    assert _retouch_count(controller, panel, scratch_threshold=0.7) == 0
+    assert _retouch_count(controller, panel, scratch_lines=[(0.1, 0.1, 0.2, 0.9, 4.0)], scratch_threshold=0.7) == 2
+    # The Clone brush settings only set the next stroke.
+    assert _retouch_count(controller, panel, clone_strength=0.5, clone_feather=0.9) == 0
+
+
+def test_skin_protection_and_radius_count_only_while_their_parent_acts(qapp):
+    controller, panel = _panel()
+    cfg = DEFAULT_WORKSPACE_CONFIG
+
+    def lab_count(**lab) -> int:
+        controller.state.config = replace(cfg, lab=replace(cfg.lab, **lab))
+        panel._sync_modified_dots()
+        return panel.lab_section.modified_count
+
+    assert lab_count(skin_protection=0.9) == 0
+    assert lab_count(skin_protection=0.9, saturation=1.3) == 2
+    # Sharpening 0 is itself an edit (the default sharpens); Radius adds nothing to it.
+    assert lab_count(sharpen_radius=2.0, sharpen=0.0) == 1
+    assert lab_count(sharpen_radius=2.0, sharpen=0.5) == 2

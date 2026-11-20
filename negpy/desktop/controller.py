@@ -6797,15 +6797,12 @@ class AppController(QObject):
         self._lock_roll_card("film", before)
 
     def set_roll_default(self, card_key: str, persist: bool = True, readback_metrics: bool = True, **changes) -> None:
-        """Edits *card_key* for the active frame alone, same as any other control --
-        marking it locked away from the roll the instant it changes and was not
-        already, since the frame no longer matches whatever the roll currently says.
-        The card's own Roll button (apply_roll_card) is the only thing that pushes a
-        value back out; editing alone never does, here or on an already-locked card.
+        """Edits *card_key* for the active frame alone. A saved edit locks the card while
+        the frame differs from the roll and unlocks it when the frame matches it again
+        (rolls.settle_card_lock). Only the card's Roll button pushes the value to the roll.
 
-        persist=False (a slider mid-drag) previews on the active frame only, same as
-        any other live preview -- the lock only follows the settled value, not every
-        intermediate tick.
+        persist=False (a slider mid-drag) previews on the active frame only; the lock
+        follows the saved value, not each intermediate tick.
         """
         before = self.state.config
         self._edit_card(card_key, rolls.ROLL_DEFAULT_FIELDS[card_key][0], persist, readback_metrics, changes)

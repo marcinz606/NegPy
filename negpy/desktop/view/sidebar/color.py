@@ -1,6 +1,7 @@
 from negpy.kernel.system.i18n import tr
 from PyQt6.QtWidgets import QHBoxLayout, QVBoxLayout, QWidget
 
+from negpy.kernel.system.config import DEFAULT_WORKSPACE_CONFIG
 from negpy.desktop.session import ToolMode
 from negpy.desktop.view.shortcut_registry import tooltip_with_shortcut
 from negpy.desktop.view.sidebar.base import BaseSidebar, SliderPage
@@ -11,6 +12,7 @@ from negpy.desktop.view.widgets.sliders import CompactSlider, KelvinSlider
 from negpy.desktop.view.widgets.step_combo import StepCombo
 from negpy.features.exposure.logic import kelvin_to_wb, wb_to_kelvin
 from negpy.features.exposure.models import BwFilter
+from negpy.features.process.models import cast_removal_for_mode
 from negpy.features.process.path import RenderPath, is_mono, render_path
 from negpy.features.transparency.logic import slide_kelvin_to_wb, slide_wb_to_kelvin
 
@@ -21,6 +23,7 @@ class ColorSidebar(BaseSidebar):
 
     def _init_ui(self) -> None:
         conf = self.state.config.exposure
+        default = DEFAULT_WORKSPACE_CONFIG.exposure
 
         # Flat, in the order the arrows darken a blue sky: None, then yellow to red, then the greens.
         self.filter_combo = StepCombo.of(
@@ -77,17 +80,23 @@ class ColorSidebar(BaseSidebar):
         self._temp_anchor = None
         color_col.addWidget(self.temp_slider)
 
-        self.cyan_slider = CompactSlider(tr("Cyan"), -1.0, 1.0, conf.wb_cyan, has_neutral=True)
+        self.cyan_slider = CompactSlider(tr("Cyan"), -1.0, 1.0, default.wb_cyan, value=conf.wb_cyan, has_neutral=True)
         self.cyan_slider.slider.setObjectName("cyan_slider")
-        self.magenta_slider = CompactSlider(tr("Magenta"), -1.0, 1.0, conf.wb_magenta, has_neutral=True)
+        self.magenta_slider = CompactSlider(tr("Magenta"), -1.0, 1.0, default.wb_magenta, value=conf.wb_magenta, has_neutral=True)
         self.magenta_slider.slider.setObjectName("magenta_slider")
-        self.yellow_slider = CompactSlider(tr("Yellow"), -1.0, 1.0, conf.wb_yellow, has_neutral=True)
+        self.yellow_slider = CompactSlider(tr("Yellow"), -1.0, 1.0, default.wb_yellow, value=conf.wb_yellow, has_neutral=True)
         self.yellow_slider.slider.setObjectName("yellow_slider")
         for slider in (self.cyan_slider, self.magenta_slider, self.yellow_slider):
             color_col.addWidget(slider)
 
         # Balances each dye layer against the frame's own grays; no region scopes it.
-        self.cast_removal_slider = CompactSlider(tr("Cast Removal"), 0.0, 1.0, conf.cast_removal_strength)
+        self.cast_removal_slider = CompactSlider(
+            tr("Cast Removal"),
+            0.0,
+            1.0,
+            cast_removal_for_mode(self.state.config.process.process_mode, default.cast_removal_strength),
+            value=conf.cast_removal_strength,
+        )
         self.cast_removal_slider.setToolTip(
             tr("Cast Removal: removes a color cast that differs between the dark and bright parts of the picture. 0 is off.")
         )
@@ -223,6 +232,8 @@ class ColorSidebar(BaseSidebar):
             self.magenta_slider.setValue(getattr(conf, channels[1]))
             self.yellow_slider.setValue(getattr(conf, channels[2]))
             self.temp_slider.setValue(self._kelvin_of(conf, idx))
+            mode = self.state.config.process.process_mode
+            self.cast_removal_slider.set_default(cast_removal_for_mode(mode, DEFAULT_WORKSPACE_CONFIG.exposure.cast_removal_strength))
             self.cast_removal_slider.setValue(conf.cast_removal_strength)
             self.filter_combo.setCurrentIndex(self.filter_combo.findData(conf.bw_filter))
             bw = is_mono(self.state.config.process)

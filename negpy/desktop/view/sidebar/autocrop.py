@@ -1,4 +1,5 @@
 from negpy.desktop.view.styles.templates import add_choice_items, select_choice
+from negpy.kernel.system.config import DEFAULT_WORKSPACE_CONFIG
 from negpy.kernel.system.i18n import tr
 from PyQt6.QtWidgets import QHBoxLayout
 
@@ -20,6 +21,7 @@ class AutocropSidebar(BaseSidebar):
 
     def _init_ui(self) -> None:
         conf = self.state.config.geometry
+        default = DEFAULT_WORKSPACE_CONFIG.geometry
 
         self.manual_crop_btn = clearable_tool_toggle(
             "fa5s.crop-alt", tr("Draw"), tr("Draw the crop on the picture."), tr("Clear the crop you drew.")
@@ -66,7 +68,8 @@ class AutocropSidebar(BaseSidebar):
             tr("Crop Offset"),
             -5.0,
             100.0,
-            float(conf.autocrop_offset),
+            float(default.autocrop_offset),
+            value=float(conf.autocrop_offset),
             step=1.0,
             precision=1,
             unit=" px",
@@ -76,7 +79,8 @@ class AutocropSidebar(BaseSidebar):
             tr("Rebate Trim"),
             0.0,
             150.0,
-            conf.autocrop_rebate_trim * 100.0,
+            default.autocrop_rebate_trim * 100.0,
+            value=conf.autocrop_rebate_trim * 100.0,
             step=5.0,
             precision=1,
             unit="%",

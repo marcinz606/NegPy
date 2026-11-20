@@ -1,6 +1,7 @@
 from negpy.kernel.system.i18n import tr
 from PyQt6.QtWidgets import QHBoxLayout, QVBoxLayout, QWidget
 
+from negpy.kernel.system.config import DEFAULT_WORKSPACE_CONFIG
 from negpy.desktop.view.widgets.collapsible import hidden_by_gating
 from negpy.desktop.view.widgets.segmented_choice import SegmentedChoice
 from negpy.desktop.view.sidebar.base import BaseSidebar, SliderPage
@@ -62,17 +63,20 @@ class AltProcessSidebar(BaseSidebar):
         self.layout.addStretch()
 
     def _build_lith(self, conf) -> QWidget:
+        default = DEFAULT_WORKSPACE_CONFIG.altproc
         block = QWidget()
         col = QVBoxLayout(block)
         col.setContentsMargins(0, 0, 0, 0)
 
-        self.exposure_slider = CompactSlider(tr("Exposure"), 0.0, 5.0, conf.lith_exposure, step=0.1, unit=" st")
+        self.exposure_slider = CompactSlider(
+            tr("Exposure"), 0.0, 5.0, default.lith_exposure, value=conf.lith_exposure, step=0.1, unit=" st"
+        )
         self.exposure_slider.setToolTip(tr("Extra exposure: more gives warmer, more colorful highlights and softer tones."))
-        self.snatch_slider = CompactSlider(tr("Snatch Point"), 0.0, 1.0, conf.lith_snatch)
+        self.snatch_slider = CompactSlider(tr("Snatch Point"), 0.0, 1.0, default.lith_snatch, value=conf.lith_snatch)
         self.snatch_slider.setToolTip(
             tr("When the print leaves the developer: higher gives deeper, colder blacks, and lower stays light and warm.")
         )
-        self.abruptness_slider = CompactSlider(tr("Abruptness"), 0.0, 1.0, conf.lith_abruptness)
+        self.abruptness_slider = CompactSlider(tr("Abruptness"), 0.0, 1.0, default.lith_abruptness, value=conf.lith_abruptness)
         self.abruptness_slider.setToolTip(tr("How suddenly the shadows turn black."))
 
         col.addWidget(self.exposure_slider)
@@ -81,6 +85,7 @@ class AltProcessSidebar(BaseSidebar):
         return block
 
     def _build_cyanotype(self, conf) -> QWidget:
+        default = DEFAULT_WORKSPACE_CONFIG.altproc
         block = QWidget()
         col = QVBoxLayout(block)
         col.setContentsMargins(0, 0, 0, 0)
@@ -97,15 +102,17 @@ class AltProcessSidebar(BaseSidebar):
         sens_row.addWidget(self.sensitizer_combo, stretch=1)
         col.addLayout(sens_row)
 
-        self.cyano_exposure_slider = CompactSlider(tr("Exposure"), -2.0, 4.0, conf.cyano_exposure, step=0.1, unit=" st")
+        self.cyano_exposure_slider = CompactSlider(
+            tr("Exposure"), -2.0, 4.0, default.cyano_exposure, value=conf.cyano_exposure, step=0.1, unit=" st"
+        )
         self.cyano_exposure_slider.setToolTip(tr("UV exposure time: more makes the print bluer, and less makes it paler."))
-        self.cyano_scale_slider = CompactSlider(tr("Exposure Scale"), 0.8, 2.8, conf.cyano_scale, step=0.05)
+        self.cyano_scale_slider = CompactSlider(tr("Exposure Scale"), 0.8, 2.8, default.cyano_scale, value=conf.cyano_scale, step=0.05)
         self.cyano_scale_slider.setToolTip(
             tr("Contrast: a shorter scale gives more contrast but can lose detail in shadows and highlights.")
         )
-        self.cyano_bleach_slider = CompactSlider(tr("Bleach"), 0.0, 0.5, conf.cyano_bleach)
+        self.cyano_bleach_slider = CompactSlider(tr("Bleach"), 0.0, 0.5, default.cyano_bleach, value=conf.cyano_bleach)
         self.cyano_bleach_slider.setToolTip(tr("Washing soda bleach: removes blue, highlights first."))
-        self.cyano_tannin_slider = CompactSlider(tr("Tannin"), 0.0, 0.5, conf.cyano_tannin)
+        self.cyano_tannin_slider = CompactSlider(tr("Tannin"), 0.0, 0.5, default.cyano_tannin, value=conf.cyano_tannin)
         self.cyano_tannin_slider.setToolTip(tr("Tea or tannin toner: turns bleached areas brown, so use Bleach first for a full brown."))
 
         col.addWidget(self.cyano_exposure_slider)
@@ -116,15 +123,22 @@ class AltProcessSidebar(BaseSidebar):
         return block
 
     def _build_sabattier(self, conf) -> QWidget:
+        default = DEFAULT_WORKSPACE_CONFIG.altproc
         block = QWidget()
         col = QVBoxLayout(block)
         col.setContentsMargins(0, 0, 0, 0)
 
-        self.sabattier_strength_slider = CompactSlider(tr("Strength"), 0.0, 2.0, conf.sabattier_strength, step=0.05)
+        self.sabattier_strength_slider = CompactSlider(
+            tr("Strength"), 0.0, 2.0, default.sabattier_strength, value=conf.sabattier_strength, step=0.05
+        )
         self.sabattier_strength_slider.setToolTip(tr("Length of the second exposure: above 1 the light tones reverse."))
-        self.sabattier_reexposure_slider = CompactSlider(tr("Re-exposure"), 0.1, 0.9, conf.sabattier_reexposure, step=0.05)
+        self.sabattier_reexposure_slider = CompactSlider(
+            tr("Re-exposure"), 0.1, 0.9, default.sabattier_reexposure, value=conf.sabattier_reexposure, step=0.05
+        )
         self.sabattier_reexposure_slider.setToolTip(tr("Where the reversal starts: tones darker than this stay as they are."))
-        self.sabattier_agitation_slider = CompactSlider(tr("Agitation"), 0.0, 1.0, conf.sabattier_agitation, step=0.05)
+        self.sabattier_agitation_slider = CompactSlider(
+            tr("Agitation"), 0.0, 1.0, default.sabattier_agitation, value=conf.sabattier_agitation, step=0.05
+        )
         self.sabattier_agitation_slider.setToolTip(tr("Tray rocking after the flash: less rocking draws wider light lines along edges."))
 
         col.addWidget(self.sabattier_strength_slider)

@@ -75,3 +75,26 @@ def test_masking_without_auto_hides_the_hint() -> None:
     sidebar._sync_masking()
     assert abs(sidebar.sharpen_masking_slider.value() - 0.25) < 1e-6
     assert sidebar.auto_masking_hint.isHidden()
+
+
+def test_a_slider_resets_to_the_shipped_default_not_the_config_it_was_built_from() -> None:
+    # A carried (sticky) value at startup is an edit, as the card count reads it.
+    sidebar = _sidebar(chroma_denoise=0.0)
+    slider = sidebar.chroma_denoise_slider
+    assert slider.value() == 0.0
+    assert slider.default_value() == WorkspaceConfig().lab.chroma_denoise
+    assert not slider._edited_dot.isHidden()
+
+
+def test_skin_protection_and_the_sharpen_rail_gray_out_at_their_parents_neutral() -> None:
+    sidebar = _sidebar(saturation=1.0, sharpen=0.0)
+    sidebar.sync_ui()
+    rail = (sidebar.sharpen_method_combo, sidebar.auto_masking_btn, sidebar.sharpen_radius_slider, sidebar.sharpen_masking_slider)
+    assert not sidebar.skin_protection_slider.isEnabled()
+    assert not any(w.isEnabled() for w in rail)
+
+    sidebar.saturation_slider.setValue(1.3)
+    sidebar.sharpen_slider.setValue(0.4)
+    sidebar._sync_rails()
+    assert sidebar.skin_protection_slider.isEnabled()
+    assert all(w.isEnabled() for w in rail)

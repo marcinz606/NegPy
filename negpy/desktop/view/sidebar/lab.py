@@ -1,5 +1,6 @@
 from negpy.kernel.system.i18n import tr
 from PyQt6.QtWidgets import QHBoxLayout
+from negpy.kernel.system.config import DEFAULT_WORKSPACE_CONFIG
 from negpy.desktop.view.widgets.fold import group_fold, rail_fold
 from negpy.desktop.view.widgets.sliders import CompactSlider
 from negpy.desktop.view.sidebar.base import BaseSidebar
@@ -19,21 +20,22 @@ class LabSidebar(BaseSidebar):
 
     def _init_ui(self) -> None:
         conf = self.state.config.lab
+        default = DEFAULT_WORKSPACE_CONFIG.lab
 
         self.color_header = section_subheader(tr("COLOR"))
         self.layout.addWidget(self.color_header)
 
-        self.saturation_slider = CompactSlider(tr("Chroma"), 0.0, 2.0, conf.saturation, has_neutral=True)
+        self.saturation_slider = CompactSlider(tr("Chroma"), 0.0, 2.0, default.saturation, value=conf.saturation, has_neutral=True)
         self.layout.addWidget(self.saturation_slider)
 
-        self.skin_protection_slider = CompactSlider(tr("Skin Protection"), 0.0, 1.0, conf.skin_protection)
-        self.chroma_denoise_slider = CompactSlider(tr("Chroma Denoise"), 0.0, 5.0, conf.chroma_denoise)
+        self.skin_protection_slider = CompactSlider(tr("Skin Protection"), 0.0, 1.0, default.skin_protection, value=conf.skin_protection)
+        self.chroma_denoise_slider = CompactSlider(tr("Chroma Denoise"), 0.0, 5.0, default.chroma_denoise, value=conf.chroma_denoise)
         self.chroma_fold = rail_fold("lab_chroma", self.saturation_slider, self.skin_protection_slider, self.chroma_denoise_slider)
         self.layout.addWidget(self.chroma_fold)
 
         self.layout.addWidget(section_subheader(tr("DETAIL")))
 
-        self.sharpen_slider = CompactSlider(tr("Sharpening"), 0.0, 1.0, conf.sharpen)
+        self.sharpen_slider = CompactSlider(tr("Sharpening"), 0.0, 1.0, default.sharpen, value=conf.sharpen)
         self.layout.addWidget(self.sharpen_slider)
 
         method_row = QHBoxLayout()
@@ -52,7 +54,7 @@ class LabSidebar(BaseSidebar):
         self.auto_masking_btn.setFixedWidth(ICON_BUTTON_WIDTH)
         self.auto_masking_btn.setProperty("value_column", True)
         method_row.addWidget(self.auto_masking_btn)
-        self.sharpen_radius_slider = CompactSlider(tr("Radius"), 0.5, 3.0, conf.sharpen_radius, unit=" px")
+        self.sharpen_radius_slider = CompactSlider(tr("Radius"), 0.5, 3.0, default.sharpen_radius, value=conf.sharpen_radius, unit=" px")
         self.sharpen_masking_slider = CompactSlider(tr("Masking"), 0.0, 1.0, conf.sharpen_masking)
         self.auto_masking_hint = hint_label("")
         self.auto_masking_hint.setVisible(False)
@@ -67,11 +69,11 @@ class LabSidebar(BaseSidebar):
             )
         )
 
-        self.clahe_slider = CompactSlider(tr("CLAHE"), 0.0, 1.0, conf.clahe_strength)
+        self.clahe_slider = CompactSlider(tr("CLAHE"), 0.0, 1.0, default.clahe_strength, value=conf.clahe_strength)
         self.layout.addWidget(self.clahe_slider)
 
-        self.glow_slider = CompactSlider(tr("Glow"), 0.0, 1.0, conf.glow_amount)
-        self.halation_slider = CompactSlider(tr("Halation"), 0.0, 1.0, conf.halation_strength)
+        self.glow_slider = CompactSlider(tr("Glow"), 0.0, 1.0, default.glow_amount, value=conf.glow_amount)
+        self.halation_slider = CompactSlider(tr("Halation"), 0.0, 1.0, default.halation_strength, value=conf.halation_strength)
         effects_header, effects_fold = group_fold("lab_effects", tr("Effects"), self.glow_slider, self.halation_slider)
         self.layout.addLayout(effects_header)
         self.layout.addWidget(effects_fold)
@@ -79,6 +81,8 @@ class LabSidebar(BaseSidebar):
         self.layout.addStretch()
 
     def _connect_signals(self) -> None:
+        self.saturation_slider.valueChanged.connect(lambda _v: self._sync_rails())
+        self.sharpen_slider.valueChanged.connect(lambda _v: self._sync_rails())
         self.sharpen_method_combo.currentIndexChanged.connect(
             lambda idx: self.update_config_section("lab", persist=True, sharpen_method=self.sharpen_method_combo.itemData(idx))
         )
@@ -193,6 +197,14 @@ class LabSidebar(BaseSidebar):
         finally:
             self.block_signals(False)
         self._sync_masking()
+        self._sync_rails()
+
+    def _sync_rails(self) -> None:
+        """Skin Protection steers a Chroma change and the sharpen rail a sharpen, so each is dead at its parent's neutral."""
+        self.skin_protection_slider.setEnabled(not self.saturation_slider.is_default(self.saturation_slider.value()))
+        sharpening = self.sharpen_slider.value() > 0
+        for widget in (self.sharpen_method_combo, self.auto_masking_btn, self.sharpen_radius_slider, self.sharpen_masking_slider):
+            widget.setEnabled(sharpening)
 
     def block_signals(self, blocked: bool) -> None:
         widgets = [
