@@ -71,6 +71,8 @@ _MAX_NUDGE_LINES = 144
 # The two nkscan framing mechanisms that measure the frames. Only a strip feeder that measures
 # the frames can return a strip without a command.
 _MEASURED_FRAMING = ("thumbnail", "perforation")
+# The two that read every frame off the holder or adapter, with no pass over the film.
+_FIXED_FRAMING = ("published", "address")
 
 
 def _close_units(units: dict[str, Any]) -> None:
@@ -84,6 +86,7 @@ def _caps_for(caps: Any) -> ScannerCapabilities:
     lo, hi = (int(v) for v in caps.x_dpi_range)
     optical = int(caps.optical_dpi)
     dpi = tuple(sorted({*dpi_stops_in_range(lo, hi), optical}))
+    framing = str(caps.framing)
     return ScannerCapabilities(
         ir_channel=True,
         supported_dpi=dpi,
@@ -96,14 +99,15 @@ def _caps_for(caps: Any) -> ScannerCapabilities:
         # what the unit does, not what a caller may ask for.
         auto_exposure=False,
         autofocus=False,
-        # Frames come from `discover_frames`, never from an index, so `max_frames` is not a
-        # capacity to range over: the strip dialog picks from what the film turned out to hold.
-        adapter_frame_capacity=None,
+        # A strip's frames come from `discover_frames`, so `max_frames` is a capacity only where
+        # the holder publishes every frame. An "address" adapter holds one frame, as a flatbed does.
+        adapter_frame_capacity=(int(caps.max_frames) or None) if framing == "published" else None,
         can_eject=bool(caps.eject),
         exposure_time_us=None,
         hw_clean=True,
-        roll_discovery=True,
+        roll_discovery=framing != "address",
         strip_pass=bool(caps.thumbnail),
+        fixed_frames=framing in _FIXED_FRAMING,
         # Only when the holder or adapter does not set the format.
         film_formats=tuple(caps.film_formats),
         film_types=tuple(FILM_TYPES),
@@ -273,12 +277,14 @@ class NkscanSession:
 class NkscanBackend:
     """ScannerBackend for Nikon Coolscans over nkscan."""
 
-    def __init__(self) -> None:
-        try:
-            import nkscan
-        except ImportError as exc:
-            raise ScannerUnavailable(tr(_INSTALL_HINT)) from exc
-        self._nk = nkscan
+    def __init__(self, module: Any | None = None) -> None:
+        """`module` stands in for the nkscan extension, as the simulated units do."""
+        if module is None:
+            try:
+                import nkscan as module
+            except ImportError as exc:
+                raise ScannerUnavailable(tr(_INSTALL_HINT)) from exc
+        self._nk = module
         self._devices_cache: list[ScannerDevice] | None = None
         self._sessions: dict[str, NkscanSession] = {}
         # The open nkscan session of each unit. The finalizer closes them when NegPy stops.
@@ -660,8 +666,10 @@ class NkscanBackend:
 
         Nikon Scan moves a frame by full thumbnail lines. It moves a frame by one frame or less,
         and it keeps the frame on the strip pass. The top is then the address of a line.
-        Without the column addresses of the strip pass, this moves the rect by `offset_mm`.
+        Without the column addresses of the strip pass, this moves the rect by `offset_mm`. A fixed frame does not move.
         """
+        if any(d.id == device_id and d.capabilities.fixed_frames for d in self._devices_cache or ()):
+            return rect
         units = _offset_units(offset_mm, optical_dpi)
         columns = self._columns.get(device_id)
         if columns is None or not len(columns) or not units:

@@ -902,6 +902,26 @@ def test_a_nudge_is_held_on_the_strip_pass() -> None:
     assert module.opened[-1].scans[-1]["frame"] == FRAMES[2]
 
 
+@pytest.mark.parametrize(
+    ("framing", "capacity", "discovery"),
+    [("published", 5, True), ("address", None, False), ("thumbnail", None, True)],
+)
+def test_the_framing_mechanism_sets_how_the_ui_reaches_the_frames(framing, capacity, discovery) -> None:
+    caps = dataclasses.replace(FakeCapabilities(), framing=framing, max_frames=5, thumbnail=framing == "thumbnail")
+    backend, _module = make_backend(caps=caps)
+    (device,) = backend.list_devices()
+    assert device.capabilities.adapter_frame_capacity == capacity
+    assert device.capabilities.roll_discovery is discovery
+    assert device.capabilities.fixed_frames is (framing != "thumbnail")
+
+
+def test_a_fixed_frame_ignores_every_offset() -> None:
+    caps = dataclasses.replace(FakeCapabilities(), framing="published", thumbnail=False)
+    backend, module = make_backend(caps=caps, thumbnail=False)
+    _scan(backend, dataclasses.replace(_PARAMS, frame=2, frame_offset_mm=5.0))
+    assert module.opened[-1].scans[-1]["frame"] == FRAMES[1]
+
+
 def test_ice_without_ir_keeps_no_infrared_plane() -> None:
     """ICE reads the infrared plane to clean the frame, but the scan asked for no IR file."""
     backend, module = make_backend()
