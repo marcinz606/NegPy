@@ -235,16 +235,18 @@ def test_an_in_range_image_skips_the_gamut_pass(monkeypatch) -> None:
     np.testing.assert_allclose(out[1:], inside[1:], atol=1e-6)
 
 
-@pytest.mark.parametrize("composite", ["hdr", "stitch", "triplet"])
-def test_a_composite_slide_takes_no_scanner_default(composite) -> None:
-    from negpy.features.hdr.models import HdrConfig
+@pytest.mark.parametrize("composite", ["triplet", "stitched_triplets"])
+def test_a_trichrome_slide_takes_no_scanner_default(composite) -> None:
     from negpy.features.rgbscan.models import RgbScanConfig
     from negpy.features.stitch.models import StitchConfig
 
     parts = {
-        "hdr": {"hdr": HdrConfig(hdr_enabled=True, hdr_paths=("/x/a.tif", "/x/b.tif"))},
-        "stitch": {"stitch": StitchConfig(stitch_enabled=True, stitch_paths=("/x/a.tif", "/x/b.tif"))},
         "triplet": {"rgbscan": RgbScanConfig(enabled=True, green_path="/x/g.tif", blue_path="/x/b.tif")},
+        "stitched_triplets": {
+            "stitch": StitchConfig(
+                stitch_enabled=True, stitch_paths=("/x/c.tif",), stitch_triplets=(("/x/g.tif", "/x/b.tif"), ("/x/h.tif", "/x/i.tif"))
+            )
+        },
     }[composite]
     slide = replace(WorkspaceConfig(), process=ProcessConfig(process_mode=ProcessMode.E6), **parts)
     assert with_scanner_positive_default(slide, "/x/a.tif").process.positive_source is False
@@ -400,3 +402,24 @@ def test_a_positive_jpeg_decodes_by_auto_whatever_the_stored_encoding(tmp_path) 
         with ctx as raw:
             np.testing.assert_allclose(raw.data, working_oetf_decode(decoded), atol=5e-4)
         assert metadata["source_encoding"] == "profile"
+
+
+# A bracket of scans has no sensor white for the Transfer path either; one camera RAW in it keeps it there.
+@pytest.mark.parametrize("others, forced", [(("/x/b.tif", "/x/c.tif"), True), (("/x/b.tif", "/x/camera.nef"), False)])
+def test_an_hdr_merge_starts_positive_only_when_every_exposure_is_a_scan(others, forced) -> None:
+    from negpy.features.hdr.models import HdrConfig
+
+    hdr = HdrConfig(hdr_enabled=True, hdr_paths=others, hdr_ratios=(1.0, 0.5, 0.25))
+    slide = replace(WorkspaceConfig(), process=ProcessConfig(process_mode=ProcessMode.E6), hdr=hdr)
+    assert with_scanner_positive_default(slide, "/x/a.tif").process.positive_source is forced
+    assert with_scanner_positive_default(slide, "/x/camera.nef").process.positive_source is False
+
+
+@pytest.mark.parametrize("others, forced", [(("/x/b.tif", "/x/c.tif"), True), (("/x/b.tif", "/x/camera.nef"), False)])
+def test_a_stitch_starts_positive_only_when_every_part_is_a_scan(others, forced) -> None:
+    from negpy.features.stitch.models import StitchConfig
+
+    stitch = StitchConfig(stitch_enabled=True, stitch_paths=others)
+    slide = replace(WorkspaceConfig(), process=ProcessConfig(process_mode=ProcessMode.E6), stitch=stitch)
+    assert with_scanner_positive_default(slide, "/x/a.tif").process.positive_source is forced
+    assert with_scanner_positive_default(slide, "/x/camera.nef").process.positive_source is False
