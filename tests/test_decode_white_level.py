@@ -157,3 +157,22 @@ def test_thumbnail_decode_falls_back_to_none_for_a_non_standard_source() -> None
     raw.postprocess = spy_postprocess  # type: ignore[method-assign]
     thumbnails._fast_demosaic(raw)
     assert seen["user_sat"] is None
+
+
+def test_preview_and_sensor_decode_ignore_bogus_low_calibrated_limit() -> None:
+    class _R6MarkIII(_SpyRaw):
+        white_level = 16383
+        camera_white_level_per_channel = [144, 144, 144, 144]
+        black_level_per_channel = [0, 32, 96, 64]
+
+    raw_export = _R6MarkIII()
+    with patch("negpy.services.rendering.image_processor.loader_factory") as lf:
+        lf.get_loader.return_value = (raw_export, {})
+        ImageProcessor()._decode_sensor_rgb("/x.cr3", linear_raw=True)
+    assert raw_export.seen["user_sat"] == 16383
+
+    raw_preview = _R6MarkIII()
+    with patch("negpy.services.rendering.preview_manager.loader_factory") as lf:
+        lf.get_loader.return_value = (raw_preview, {"color_space": "Adobe RGB"})
+        PreviewManager().load_linear_preview("/x.cr3", file_hash="abc")
+    assert raw_preview.seen["user_sat"] == 16383
