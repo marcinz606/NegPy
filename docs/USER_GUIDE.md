@@ -67,6 +67,7 @@ Each card on the **Roll** and **Metadata** tabs has **Frame** (amber) and **Roll
 
 *   The card follows the roll until you edit it on this frame. **Roll** gives the roll this frame's values; **Frame** keeps them on this frame only.
 *   **Reset to Roll** puts the roll's values back on the card.
+*   To make frames follow the roll again on a Roll tab card, copy it from a frame that follows the roll, then paste it onto them.
 *   A card on a **Frame** tab holds this frame's own values. Its copy button, **Apply to Frames**, copies them once to the selection or the whole roll.
 
 Right-click a card header for **Copy Card Settings** and **Undo Change to Several Frames**. After an Apply, Paste, Reset or Roll push to several frames, the message strip above the picture also offers **Undo**, which puts every frame back at once. It works until your next edit. A setting that changed again after the push keeps its new value. Frames that are not one roll show only **Frame** until you save them as a roll.
