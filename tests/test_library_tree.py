@@ -29,6 +29,7 @@ def _make(tmp_path) -> LibraryTree:
     controller.session.repo = repo
     controller.removed_frame_count.return_value = 0
     controller.save_choice.return_value = ("hidden", "")
+    controller.delete_rolls.side_effect = lambda roll_ids: [delete_roll(repo, roll_id) for roll_id in roll_ids]
     return LibraryTree(controller)
 
 
@@ -1525,3 +1526,23 @@ def test_locating_one_folder_relinks_the_sibling_folders_that_moved_with_it(widg
     (called_id, moves), _ = widget.controller.relink_member_folders.call_args
     assert called_id == roll_id
     assert sorted(moves) == [(str(tree_dirs / "old" / n), str(tree_dirs / "new" / n)) for n in names]
+
+
+def test_deleting_a_folder_row_forgets_the_rolls_a_discovery_filter_hides(widget, tmp_path, monkeypatch):
+    from negpy.services.assets.rolls import all_rolls_sorted, import_sources, import_subfolders_as_rolls, prune_filtered_rolls
+    from negpy.services.assets.rolls import set_discovery_filters
+
+    for name in ("roll_a", "scratch/roll_b"):
+        (tmp_path / "scans" / name).mkdir(parents=True)
+        (tmp_path / "scans" / name / "1.tif").write_bytes(b"x")
+    import_subfolders_as_rolls(widget.repo, str(tmp_path / "scans"))
+    set_discovery_filters(widget.repo, ["scratch"])
+    prune_filtered_rolls(widget.repo)
+    widget.reload()
+    assert [e["name"] for _rid, e in all_rolls_sorted(widget.repo)] == ["scans/roll_a"]
+    monkeypatch.setattr("negpy.desktop.view.sidebar.library_tree.confirm_delete_named", lambda *a, **k: True)
+
+    widget._delete_folder(widget.tree.topLevelItem(0))
+
+    assert saved_rolls(widget.repo) == {}
+    assert import_sources(widget.repo) == []
