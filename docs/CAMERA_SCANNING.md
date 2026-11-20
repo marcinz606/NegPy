@@ -34,6 +34,7 @@ Exposure frame does. Each LED still reaches every sensor channel, so Blend needs
 | **python-gphoto2** | Optional dependency, LGPL. `pip install gphoto2`. No vendor SDK is bundled, linked or required. |
 | **Scanlight** *(optional)* | Needed for narrowband light only. |
 | **Lento Dock** *(optional)* | Used in place of a Scanlight. See [Lento Dock](#lento-dock). |
+| **CuteNew RGB AIR** *(optional)* | Used in place of a Scanlight. See [CuteNew RGB AIR](#cutenew-rgb-air). |
 
 Without python-gphoto2, the Scan tab's Camera scanner shows a one-line setup hint and the rest
 of NegPy works as usual.
@@ -216,6 +217,22 @@ and Single Exposure decode Linear RAW; a frame already edited keeps its own.
 **Narrowband light.** Narrowband LEDs separate the dye layers more cleanly than white light, so
 colors render more saturated. The *Digital (Adobe RGB)* print stock prints them through ideal
 dyes; a paper or print film in **Print stock** prints them through that stock's own dyes.
+
+### CuteNew RGB AIR
+
+A CuteNew RGB AIR can be the light in place of a Scanlight. NegPy holds the light at the
+preset's levels, so the camera's shutter sets each exposure, as with a Scanlight. Live View,
+Meter, Calibrate, presets, Trichrome and Single Exposure work as described above.
+
+- NegPy uses an RGB AIR before a Scanlight. To scan with the Scanlight, disconnect the RGB AIR.
+- The light sets each channel in 100 steps. NegPy maps the 0-255 LED level to these steps.
+- The light has no white LED and no infrared light. NegPy still offers the white-light presets
+  and lights red, green and blue together at the same level for them.
+- NegPy does not use the light's own capture sequence or its shutter output. Blend with
+  **Cable** is not available.
+- NegPy switches the light off when it closes. The light stays on if the USB cable is pulled.
+- The light reports its temperature beside the Light status. NegPy logs the light's fault
+  reports.
 
 ### Lento Dock
 
@@ -418,6 +435,7 @@ LED at a time). Its remaining color error is film-dye crosstalk, which the densi
 | The aperture stepper is grayed out | The lens has no electronic diaphragm. | Set the aperture on the lens. |
 | A setting snaps back to its old value | Property writes are asynchronous. | NegPy polls until the value lands and logs a warning if it never does. Then the setting is not writable in the body's current mode. Try **M**. |
 | The Scanlight is not detected | Wrong USB-C port. | Only one of the two ports carries data; the other is power only. Use the data port. |
+| The CuteNew RGB AIR is not detected on Linux | Your user cannot open the serial port. | Add your user to the `dialout` group (see below). |
 | The Lento Dock is not detected | Dock Connect holds the dock's port, or a Scanlight is connected. | Quit Dock Connect. Disconnect the Scanlight. |
 | The Scanlight is not detected on Linux, and the data port is right | Your user cannot open the serial port (most distributions give it to the `dialout` group). | `sudo usermod -aG dialout $USER`, then log out and back in. |
 
@@ -443,6 +461,8 @@ LED at a time). Its remaining color error is film-dye crosstalk, which the densi
 - **Speed.** Most of a triplet's time is the body's per-image transfer latency. Stills are
   taken inside the running live-view session, with no reconnect per frame.
 - **Lento Dock.** Tested with a Dock 35 on firmware 1.0.224.
+- **CuteNew RGB AIR.** Built from the customer protocol 1.3 reference and a simulated light.
+  It is not tested on a real light.
 - **Credit.** The R/G/B sequencing and the exposure-calibration approach come from
   [rohanpandula/TriRGB](https://github.com/rohanpandula/TriRGB). The light is
   [jackw01/scanlight](https://github.com/jackw01/scanlight). The camera is driven through
