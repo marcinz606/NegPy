@@ -6,7 +6,7 @@ from negpy.domain.models import WorkspaceConfig
 
 
 def _controller(clipboard, rows=None):
-    state = SimpleNamespace(current_file_hash="h", clipboard=clipboard, clipboard_rows=rows)
+    state = SimpleNamespace(current_file_hash="h", clipboard=clipboard, clipboard_rows=rows, clipboard_whole_card=False)
     return SimpleNamespace(session=MagicMock(state=state), set_status=MagicMock())
 
 
