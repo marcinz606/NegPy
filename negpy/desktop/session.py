@@ -184,8 +184,10 @@ class AppState:
     ir_degenerate: bool = False  # IR plane carries image content (B&W/Kodachrome) → IR restore disabled
     original_res: tuple[int, int] = (0, 0)
     clipboard: Optional[WorkspaceConfig] = None
-    # The rows a card copy holds; Paste writes them with no picker. None after a whole copy.
+    # The rows a card copy holds; Paste offers only them. None after a whole copy.
     clipboard_rows: Optional[list] = None
+    # A Roll tab card copy: its values are one unit, so Paste starts with every row on.
+    clipboard_whole_card: bool = False
 
     # ICC Management
     icc_input_path: Optional[str] = None
@@ -429,6 +431,11 @@ class AppState:
         if peek is not None and key in peek:
             return peek[key]
         return self.last_metrics.get(key, default)
+
+
+def _row_fields(rows: Iterable[Any]) -> frozenset:
+    """The config field names that catalog *rows* write."""
+    return frozenset(f for row in rows for f in row.fields)
 
 
 def camera_raw_preview(state: Any) -> bool:
@@ -1895,7 +1902,7 @@ class DesktopSessionManager(QObject):
                 synced = replace(synced, process=replace(synced.process, **changes))
             self.push_external_history(target_hash, target_config, synced)
             self.repo.save_file_settings(target_hash, synced, file_path=target_path)
-            self._lock_diverged_cards(self.state.uploaded_files[idx], synced, target_config)
+            self._lock_diverged_cards(self.state.uploaded_files[idx], synced, target_config, applied=_row_fields(rows))
             changed_hashes.append(target_hash)
             count += 1
 
@@ -1940,7 +1947,7 @@ class DesktopSessionManager(QObject):
                 before = self.state.config
                 overlaid = apply_selected_fields(source, before, rows)
                 self.update_config(finish(overlaid) if finish else overlaid, persist=True, render=False)
-                self.relock_diverged_cards(before)
+                self.relock_diverged_cards(before, applied=_row_fields(rows))
                 count += 1
                 continue
             target_hash = self.state.uploaded_files[idx]["hash"]
@@ -1950,7 +1957,7 @@ class DesktopSessionManager(QObject):
                 synced = finish(synced)
             self.push_external_history(target_hash, target_config, synced)
             self.repo.save_file_settings(target_hash, synced, file_path=self.state.uploaded_files[idx]["path"])
-            self._lock_diverged_cards(self.state.uploaded_files[idx], synced, target_config)
+            self._lock_diverged_cards(self.state.uploaded_files[idx], synced, target_config, applied=_row_fields(rows))
             changed_hashes.append(target_hash)
             count += 1
 
@@ -2263,14 +2270,16 @@ class DesktopSessionManager(QObject):
             )
             if moved:
                 batch.after[batch.active_hash] = self.state.config
-            if batch.frames or moved or batch.roll_undo:
+            # An apply that changes no value can still release a lock, which Undo must give back.
+            relocked = any(rolls.card_locks_snapshot(self.repo, r, list(held)) != held for r, held in batch.locks.items())
+            if batch.frames or moved or batch.roll_undo or relocked:
                 self.last_batch = batch
                 self.batch_recorded.emit()
 
     def undo_last_batch(self) -> tuple[int, int]:
         """Puts back every setting the last batch changed, and the roll's values it pushed. A setting
         changed again after the batch keeps that value; every other setting stays as it is now. Each
-        frame also gets an ordinary history step. Returns how many frames moved and how many kept a later change."""
+        frame also gets an ordinary history step. Returns how many frames moved or got a lock back, and how many kept a later change."""
         batch, self.last_batch = self.last_batch, None
         if batch is None:
             return 0, 0
@@ -2287,9 +2296,13 @@ class DesktopSessionManager(QObject):
         for file_hash, (_now, _undone, kept_fields) in plans.items():
             cards = kept_cards.setdefault(unforked_hash(file_hash), set())
             cards.update(c for c, (section, names) in rolls.ROLL_DEFAULT_FIELDS.items() if any((section, n) in kept_fields for n in names))
+        relocked = set()
         for roll_id, locks in batch.locks.items():
             for base, snapshot in locks.items():
                 cards = [c for c in rolls.ROLL_DEFAULT_FIELDS if c not in kept_cards.get(base, ())]
+                now_locks = rolls.card_locks_snapshot(self.repo, roll_id, [base])[base]
+                if any(now_locks[c] != snapshot[c] for c in cards):
+                    relocked.add(base)
                 rolls.restore_card_locks(self.repo, roll_id, cards, {base: snapshot})
         if batch.roll_undo is not None:
             batch.roll_undo()
@@ -2319,7 +2332,8 @@ class DesktopSessionManager(QObject):
                     rolls.settle_card_lock(self.repo, roll_id, base, card_key, values, old, process=undone.process)
         if changed:
             self.frames_edited_offscreen.emit(changed)
-        return moved, kept
+        moved_bases = {unforked_hash(h) for h, (now, undone, _kept) in plans.items() if undone is not now}
+        return moved + len(relocked - moved_bases), kept
 
     def follow_last_batch(self, file_hash: str, config: WorkspaceConfig, names: Iterable[str]) -> None:
         """An automatic write of process *names* to a frame whose baseline or Use Average choices the last
@@ -2384,16 +2398,20 @@ class DesktopSessionManager(QObject):
         if base not in held:
             held.update(rolls.card_locks_snapshot(self.repo, roll_id, [base]))
 
-    def relock_diverged_cards(self, before: Optional[WorkspaceConfig] = None) -> None:
+    def relock_diverged_cards(self, before: Optional[WorkspaceConfig] = None, applied: frozenset = frozenset()) -> None:
         """Lock each roll card on which the restored config differs from the roll's: history, a work
         print and a paste restore no locks, and an unlocked card takes the roll's values on load.
-        A card that the step from *before* changed also unlocks where it matches the roll again."""
+        A card that the step from *before* changed or *applied* covers also unlocks where it matches the roll again."""
         idx = self.state.selected_file_idx
         if not self.state.current_file_hash or not (0 <= idx < len(self.state.uploaded_files)):
             return
-        self._lock_diverged_cards(self.state.uploaded_files[idx], self.state.config, before)
+        self._lock_diverged_cards(self.state.uploaded_files[idx], self.state.config, before, applied)
 
-    def _lock_diverged_cards(self, asset: dict, config: WorkspaceConfig, before: Optional[WorkspaceConfig] = None) -> None:
+    def _lock_diverged_cards(
+        self, asset: dict, config: WorkspaceConfig, before: Optional[WorkspaceConfig] = None, applied: frozenset = frozenset()
+    ) -> None:
+        """*applied* holds the field names an apply wrote: a card it covers whole settles even when its values did
+        not change, so applying the roll's values releases a frame that already holds them."""
         roll_id = rolls.frame_roll(self.repo, self.state.active_roll_id, asset)
         if roll_id is None:
             return
@@ -2404,7 +2422,8 @@ class DesktopSessionManager(QObject):
             values = {n: getattr(getattr(config, section), n) for n in names}
             old = None if before is None else {n: getattr(getattr(before, section), n) for n in names}
             # A pin on a card the step did not touch stays.
-            if old is not None and not all(rolls.same_value(values[n], old[n]) for n in names):
+            touched = old is not None and not all(rolls.same_value(values[n], old[n]) for n in names)
+            if touched or (old is not None and applied.issuperset(names)):
                 rolls.settle_card_lock(self.repo, roll_id, base, card_key, values, old, process=config.process)
             elif card_key not in locked and any(n in defaults and not rolls.same_value(values[n], defaults[n]) for n in names):
                 rolls.set_frame_override(self.repo, roll_id, base, card_key, True)
@@ -2624,13 +2643,15 @@ class DesktopSessionManager(QObject):
             )
         self.state.clipboard = cfg
         self.state.clipboard_rows = None
+        self.state.clipboard_whole_card = False
         self.state_changed.emit()
         self.settings_copied.emit()
 
-    def copy_card_settings(self, rows) -> None:
+    def copy_card_settings(self, rows, whole_card: bool = False) -> None:
         """Copy one card: the clipboard holds the config, and Paste writes only these rows."""
         self.copy_settings()
         self.state.clipboard_rows = list(rows)
+        self.state.clipboard_whole_card = whole_card
 
     def copy_settings_with_bounds(self) -> None:
         self.copy_settings(include_bounds=True)

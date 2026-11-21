@@ -731,6 +731,8 @@ def open_paste_dialog(parent, controller) -> None:
     dlg = GranularSettingsDialog(parent, state.clipboard, tr("clipboard"), bounds_mode=bounds_mode, repo=session.repo)
     if card_rows is not None:
         dlg.limit_to_rows([r.id for r in card_rows])
+        if state.clipboard_whole_card:
+            dlg.set_checked_rows([r.id for r in card_rows])
     if dlg.exec() == QDialog.DialogCode.Accepted:
         session.apply_pasted_fields(dlg.selected(), include_bounds=dlg.paste_bounds())
 

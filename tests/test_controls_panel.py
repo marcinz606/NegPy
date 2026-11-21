@@ -564,7 +564,7 @@ def test_a_roll_card_menu_copies_that_card(monkeypatch):
     panel, actions = _card_menu(monkeypatch, "demosaic")
     assert actions[0].enabled
     actions[0].slot()
-    panel.controller.session.copy_card_settings.assert_called_once_with(roll_card_rows("demosaic"))
+    panel.controller.session.copy_card_settings.assert_called_once_with(roll_card_rows("demosaic"), whole_card=True)
 
 
 def test_a_frame_card_menu_copies_that_card(monkeypatch):
@@ -573,7 +573,7 @@ def test_a_frame_card_menu_copies_that_card(monkeypatch):
     panel, actions = _card_menu(monkeypatch, "lab")
     assert [a.text for a in actions] == ["Copy Card Settings", "Undo Change to Several Frames"]
     actions[0].slot()
-    panel.controller.session.copy_card_settings.assert_called_once_with(frame_card_rows("lab"))
+    panel.controller.session.copy_card_settings.assert_called_once_with(frame_card_rows("lab"), whole_card=False)
 
 
 def test_the_crop_card_copies_a_crop_with_its_auto_crop():
