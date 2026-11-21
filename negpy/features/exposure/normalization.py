@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 
 # Bump in any change that alters the bounds a frame measures for unchanged settings. Saved
 # per-frame bounds from an older version are dropped at startup (migrations/bounds.py).
-BOUNDS_VERSION = 8
+BOUNDS_VERSION = 9
 
 # Contrast Mask blur sigma, per-cent of the analysis grid's short side. Of the grid, not of
 # the render, so preview and export mask alike. Near the Frontier HyperTone blur's spread.
@@ -97,7 +97,31 @@ def _block_median_grid(img_log: ImageBuffer) -> ImageBuffer:
     b = int(np.ceil(max(h, w) / grid))
     if b <= 1 or h < b or w < b:
         return img_log
-    return negpy_core.block_median_grid(np.asarray(img_log, dtype=np.float32), b)
+    img_log = _trim_symmetric(_trim_symmetric(img_log, b, 0), b, 1)
+    return negpy_core.block_median_grid(np.ascontiguousarray(img_log, dtype=np.float32), b)
+
+
+def _trim_symmetric(img: ImageBuffer, b: int, axis: int) -> ImageBuffer:
+    """Drop the pixels that do not fill a block of `b` so the block grid is the same under a flip or turn, because
+    a median ignores order. The leftover trims from both ends; an odd leftover also removes the middle pixel of an
+    odd length, or one more block of an even length."""
+    n = img.shape[axis]
+    r = n % b
+    if r == 0:
+        return img
+    if r % 2 == 1 and n % 2 == 0:
+        r += b
+        if r > n - b:
+            r = n % b
+    side = r // 2
+
+    def cut(lo: int, hi: int) -> ImageBuffer:
+        return img[lo:hi] if axis == 0 else img[:, lo:hi]
+
+    if r % 2 == 1:
+        mid = n // 2
+        return np.concatenate([cut(side, mid), cut(mid + 1, n - side)], axis=axis)
+    return cut(side, n - side)
 
 
 def prefilter_log_grid(
