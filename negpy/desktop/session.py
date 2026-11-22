@@ -238,6 +238,8 @@ class AppState:
     canvas_bg_index: int = 2
     # Render the thumbnails of frames a bulk edit wrote without opening them; off marks them stale
     auto_thumbnail_refresh: bool = False
+    # Measure the roll average in the background when a frame lacks it; off waits for Roll Analysis
+    auto_roll_average: bool = True
     # Preferences > Accessibility, a key into styles.color_vision.PALETTES
     color_vision: str = "standard"
 
@@ -1049,6 +1051,7 @@ class DesktopSessionManager(QObject):
     # A view that reads styles.color_vision repaints on this.
     color_vision_changed = pyqtSignal()
     auto_thumbnail_refresh_changed = pyqtSignal(bool)
+    auto_roll_average_changed = pyqtSignal(bool)
     canvas_bg_changed = pyqtSignal()
     settings_synced = pyqtSignal(str)  # Bulk "Apply to selected" done — carries a status message
     frames_edited_offscreen = pyqtSignal(list)  # hashes whose saved edits changed without a render
@@ -1106,6 +1109,7 @@ class DesktopSessionManager(QObject):
         if saved_bg is not None:
             self.state.canvas_bg_index = int(saved_bg)
         self.state.auto_thumbnail_refresh = bool(self.repo.get_global_setting("auto_thumbnail_refresh", False))
+        self.state.auto_roll_average = bool(self.repo.get_global_setting("auto_roll_average", True))
         self.state.color_vision = str(self.repo.get_global_setting("color_vision", "standard") or "standard")
         self.state.zone_hover_highlight = bool(self.repo.get_global_setting("zone_hover_highlight", True))
         self.state.cursor_probe = bool(self.repo.get_global_setting("cursor_probe", False))
@@ -1308,6 +1312,12 @@ class DesktopSessionManager(QObject):
             self.state.auto_thumbnail_refresh = on
             self.repo.save_global_setting("auto_thumbnail_refresh", on)
             self.auto_thumbnail_refresh_changed.emit(on)
+
+    def set_auto_roll_average(self, on: bool) -> None:
+        if self.state.auto_roll_average != on:
+            self.state.auto_roll_average = on
+            self.repo.save_global_setting("auto_roll_average", on)
+            self.auto_roll_average_changed.emit(on)
 
     def set_color_vision(self, key: str) -> None:
         if self.state.color_vision != key:

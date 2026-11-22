@@ -224,3 +224,22 @@ class TestAlwaysSticky(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_load_sticky_config_parses_a_stored_snapshot_once():
+    """Every frame hydration reads the sticky snapshot; a roll hydrates hundreds of frames."""
+    from unittest.mock import MagicMock, patch
+
+    from negpy.desktop import sticky
+    from negpy.domain.models import WorkspaceConfig
+
+    repo = MagicMock()
+    repo.get_global_setting.side_effect = lambda key, default=None: {"process_mode": "C41", "density": 1.0}
+    with patch.object(WorkspaceConfig, "from_flat_dict", wraps=WorkspaceConfig.from_flat_dict) as parse:
+        first = sticky.load_sticky_config(repo)
+        assert sticky.load_sticky_config(repo) is first
+        assert parse.call_count == 1
+
+        repo.get_global_setting.side_effect = lambda key, default=None: {"process_mode": "C41", "density": 1.2}
+        assert sticky.load_sticky_config(repo).exposure.density == 1.2
+        assert parse.call_count == 2

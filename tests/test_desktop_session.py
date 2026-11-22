@@ -124,6 +124,14 @@ class TestDesktopSessionSync(unittest.TestCase):
         self.mock_repo.save_global_setting.assert_called_once_with("auto_thumbnail_refresh", True)
         self.assertEqual(heard, [True])
 
+    def test_automatic_roll_average_is_saved_and_announced(self):
+        heard = []
+        self.session.auto_roll_average_changed.connect(heard.append)
+        self.session.set_auto_roll_average(False)
+        self.session.set_auto_roll_average(False)
+        self.mock_repo.save_global_setting.assert_called_once_with("auto_roll_average", False)
+        self.assertEqual(heard, [False])
+
     def test_update_selection(self):
         self.session.update_selection([0, 1])
         self.assertEqual(self.session.state.selected_indices, [0, 1])

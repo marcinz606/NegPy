@@ -26,6 +26,10 @@ class StorageRepository(IRepository):
         # History panel refreshes re-read every step; WorkspaceConfig is frozen, so a parse keyed
         # by its JSON text is safe to share and needs no invalidation.
         self._history_parse: dict[str, WorkspaceConfig] = {}
+        # Hashes whose edit row was written ("*" for every row) and global keys whose value changed,
+        # since the last take_*_writes(): what tells a reader that a frame other than its own moved.
+        self._edit_writes: set[str] = set()
+        self._setting_writes: set[str] = set()
         # One open connection per thread and database: opening one costs more than most queries.
         self._local = threading.local()
 
@@ -158,7 +162,18 @@ class StorageRepository(IRepository):
             cursor = conn.execute("SELECT file_path, mark FROM file_marks WHERE file_path IS NOT NULL AND file_path != ''")
             return {str(row[0]): str(row[1]) for row in cursor.fetchall()}
 
+    def take_edit_writes(self) -> set[str]:
+        """Hashes whose edit was written since the last call, "*" when every edit may have changed."""
+        writes, self._edit_writes = self._edit_writes, set()
+        return writes
+
+    def take_setting_writes(self) -> set[str]:
+        """Global setting keys whose value changed since the last call."""
+        writes, self._setting_writes = self._setting_writes, set()
+        return writes
+
     def save_file_settings(self, file_hash: str, settings: WorkspaceConfig, file_path: str = "") -> None:
+        self._edit_writes.add(file_hash)
         with self._connect(self.edits_db_path) as conn:
             settings_json = json.dumps(settings.to_dict(), default=str)
             conn.execute(
@@ -192,6 +207,7 @@ class StorageRepository(IRepository):
 
         The triage mark stays: a keep/reject is a judgement on the frame, not an edit.
         """
+        self._edit_writes.add(file_hash)
         with self._connect(self.edits_db_path) as conn:
             for table in ("file_settings", "edit_history", "work_prints", "image_embeddings"):
                 conn.execute(f"DELETE FROM {table} WHERE file_hash = ?", (file_hash,))
@@ -314,6 +330,7 @@ class StorageRepository(IRepository):
         clobbered by a rehome."""
         if old_hash == new_hash:
             return
+        self._edit_writes.update((old_hash, new_hash))
         with self._connect(self.edits_db_path) as conn:
             if conn.execute("SELECT 1 FROM file_settings WHERE file_hash = ?", (new_hash,)).fetchone():
                 return
@@ -349,6 +366,7 @@ class StorageRepository(IRepository):
             config = transform(WorkspaceConfig.from_flat_dict(json.loads(settings_json)))
             return json.dumps(config.to_dict(), default=str)
 
+        self._edit_writes.add(new_hash)
         with self._connect(self.edits_db_path) as conn:
             if conn.execute("SELECT 1 FROM file_settings WHERE file_hash = ?", (new_hash,)).fetchone():
                 return False
@@ -519,6 +537,7 @@ class StorageRepository(IRepository):
     def save_global_settings(self, settings: dict[str, Any]) -> None:
         """Writes many global settings in one transaction (one connection, one commit)."""
         rows = [(k, json.dumps(v, default=str)) for k, v in settings.items()]
+        self._setting_writes.update(k for k, raw in rows if self._global_raw(k) != raw)
         with self._connect(self.settings_db_path) as conn:
             conn.executemany("INSERT OR REPLACE INTO global_settings (key, value_json) VALUES (?, ?)", rows)
         if self._global_json is not None:
@@ -633,6 +652,8 @@ class StorageRepository(IRepository):
         actually shrinks (WAL retains freed pages until checkpointed; VACUUM
         rebuilds the file). VACUUM must run outside a transaction; the commit that ends
         the DELETE leaves none open."""
+        if "file_settings" in tables:
+            self._edit_writes.add("*")
         with self._connect(path) as conn:
             for table in tables:
                 try:

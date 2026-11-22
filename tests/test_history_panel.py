@@ -192,3 +192,22 @@ def test_a_press_on_a_rows_more_button_opens_its_menu_and_leaves_the_step(qapp):
 
     assert len(asked) == 1
     controller.jump_to_history_step.assert_not_called()
+
+
+def test_a_hidden_panel_refreshes_once_it_is_shown(qapp):
+    """Each frame step refreshes the steps; a panel behind another tab waits until it shows."""
+    controller, panel = _history_panel()
+    controller.history_steps.reset_mock()
+
+    panel._refresh_when_shown()
+    controller.history_steps.assert_not_called()
+
+    panel.show()
+    qapp.processEvents()
+    controller.history_steps.assert_called_once()
+
+    panel._refresh_when_shown()
+    assert controller.history_steps.call_count == 2
+    panel.hide()
+    panel.show()
+    assert controller.history_steps.call_count == 2

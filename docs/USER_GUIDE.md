@@ -900,6 +900,7 @@ Shows the whole strip, to place and pick the frames before the scan. **Apply Fra
 *   **GPU Acceleration**: renders on the graphics card. Off uses the slower CPU, with the same result. If the GPU fails at launch, an amber line here says so.
 *   **Search by Meaning**: find frames by description (§2).
 *   **Update Thumbnails Automatically**: renders out-of-date thumbnails again in the background, when a roll opens and after a change to many frames. Off (the default), the frames get an amber dot until you use **Update Thumbnails**.
+*   **Measure Roll Average Automatically**: measures the roll average in the background when a frame is new or its crop or Metering changes. On is the default. Off, the average changes only when you run **Roll Analysis**.
 *   **Preview size**: the canvas resolution. Higher is sharper and uses more memory.
 *   **Preview cache**, **Preview cache limit**, **HQ buffers** and **Rendered frames**: how much memory NegPy uses. Each row shows the recommendation for this computer. You can set a higher value, and the hint then turns amber.
 *   **GPU texture cap**: the largest image the GPU loads at once. At 0, an integrated GPU uses 6144 px and other GPUs have no limit. A value here replaces that limit. Lower it if exports run out of GPU memory.

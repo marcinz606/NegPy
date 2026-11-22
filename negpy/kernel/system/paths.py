@@ -1,4 +1,5 @@
 import errno
+import functools
 import os
 from pathlib import Path
 import stat
@@ -44,6 +45,17 @@ def _usable_user_dir(base: Path) -> Optional[str]:
         return None
 
 
+@functools.cache
+def _xdg_documents_dir() -> Optional[Path]:
+    """The ``xdg-user-dir DOCUMENTS`` answer, once per process: every WorkspaceConfig resolves the user dir."""
+    try:
+        out = subprocess.check_output(["xdg-user-dir", "DOCUMENTS"], stderr=subprocess.DEVNULL)
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return None
+    path_str = out.decode("utf-8").strip()
+    return Path(path_str) if path_str else None
+
+
 def get_default_user_dir() -> str:
     """Resolve the user directory, defaulting to Documents/NegPy with platform-native detection."""
     env_path = os.getenv("NEGPY_USER_DIR")
@@ -77,15 +89,8 @@ def get_default_user_dir() -> str:
         if xdg_docs:
             docs_dir = Path(xdg_docs)
 
-        # fallback to xdg-user-dir
         if not docs_dir:
-            try:
-                out = subprocess.check_output(["xdg-user-dir", "DOCUMENTS"], stderr=subprocess.DEVNULL)
-                path_str = out.decode("utf-8").strip()
-                if path_str:
-                    docs_dir = Path(path_str)
-            except (subprocess.CalledProcessError, FileNotFoundError):
-                pass
+            docs_dir = _xdg_documents_dir()
 
         # fallback to user-dirs.dirs
         if not docs_dir:

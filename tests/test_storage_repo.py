@@ -289,3 +289,22 @@ def test_an_error_inside_a_connection_rolls_its_writes_back(tmp_path):
         pass
 
     assert repo.load_file_settings("h") is None
+
+
+def test_take_writes_reports_each_written_edit_and_changed_setting_once(tmp_path):
+    repo = _repo(tmp_path)
+    repo.take_edit_writes(), repo.take_setting_writes()
+
+    repo.save_file_settings("h1", WorkspaceConfig(), "/a.tif")
+    repo.rehome_file_settings("h1", "h2", "/a.tif")
+    repo.delete_file_settings("h3")
+    repo.save_global_settings({"same": 1, "moved": 1})
+    repo.take_setting_writes()
+    repo.save_global_settings({"same": 1, "moved": 2})
+
+    assert repo.take_edit_writes() == {"h1", "h2", "h3"}
+    assert repo.take_setting_writes() == {"moved"}
+    assert repo.take_edit_writes() == set() and repo.take_setting_writes() == set()
+
+    repo.clear_saved_edits()
+    assert repo.take_edit_writes() == {"*"}
