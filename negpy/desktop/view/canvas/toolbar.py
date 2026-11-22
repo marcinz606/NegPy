@@ -1561,7 +1561,8 @@ class ActionToolbar(QWidget):
         controller.zoom_changed.connect(self._on_zoom_changed)
 
         self.session.state_changed.connect(self._update_ui_state)
-        controller.config_updated.connect(lambda: "average" in self._item_ids and self._sync_average_button())
+        self.session.history_changed.connect(self._update_ui_state)
+        controller.config_updated.connect(self._update_ui_state)
         self.session.asset_model.layoutChanged.connect(self._update_ui_state)
         self.session.files_changed.connect(self._sync_light_table_row)
         controller.tool_sync_requested.connect(self._sync_tool_row)
@@ -1638,7 +1639,7 @@ class ActionToolbar(QWidget):
     def rotate(self, direction: int) -> None:
         from dataclasses import replace
 
-        from negpy.features.geometry.logic import rotate_geometry_and_analysis
+        from negpy.features.geometry.logic import rotate_geometry_and_analysis, rotate_meter_rect_and_key
 
         # A proof on the canvas takes the rotation instead of the image. Must precede the
         # handedness fix below, which is geometry-only.
@@ -1653,10 +1654,21 @@ class ActionToolbar(QWidget):
         if include_active:
             config = state.config
             new_geo, new_rect = rotate_geometry_and_analysis(config.geometry, config.process.analysis_rect, direction)
-            new_config = replace(config, geometry=new_geo)
+            meter_rect, meter_key = rotate_meter_rect_and_key(
+                config.process.meter_rect, config.process.meter_key, config.geometry, new_geo, direction
+            )
+            proc_changes: dict = {}
             if config.process.analysis_rect is not None:
-                new_config = replace(new_config, process=replace(config.process, analysis_rect=new_rect))
-            self.session.update_config(new_config, persist=True)
+                proc_changes["analysis_rect"] = new_rect
+            if (meter_rect, meter_key) != (config.process.meter_rect, config.process.meter_key):
+                proc_changes["meter_rect"] = meter_rect
+                proc_changes["meter_key"] = meter_key
+            new_config = replace(config, geometry=new_geo)
+            if proc_changes:
+                new_config = replace(new_config, process=replace(config.process, **proc_changes))
+            self.session.update_config(new_config, persist=True, render=False)
+            self.controller.rotate_active_display(direction)
+            self.controller.config_updated.emit()
         # A multi-selection rotates every other selected frame too, each by its own
         # current geometry rather than a copy of the active frame's new one.
         before = self.controller.thumbnail_turn_snapshot()
@@ -1671,7 +1683,7 @@ class ActionToolbar(QWidget):
     def flip(self, axis: str) -> None:
         from dataclasses import replace
 
-        from negpy.features.geometry.logic import flip_geometry_and_analysis
+        from negpy.features.geometry.logic import flip_geometry_and_analysis, flip_meter_rect_and_key
 
         horizontal = axis == "horizontal"
         state = self.session.state
@@ -1680,10 +1692,21 @@ class ActionToolbar(QWidget):
         if include_active:
             config = state.config
             new_geo, new_rect = flip_geometry_and_analysis(config.geometry, config.process.analysis_rect, horizontal)
-            new_config = replace(config, geometry=new_geo)
+            meter_rect, meter_key = flip_meter_rect_and_key(
+                config.process.meter_rect, config.process.meter_key, config.geometry, new_geo, horizontal
+            )
+            proc_changes: dict = {}
             if config.process.analysis_rect is not None:
-                new_config = replace(new_config, process=replace(config.process, analysis_rect=new_rect))
-            self.session.update_config(new_config, persist=True)
+                proc_changes["analysis_rect"] = new_rect
+            if (meter_rect, meter_key) != (config.process.meter_rect, config.process.meter_key):
+                proc_changes["meter_rect"] = meter_rect
+                proc_changes["meter_key"] = meter_key
+            new_config = replace(config, geometry=new_geo)
+            if proc_changes:
+                new_config = replace(new_config, process=replace(config.process, **proc_changes))
+            self.session.update_config(new_config, persist=True, render=False)
+            self.controller.flip_active_display(horizontal)
+            self.controller.config_updated.emit()
         # A multi-selection flips every other selected frame too, each by its own
         # current geometry rather than a copy of the active frame's new one.
         before = self.controller.thumbnail_turn_snapshot()

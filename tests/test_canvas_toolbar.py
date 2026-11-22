@@ -551,8 +551,74 @@ class TestRotateRouting(unittest.TestCase):
         tb.rotate(1)
 
         tb.session.update_config.assert_called_once()
+        tb.controller.rotate_active_display.assert_called_once_with(1)
         tb.session.rotate_selected_frames.assert_called_once_with(1, active_included=True)
         tb.controller.rerender_active_view.assert_called_once()
+
+    def test_rotate_display_turns_canvas_buffer_and_resets_on_settle_update(self):
+        import numpy as np
+
+        from negpy.desktop.session import AppState
+        from negpy.desktop.view.canvas.widget import ImageCanvas
+
+        state = AppState()
+        state.gpu_enabled = False
+        canvas = ImageCanvas(state)
+        canvas.resize(800, 600)
+        buf = np.zeros((20, 40, 3), dtype=np.float32)
+        buf[0, 39] = (1.0, 0.25, 0.5)  # top-right corner before CCW turn -> top-left after CCW turn
+        canvas.update_buffer(buf, "sRGB", content_rect=(4, 2, 30, 14))
+
+        canvas.rotate_display(1)
+
+        self.assertEqual(canvas.display_size(), (20, 40))
+        self.assertEqual(canvas.content_rect(), (2, 6, 14, 30))
+        np.testing.assert_allclose(canvas._last_buffer[0, 0], (1.0, 0.25, 0.5))
+
+        # Authoritative settle frame resets transient GPU display rotation cleanly.
+        canvas.gpu_widget.display_rotation = 3
+        canvas.gpu_widget.clear()
+        self.assertEqual(canvas.gpu_widget.display_rotation, 0)
+
+    def test_rotate_display_updates_image_dims_and_rejects_inflight_prerotate_renders(self):
+        import numpy as np
+
+        from negpy.desktop.controller import AppController
+        from negpy.desktop.session import AppState
+        from negpy.desktop.view.canvas.widget import ImageCanvas
+
+        state = AppState()
+        state.gpu_enabled = False
+        buf = np.zeros((20, 40, 3), dtype=np.float32)
+        state.last_metrics = {"base_positive": buf, "render_long_edge": 40}
+        state.original_res = (20, 40)
+        canvas = ImageCanvas(state)
+        canvas.resize(800, 400)
+        canvas.update_buffer(buf, "sRGB")
+        before_dims = canvas._image_dims()
+        canvas.rotate_display(1)
+        self.assertEqual(before_dims, (40, 20))
+        self.assertEqual(canvas._image_dims(), (20, 40))
+
+        # Pre-rotation render with empty memo_key (e.g. crop_preview_full / interactive) is rejected via turn_gen.
+        from types import SimpleNamespace
+
+        stub = SimpleNamespace(state=state, _geometry_turn_gen=1, _expected_render_key="")
+        self.assertTrue(AppController._renders_another_frame(stub, {"memo_key": "", "turn_gen": 0}))
+        self.assertFalse(AppController._renders_another_frame(stub, {"memo_key": "", "turn_gen": 1}))
+
+        # Splash preview for a newly opened frame clears any outgoing frame's display_turns.
+        state.last_metrics["display_turns"] = 3
+        splash_stub = SimpleNamespace(
+            state=state,
+            _requested_file_path="/tmp/next.arw",
+            _is_stale_preview=lambda _g: False,
+            _file_hash_for_path=lambda _p: "h_next",
+            _split_active_half=lambda r, d: (r, d),
+            image_updated=MagicMock(),
+        )
+        AppController._on_splash_preview(splash_stub, "/tmp/next.arw", buf, (20, 40), generation=1)
+        self.assertNotIn("display_turns", state.last_metrics)
 
 
 class TestFlipRouting(unittest.TestCase):
@@ -578,8 +644,62 @@ class TestFlipRouting(unittest.TestCase):
         tb.flip("horizontal")
 
         tb.session.update_config.assert_called_once()
+        tb.controller.flip_active_display.assert_called_once_with(True)
         tb.session.flip_selected_frames.assert_called_once_with(True, active_included=True)
         tb.controller.rerender_active_view.assert_called_once()
+
+    def test_flip_and_rotate_compose_across_all_d4_orientations(self):
+        import numpy as np
+
+        from negpy.desktop.session import AppState
+        from negpy.desktop.view.canvas.widget import ImageCanvas
+
+        state = AppState()
+        state.gpu_enabled = False
+        canvas = ImageCanvas(state)
+        canvas.resize(800, 600)
+        buf = np.arange(20 * 40 * 3, dtype=np.float32).reshape(20, 40, 3)
+        canvas.update_buffer(buf.copy(), "sRGB", content_rect=(4, 2, 30, 14))
+
+        # Horizontal flip mirrors pixels and content_rect horizontally.
+        canvas.flip_display(True)
+        self.assertEqual(canvas.content_rect(), (6, 2, 30, 14))
+        np.testing.assert_allclose(canvas._last_buffer, np.fliplr(buf))
+
+        # Vertical flip mirrors pixels and content_rect vertically.
+        canvas.flip_display(False)
+        self.assertEqual(canvas.content_rect(), (6, 4, 30, 14))
+        np.testing.assert_allclose(canvas._last_buffer, np.flipud(np.fliplr(buf)))
+
+        # GPU D4 state composition: Rotate CCW -> Flip H -> Rotate CW -> Flip V matches NumPy oracle.
+        canvas.gpu_widget.clear()
+        canvas.gpu_widget.rotate_display(1)
+        canvas.gpu_widget.flip_display(True)
+        canvas.gpu_widget.rotate_display(-1)
+        canvas.gpu_widget.flip_display(False)
+        oracle = np.flipud(np.rot90(np.fliplr(np.rot90(buf, k=1)), k=-1))
+        reconstructed = np.rot90(buf, k=canvas.gpu_widget.display_rotation)
+        if canvas.gpu_widget.display_flip_h:
+            reconstructed = np.fliplr(reconstructed)
+        np.testing.assert_allclose(reconstructed, oracle)
+
+        # Grain Focuser cached export_view is invalidated on instant rotate/flip so the loupe never shows pre-turn pixels.
+        from types import SimpleNamespace
+
+        from negpy.desktop.controller import AppController
+
+        ctrl_stub = SimpleNamespace(
+            state=state,
+            _geometry_turn_gen=0,
+            _transform_active_thumbnail=lambda _x: None,
+            canvas=canvas,
+        )
+        state.export_view = {"key": "k", "buffer": buf, "content_rect": None}
+        AppController.rotate_active_display(ctrl_stub, 1)
+        self.assertIsNone(state.export_view)
+        state.export_view = {"key": "k", "buffer": buf, "content_rect": None}
+        AppController.flip_active_display(ctrl_stub, True)
+        self.assertIsNone(state.export_view)
 
 
 if __name__ == "__main__":

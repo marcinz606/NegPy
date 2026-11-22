@@ -24,6 +24,7 @@ from PyQt6.QtGui import (
     QPixmap,
     QPolygonF,
     QShortcut,
+    QTransform,
 )
 from PyQt6.QtWidgets import QApplication, QWidget
 
@@ -575,6 +576,9 @@ class CanvasOverlay(QWidget):
         self._display_cs: str = ""
         self._monitor_icc_bytes: Optional[bytes] = None
         self._proof: Optional[tuple] = None
+        self._display_rotation: int = 0
+        self._gpu_display_rotation: int = 0
+        self._gpu_display_flip_h: bool = False
 
         self._buffer_overlay_ratio: float = 0.0
         self._buffer_overlay_visible: bool = False
@@ -833,6 +837,9 @@ class CanvasOverlay(QWidget):
         self._content_rect = content_rect
         self._display_buffer = buffer if isinstance(buffer, np.ndarray) else None
         self._gpu_texture = gpu_texture
+        self._display_rotation = 0
+        self._gpu_display_rotation = 0
+        self._gpu_display_flip_h = False
         self._host_qimage_cache = None
         self._zone_field = None  # rebuilt lazily on the next zones paint
         self._zone_image = None
@@ -869,6 +876,85 @@ class CanvasOverlay(QWidget):
     def drop_gpu_texture(self) -> None:
         """Forget the displayed texture before the engine frees its pool."""
         self._gpu_texture = None
+        self._display_rotation = 0
+        self._gpu_display_rotation = 0
+        self._gpu_display_flip_h = False
+
+    def _clear_display_caches_after_transform(self) -> None:
+        self._host_qimage_cache = None
+        self._zone_field = None
+        self._zone_image = None
+        self._zone_outlines = {}
+        self._zone_cells = None
+        self._frame_washes = {}
+        self._compare_qimage_cache = None
+        if self._tool_mode == ToolMode.CROP_MANUAL and self._crop_drag_mode is None:
+            self._crop_rect_norm = self.state.config.geometry.crop_rect
+        if self._tool_mode == ToolMode.ANALYSIS_DRAW and self._analysis_drag_mode is None:
+            self._analysis_rect_norm = self.state.config.process.analysis_rect
+
+    def rotate_display(self, direction: int) -> None:
+        """Turn the currently displayed buffer/rect in place while the settle render catches up."""
+        turns = direction % 4
+        if not turns:
+            return
+        cur_w, cur_h = (0, 0)
+        if self._qimage is not None:
+            cur_w, cur_h = self._qimage.width(), self._qimage.height()
+        elif self._current_size is not None:
+            cur_w, cur_h = self._current_size
+        if cur_w <= 0 or cur_h <= 0:
+            return
+        self._display_rotation = (self._display_rotation + turns) % 4
+        if self._content_rect is not None:
+            x, y, rw, rh = self._content_rect
+            w, h = cur_w, cur_h
+            for _ in range(turns):
+                x, y, rw, rh, w, h = y, w - (x + rw), rh, rw, h, w
+            self._content_rect = (x, y, rw, rh)
+        if self._qimage is not None:
+            self._qimage = self._qimage.transformed(QTransform().rotate(-90 * direction))
+            self._current_size = (self._qimage.width(), self._qimage.height())
+            if self._display_buffer is not None:
+                self._display_buffer = np.rot90(self._display_buffer, k=turns)
+        else:
+            if self._gpu_display_flip_h:
+                self._gpu_display_rotation = (self._gpu_display_rotation - turns) % 4
+            else:
+                self._gpu_display_rotation = (self._gpu_display_rotation + turns) % 4
+            if turns % 2 == 1:
+                self._current_size = (cur_h, cur_w)
+            if self._display_buffer is not None:
+                self._display_buffer = np.rot90(self._display_buffer, k=turns)
+        self._clear_display_caches_after_transform()
+        self._recalc_view_rect()
+        self.update()
+
+    def flip_display(self, horizontal: bool) -> None:
+        """Mirror the currently displayed buffer/rect in place while the settle render catches up."""
+        cur_w, cur_h = (0, 0)
+        if self._qimage is not None:
+            cur_w, cur_h = self._qimage.width(), self._qimage.height()
+        elif self._current_size is not None:
+            cur_w, cur_h = self._current_size
+        if cur_w <= 0 or cur_h <= 0:
+            return
+        if self._content_rect is not None:
+            x, y, rw, rh = self._content_rect
+            self._content_rect = (cur_w - (x + rw), y, rw, rh) if horizontal else (x, cur_h - (y + rh), rw, rh)
+        if self._qimage is not None:
+            scale = QTransform().scale(-1.0, 1.0) if horizontal else QTransform().scale(1.0, -1.0)
+            self._qimage = self._qimage.transformed(scale)
+            if self._display_buffer is not None:
+                self._display_buffer = np.fliplr(self._display_buffer) if horizontal else np.flipud(self._display_buffer)
+        else:
+            if not horizontal:
+                self._gpu_display_rotation = (self._gpu_display_rotation + 2) % 4
+            self._gpu_display_flip_h = not self._gpu_display_flip_h
+            if self._display_buffer is not None:
+                self._display_buffer = np.fliplr(self._display_buffer) if horizontal else np.flipud(self._display_buffer)
+        self._clear_display_caches_after_transform()
+        self.update()
 
     def _host_buffer(self) -> Optional[np.ndarray]:
         """The displayed frame as NumPy, in working space. Reads the GPU texture back on
@@ -880,7 +966,15 @@ class CanvasOverlay(QWidget):
                 logger.exception("Failed to read back the GPU frame for a canvas instrument")
                 self._gpu_texture = None
                 return None
-            self._display_buffer = np.ascontiguousarray(rb[:, :, :3]) if rb.ndim == 3 and rb.shape[2] >= 3 else rb
+            buf = np.ascontiguousarray(rb[:, :, :3]) if rb.ndim == 3 and rb.shape[2] >= 3 else rb
+            rot = getattr(self, "_gpu_display_rotation", 0) % 4
+            if rot:
+                buf = np.rot90(buf, k=rot)
+            if getattr(self, "_gpu_display_flip_h", False):
+                buf = np.fliplr(buf)
+            self._display_buffer = np.ascontiguousarray(buf)
+        elif self._display_buffer is not None and not self._display_buffer.flags.c_contiguous:
+            self._display_buffer = np.ascontiguousarray(self._display_buffer)
         return self._display_buffer
 
     def _host_qimage(self) -> Optional[QImage]:

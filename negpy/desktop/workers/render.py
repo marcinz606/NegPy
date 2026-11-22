@@ -141,6 +141,9 @@ class RenderTask:
     # The roll's clear film base set with the Film Base tool, per-channel log10 transmittance;
     # None lets the rebate reader stand in.
     film_base: Optional[tuple] = None
+    # Monotonic quarter-turn epoch on the controller, echoed in metrics so an in-flight
+    # pre-rotation render with an empty memo_key cannot paint over a rotated viewport.
+    turn_gen: int = 0
 
 
 @dataclass(frozen=True)
@@ -505,6 +508,7 @@ class RenderWorker(QObject):
             metrics["interactive"] = task.interactive
             metrics["crop_preview_full"] = task.crop_preview_full
             metrics["config_override"] = task.config_override
+            metrics["turn_gen"] = task.turn_gen
 
             self.finished.emit(result, metrics)
             self.metrics_updated.emit(metrics)

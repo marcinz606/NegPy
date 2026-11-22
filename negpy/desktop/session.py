@@ -35,7 +35,13 @@ from negpy.domain.models import PROOF_INTENT_LABELS, ExportPreset, ProofIntent, 
 from negpy.features.exposure.models import apply_targets
 from negpy.features.process.capture_color import is_source_profile
 from negpy.features.process.path import is_mono
-from negpy.features.geometry.logic import flip_geometry_and_analysis, has_manual_crop, rotate_geometry_and_analysis
+from negpy.features.geometry.logic import (
+    flip_geometry_and_analysis,
+    flip_meter_rect_and_key,
+    has_manual_crop,
+    rotate_geometry_and_analysis,
+    rotate_meter_rect_and_key,
+)
 from negpy.features.process.models import (
     SCAN_SETUP_PAPERS,
     ProcessMode,
@@ -2092,9 +2098,18 @@ class DesktopSessionManager(QObject):
             seen_hashes.add(target_hash)
             target_config = self.config_for_asset(asset)
             new_geo, new_rect = rotate_geometry_and_analysis(target_config.geometry, target_config.process.analysis_rect, direction)
-            new_config = replace(target_config, geometry=new_geo)
+            meter_rect, meter_key = rotate_meter_rect_and_key(
+                target_config.process.meter_rect, target_config.process.meter_key, target_config.geometry, new_geo, direction
+            )
+            proc_changes: dict = {}
             if target_config.process.analysis_rect is not None:
-                new_config = replace(new_config, process=replace(target_config.process, analysis_rect=new_rect))
+                proc_changes["analysis_rect"] = new_rect
+            if (meter_rect, meter_key) != (target_config.process.meter_rect, target_config.process.meter_key):
+                proc_changes["meter_rect"] = meter_rect
+                proc_changes["meter_key"] = meter_key
+            new_config = replace(target_config, geometry=new_geo)
+            if proc_changes:
+                new_config = replace(new_config, process=replace(target_config.process, **proc_changes))
             self.push_external_history(target_hash, target_config, new_config)
             self.repo.save_file_settings(target_hash, new_config, file_path=asset["path"])
             touched_keys.append(asset_thumbnail_key(asset))
@@ -2125,9 +2140,18 @@ class DesktopSessionManager(QObject):
             seen_hashes.add(target_hash)
             target_config = self.config_for_asset(asset)
             new_geo, new_rect = flip_geometry_and_analysis(target_config.geometry, target_config.process.analysis_rect, horizontal)
-            new_config = replace(target_config, geometry=new_geo)
+            meter_rect, meter_key = flip_meter_rect_and_key(
+                target_config.process.meter_rect, target_config.process.meter_key, target_config.geometry, new_geo, horizontal
+            )
+            proc_changes: dict = {}
             if target_config.process.analysis_rect is not None:
-                new_config = replace(new_config, process=replace(target_config.process, analysis_rect=new_rect))
+                proc_changes["analysis_rect"] = new_rect
+            if (meter_rect, meter_key) != (target_config.process.meter_rect, target_config.process.meter_key):
+                proc_changes["meter_rect"] = meter_rect
+                proc_changes["meter_key"] = meter_key
+            new_config = replace(target_config, geometry=new_geo)
+            if proc_changes:
+                new_config = replace(new_config, process=replace(target_config.process, **proc_changes))
             self.push_external_history(target_hash, target_config, new_config)
             self.repo.save_file_settings(target_hash, new_config, file_path=asset["path"])
             touched_keys.append(asset_thumbnail_key(asset))

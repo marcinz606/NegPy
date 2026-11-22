@@ -1810,3 +1810,63 @@ def test_film_edges_on_a_box_too_small_for_a_border_walk_are_zero():
 
     lum = np.random.default_rng(0).random((16, 16)).astype(np.float32)
     assert measure_film_edges(lum, (0, 16, 0, 16)) == {"top": 0.0, "bottom": 0.0, "left": 0.0, "right": 0.0}
+
+
+def test_resolved_autocrop_and_meter_keys_advance_across_quarter_turns_and_flips():
+    from dataclasses import replace
+
+    from negpy.domain.models import WorkspaceConfig
+    from negpy.features.geometry.logic import (
+        autocrop_detection_key,
+        flip_meter_rect_and_key,
+        meter_detection_key,
+        rotate_geometry_and_analysis,
+        rotate_meter_rect_and_key,
+        toggle_flip,
+    )
+    from negpy.services.rendering.image_processor import _resolve_armed_autocrop, _resolve_meter_rect
+
+    img = np.ones((400, 600, 3), dtype=np.float32)
+    img[40:360, 60:540] = 0.08
+
+    geo0 = GeometryConfig(crop_from_auto=True, crop_rect=(0.1, 0.2, 0.85, 0.9), autocrop_ratio="3:2")
+    geo0 = replace(geo0, crop_detect_key=autocrop_detection_key(geo0))
+    for direction in (-1, 1, 2):
+        turned, _ = rotate_geometry_and_analysis(geo0, None, direction)
+        assert turned.crop_detect_key == autocrop_detection_key(turned)
+        cfg, redetected = _resolve_armed_autocrop(img, replace(WorkspaceConfig(), geometry=turned))
+        assert redetected is None and cfg.geometry == turned
+
+    for horizontal in (True, False):
+        mirrored = toggle_flip(geo0, horizontal)
+        assert mirrored.crop_detect_key == autocrop_detection_key(mirrored)
+        cfg, redetected = _resolve_armed_autocrop(img, replace(WorkspaceConfig(), geometry=mirrored))
+        assert redetected is None and cfg.geometry == mirrored
+
+    # Armed-but-unresolved or stale keys remain stale so detection still runs.
+    stale = replace(geo0, crop_detect_key="stale")
+    turned_stale, _ = rotate_geometry_and_analysis(stale, None, -1)
+    assert turned_stale.crop_detect_key == "stale"
+
+    # Resolved meter_rect + meter_key advance without re-running resolve_meter_rect or dropping local bounds.
+    uncropped = GeometryConfig(crop_from_auto=False)
+    m_key0 = meter_detection_key(uncropped, img.shape)
+    proc0 = replace(
+        WorkspaceConfig().process,
+        meter_rect=(0.1, 0.15, 0.9, 0.85),
+        meter_key=m_key0,
+        local_floors=(-2.0, -2.0, -2.0),
+        local_ceils=(-0.5, -0.5, -0.5),
+    )
+    turned_uncropped, _ = rotate_geometry_and_analysis(uncropped, None, -1)
+    m_rect1, m_key1 = rotate_meter_rect_and_key(proc0.meter_rect, proc0.meter_key, uncropped, turned_uncropped, -1)
+    cfg_m = replace(WorkspaceConfig(), geometry=turned_uncropped, process=replace(proc0, meter_rect=m_rect1, meter_key=m_key1))
+    resolved_m, box = _resolve_meter_rect(img, cfg_m)
+    assert box is None and resolved_m is cfg_m
+    assert resolved_m.process.is_local_initialized
+
+    mirrored_uncropped = toggle_flip(uncropped, True)
+    m_rect_f, m_key_f = flip_meter_rect_and_key(proc0.meter_rect, proc0.meter_key, uncropped, mirrored_uncropped, True)
+    cfg_mf = replace(WorkspaceConfig(), geometry=mirrored_uncropped, process=replace(proc0, meter_rect=m_rect_f, meter_key=m_key_f))
+    resolved_mf, box_f = _resolve_meter_rect(img, cfg_mf)
+    assert box_f is None and resolved_mf is cfg_mf
