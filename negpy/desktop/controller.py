@@ -645,6 +645,7 @@ class AppController(QObject):
     thumbnail_activity_changed = pyqtSignal(str)
     tool_sync_requested = pyqtSignal()
     config_updated = pyqtSignal()
+    brush_size_changed = pyqtSignal(int)
     monitor_profile_changed = pyqtSignal()
     compare_changed = pyqtSignal(bool)
     compare_frame_ready = pyqtSignal()
@@ -988,6 +989,13 @@ class AppController(QObject):
         self._cursor_readout_timer = QTimer()
         self._cursor_readout_timer.setSingleShot(True)
         self._cursor_readout_timer.setInterval(33)
+
+        self._brush_size_accum: float = 0.0
+        self._brush_size_dir: int = 0
+        self._brush_persist_timer = QTimer()
+        self._brush_persist_timer.setSingleShot(True)
+        self._brush_persist_timer.setInterval(200)
+        self._brush_persist_timer.timeout.connect(self._flush_brush_size)
         self._cursor_readout_timer.timeout.connect(self._emit_pixel_readout)
         self._pending_cursor_nx: Optional[float] = None
         self._pending_cursor_ny: Optional[float] = None
@@ -1117,19 +1125,64 @@ class AppController(QObject):
         """kind: "info" | "warning" | "error" — the HUD colours the toast by it."""
         self.status_message_requested.emit(message, timeout, kind)
 
+    def _flush_brush_size(self) -> None:
+        """Persist a debounced wheel/pinch brush-size adjustment as one history and DB write."""
+        timer = getattr(self, "_brush_persist_timer", None)
+        if isinstance(timer, QTimer) and timer.isActive():
+            timer.stop()
+        commit = getattr(self.session, "commit_brush_size", None)
+        if callable(commit):
+            commit()
+
     def adjust_brush_size(self, delta: float) -> None:
         """Nudge the shared heal/scratch/exclusion brush diameter, clamped to its slider's
         range. The canvas routes here rather than to the widget: the slider is out of reach
         while an exclusion is painted with no tool active."""
-        conf = self.state.config.retouch
-        size = int(round(min(HEAL_SIZE_MAX, max(HEAL_SIZE_MIN, conf.manual_dust_size + delta))))
-        if size == conf.manual_dust_size:
+        if not math.isfinite(delta) or delta == 0.0:
             return
-        self.session.update_config(
-            replace(self.state.config, retouch=replace(conf, manual_dust_size=size)),
-            persist=True,
-            render=False,
-        )
+        conf = self.state.config.retouch
+        old_size = int(conf.manual_dust_size)
+        direction = 1 if delta > 0.0 else -1
+        raw_dir = getattr(self, "_brush_size_dir", 0)
+        last_dir = raw_dir if isinstance(raw_dir, int) else 0
+        raw_accum = getattr(self, "_brush_size_accum", 0.0)
+        base_accum = float(raw_accum) if isinstance(raw_accum, (int, float)) else 0.0
+        accum = 0.0 if (last_dir and direction != last_dir) else base_accum
+        self._brush_size_dir = direction
+        if (old_size >= HEAL_SIZE_MAX and delta > 0.0) or (old_size <= HEAL_SIZE_MIN and delta < 0.0):
+            self._brush_size_accum = 0.0
+            return
+        accum += delta
+        step = int(round(accum))
+        if step == 0:
+            self._brush_size_accum = accum
+            return
+        size = int(min(HEAL_SIZE_MAX, max(HEAL_SIZE_MIN, old_size + step)))
+        if size == old_size:
+            self._brush_size_accum = 0.0
+            return
+        self._brush_size_accum = 0.0 if size in (int(HEAL_SIZE_MIN), int(HEAL_SIZE_MAX)) else (accum - step)
+        timer = getattr(self, "_brush_persist_timer", None)
+        has_timer = isinstance(timer, QTimer)
+        if has_timer and isinstance(self.session, DesktopSessionManager):
+            self.session.preview_brush_size(size)
+            assert isinstance(timer, QTimer)
+            timer.start()
+        else:
+            self.session.update_config(
+                replace(self.state.config, retouch=replace(conf, manual_dust_size=size)),
+                persist=not has_timer,
+                render=False,
+            )
+            if has_timer:
+                assert isinstance(timer, QTimer)
+                timer.start()
+        canvas = getattr(self, "canvas", None)
+        if canvas is not None:
+            canvas.overlay.refresh_brush_cursor(old_size)
+        brush_sig = getattr(self, "brush_size_changed", None)
+        if brush_sig is not None:
+            brush_sig.emit(size)
         self.set_status(tr("Brush Size {size} px", size=size), 1500)
 
     def _connect_signals(self) -> None:
@@ -1320,6 +1373,7 @@ class AppController(QObject):
         self.poll_light_temp_requested.connect(self.capture_worker.poll_light_temp)
         self.capture_worker.light_temp_polled.connect(self.light_temp_polled.emit)
 
+        self.session.active_file_changing.connect(self._flush_brush_size)
         self.session.active_file_changing.connect(self._update_thumbnail_from_state)
         self.session.frame_previews_ending.connect(self._previewed_meter_cards.clear)
         self.session.session_emptied.connect(self._render_memo.clear)
@@ -10852,6 +10906,7 @@ class AppController(QObject):
         if self._cleaned_up:
             return
         self._cleaned_up = True
+        self._flush_brush_size()
         self._render_debounce.stop()
         self._cursor_readout_timer.stop()
         self._export_view_timer.stop()

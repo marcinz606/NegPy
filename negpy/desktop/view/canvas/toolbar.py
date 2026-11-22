@@ -1318,6 +1318,7 @@ class ActionToolbar(QWidget):
             self._sync_rows()
         if self._tool_slider is not None:
             self._tool_slider.setEnabled(self._tool_slider_source.isEnabled())
+            self._sync_brush_tool_slider(int(state.config.retouch.manual_dust_size))
 
     def _find_widget(self, path: str):
         from negpy.desktop.view.main_window import MainWindow
@@ -1352,6 +1353,10 @@ class ActionToolbar(QWidget):
         source.valueChanged.connect(mirror.setValue)
         self._tool_layout.insertWidget(self._tool_slider_index, mirror)
         self._tool_slider, self._tool_slider_source = mirror, source
+
+    def _sync_brush_tool_slider(self, size: int) -> None:
+        if self._tool_slider is not None and self._shown_tool in (ToolMode.DUST_PICK, ToolMode.SCRATCH_PICK, ToolMode.CLONE):
+            self._tool_slider.setValue(float(size))
 
     @staticmethod
     def _menu_section(menu: QMenu, text: str) -> None:
@@ -1561,10 +1566,12 @@ class ActionToolbar(QWidget):
         controller.zoom_changed.connect(self._on_zoom_changed)
 
         self.session.state_changed.connect(self._update_ui_state)
+        self.session.history_changed.connect(self._update_ui_state)
         controller.config_updated.connect(lambda: "average" in self._item_ids and self._sync_average_button())
         self.session.asset_model.layoutChanged.connect(self._update_ui_state)
         self.session.files_changed.connect(self._sync_light_table_row)
         controller.tool_sync_requested.connect(self._sync_tool_row)
+        controller.brush_size_changed.connect(self._sync_brush_tool_slider)
         controller.zones_overlay_changed.connect(lambda _on: self._sync_tool_row())
         controller.average_peek_changed.connect(lambda _on: self._sync_tool_row())
         controller.test_strip_changed.connect(lambda _up: self._sync_tool_row())

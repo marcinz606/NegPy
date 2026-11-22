@@ -1474,6 +1474,21 @@ class CanvasOverlay(QWidget):
             return
         draw_view_badge(painter, text, rect.left() + THEME.space_xl, rect.top() + THEME.space_xl)
 
+    def refresh_brush_cursor(self, previous_size: Optional[float] = None) -> None:
+        """Repaint only the cursor brush footprint (and clone reticle) unless a stroke is live."""
+        if self._scratch_pts or self._heal_drag_pts or self._exclude_drag_pts:
+            self.update()
+            return
+        r = self._brush_screen_radius(self.state.config.retouch.manual_dust_size)
+        if previous_size is not None:
+            r = max(r, self._brush_screen_radius(previous_size))
+        pad = r + 4.0
+        self.update(QRectF(self._mouse_pos.x() - pad, self._mouse_pos.y() - pad, pad * 2.0, pad * 2.0).toAlignedRect())
+        if self._tool_mode == ToolMode.CLONE:
+            src_pt = self._clone_source_screen()
+            if src_pt is not None:
+                self.update(QRectF(src_pt.x() - pad, src_pt.y() - pad, pad * 2.0, pad * 2.0).toAlignedRect())
+
     def _draw_brush(self, painter: QPainter, fill: Optional[str] = None) -> None:
         radius = self._brush_screen_radius(self.state.config.retouch.manual_dust_size)
 
