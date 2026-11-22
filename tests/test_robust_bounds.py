@@ -46,7 +46,8 @@ class TestRobustBounds(unittest.TestCase):
         h, w = img.shape[:2]
         b = int(np.ceil(max(h, w) / int(EXPOSURE_CONSTANTS["analysis_grid"])))
         hb, wb = (h // b) * b, (w // b) * b
-        ref = np.median(img[:hb, :wb].reshape(hb // b, b, wb // b, b, 3), axis=(1, 3))
+        top, left = (h - hb) // 2, (w - wb) // 2  # an even leftover trims from both ends
+        ref = np.median(img[top : top + hb, left : left + wb].reshape(hb // b, b, wb // b, b, 3), axis=(1, 3))
 
         np.testing.assert_array_equal(_block_median_grid(img), ref)
 
