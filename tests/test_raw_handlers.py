@@ -425,6 +425,7 @@ def test_large_non_segmented_linearraw_has_no_bounded_memory_estimate():
         tilelength=None,
         tilewidth=None,
         rowsperstrip=height,
+        compression=52546,
         tags={},
     )
 
@@ -450,6 +451,88 @@ def test_streamed_rgbi_preview_preserves_ir_hair_across_strips(tmp_path):
     np.testing.assert_allclose(metadata["ir"], expected, atol=1e-6)
     area_only = cv2.resize(ir, (20, 10), interpolation=cv2.INTER_AREA)
     assert float(metadata["ir"].min()) < float(area_only.min())
+
+
+@pytest.mark.parametrize("band_rows,atol", [(8, 0.0), (7, 2e-3)])
+def test_single_strip_rgbi_dng_over_the_segment_limit_reads_in_bands(tmp_path, band_rows, atol):
+    h, w = 96, 160
+    y, x = np.mgrid[0:h, 0:w]
+    plane = ((y * 3 + x * 5) % 60000 + 2000).astype(np.uint16)
+    rgbi = np.stack([plane, plane // 2 + 1000, plane // 3 + 2000, np.full((h, w), 50000, np.uint16)], axis=-1)
+    strips = tmp_path / "strips.dng"
+    single = tmp_path / "single.dng"
+    tifffile.imwrite(strips, rgbi, photometric=34892, planarconfig="contig", rowsperstrip=8)
+    tifffile.imwrite(single, rgbi, photometric=34892, planarconfig="contig", rowsperstrip=h)
+
+    want, want_meta = LoaderFactory().get_loader(str(strips), preview_max_edge=40)
+    with (
+        patch("negpy.infrastructure.loaders.rawpy_loader._PREVIEW_SEGMENT_MAX_BYTES", 1024),
+        patch("negpy.infrastructure.loaders.rawpy_loader._PREVIEW_BAND_BYTES", band_rows * w * 4 * 2),
+        patch.object(tifffile.TiffPage, "asarray", side_effect=AssertionError("full array decoded")),
+    ):
+        got, got_meta = LoaderFactory().get_loader(str(single), preview_max_edge=40)
+
+    np.testing.assert_allclose(got.data, want.data, atol=atol)
+    np.testing.assert_allclose(got_meta["ir"], want_meta["ir"], atol=atol)
+
+
+def _banded_page(**overrides):
+    height, width = 3945, 5658
+    fields = dict(
+        shape=(height, width, 4),
+        dtype=np.dtype(np.uint16),
+        is_tiled=False,
+        tilelength=None,
+        tilewidth=None,
+        rowsperstrip=height,
+        compression=1,
+        planarconfig=1,
+        bitspersample=16,
+        predictor=1,
+        fillorder=1,
+        dataoffsets=(8,),
+        databytecounts=(height * width * 4 * 2,),
+        tags={},
+    )
+    return SimpleNamespace(**{**fields, **overrides})
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"compression": 8},
+        {"bitspersample": 12},
+        {"predictor": 2},
+        {"databytecounts": (1024,)},
+        {"rowsperstrip": 2000, "dataoffsets": (8, 10**9), "databytecounts": (2000 * 5658 * 8, 1945 * 5658 * 8)},
+    ],
+)
+def test_oversized_linearraw_page_that_is_not_one_run_of_rows_is_not_banded(overrides):
+    assert _streaming_linearraw_memory_estimate(_banded_page(**overrides), None, 1600, normalize_tags=False) is None
+
+
+def test_single_strip_linearraw_estimate_uses_the_band_size():
+    width, height = 5658, 3945
+    page = SimpleNamespace(
+        shape=(height, width, 4),
+        dtype=np.dtype(np.uint16),
+        is_tiled=False,
+        tilelength=None,
+        tilewidth=None,
+        rowsperstrip=height,
+        compression=1,
+        planarconfig=1,
+        bitspersample=16,
+        predictor=1,
+        fillorder=1,
+        dataoffsets=(8,),
+        databytecounts=(height * width * 4 * 2,),
+        tags={},
+    )
+    estimate = _streaming_linearraw_memory_estimate(page, page, 1600, normalize_tags=False)
+
+    assert estimate is not None
+    assert estimate.temporary_bytes < 256 * 1024 * 1024
 
 
 def test_jxl_linear_dng_preview_does_not_fall_back_when_a_segment_is_too_large():
