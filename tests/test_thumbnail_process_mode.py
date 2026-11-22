@@ -174,3 +174,35 @@ class StoredMode(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ResumedQueue(unittest.TestCase):
+    """The open frame pauses the queue on each render; the resume must not read every frame's edit again."""
+
+    def _paused(self, stored: dict):
+        controller = _controller(stored)
+        controller._thumbnail_backlog = []
+        AppController.generate_missing_thumbnails(controller)
+        controller.thumbnail_requested.emit.reset_mock()
+        controller.session.stored_process_mode = MagicMock(side_effect=lambda asset: "fresh")
+        return controller
+
+    def test_resume_resends_the_stamped_frames_still_missing(self):
+        controller = self._paused({"hash-a": "Transparency"})
+        controller.state.thumbnails = {"hash-b": object()}
+
+        with patch("negpy.desktop.controller.asset_thumbnail_key", side_effect=lambda f: f["hash"]):
+            AppController.generate_missing_thumbnails(controller, reuse_stamps=True)
+
+        self.assertEqual([(f["hash"], f["process_mode"]) for f in _emitted(controller)], [("hash-a", "Transparency")])
+        controller.session.stored_process_mode.assert_not_called()
+
+    def test_resume_stamps_again_when_a_frame_joined_the_queue(self):
+        controller = self._paused({})
+        controller.state.uploaded_files.append({"name": "c.nef", "path": "/f/c.nef", "hash": "hash-c"})
+
+        with patch("negpy.desktop.controller.asset_thumbnail_key", side_effect=lambda f: f["hash"]):
+            AppController.generate_missing_thumbnails(controller, reuse_stamps=True)
+
+        self.assertEqual(len(_emitted(controller)), 3)
+        self.assertEqual(controller.session.stored_process_mode.call_count, 3)

@@ -84,3 +84,20 @@ def test_existing_documents_used_without_side_effects(monkeypatch, tmp_path):
 
     assert result == str((docs / "NegPy").absolute())
     assert not (docs / "NegPy").exists()
+
+
+def test_xdg_user_dir_runs_once_per_session(monkeypatch, tmp_path):
+    """Every WorkspaceConfig builds an ExportConfig, whose defaults resolve the user dir."""
+    from negpy.kernel.system import paths
+
+    calls = []
+    monkeypatch.delenv("NEGPY_USER_DIR", raising=False)
+    monkeypatch.delenv("XDG_DOCUMENTS_DIR", raising=False)
+    monkeypatch.setattr("sys.platform", "linux")
+    monkeypatch.setattr(paths.subprocess, "check_output", lambda *a, **k: calls.append(a) or str(tmp_path).encode())
+    paths._xdg_documents_dir.cache_clear()
+
+    first = get_default_user_dir()
+    assert get_default_user_dir() == first == str((tmp_path / "NegPy").absolute())
+    assert len(calls) == 1
+    paths._xdg_documents_dir.cache_clear()

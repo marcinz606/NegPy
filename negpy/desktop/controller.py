@@ -798,6 +798,8 @@ class AppController(QObject):
         self._background_baseline_timer.setSingleShot(True)
         self._background_baseline_timer.setInterval(2000)
         self._background_baseline_timer.timeout.connect(self._run_background_baseline)
+        # Per frame hash, what the last background check read: (render path, waits for Auto Crop, meter inputs).
+        self._baseline_seen: Dict[str, tuple] = {}
         # True while a hot-folder-triggered discovery owns the batch lane. Thumbnail
         # loading is an independent background queue and never owns this state.
         self._hot_folder_sequence_active = False
@@ -1003,6 +1005,8 @@ class AppController(QObject):
         self._neighbor_prefetch_queue: list[PreviewLoadTask] = []
         self._prefetch_in_flight_generation: Optional[int] = None
         self._thumbnail_queue_active = False
+        # The frame copies the thumbnail queue was last sent, with their stamped film process.
+        self._thumbnail_backlog: List[dict] = []
         self._thumbnails_paused_for_foreground = False
 
         self._connect_signals()
@@ -1135,8 +1139,7 @@ class AppController(QObject):
     def _connect_signals(self) -> None:
         # A lock moves with an edit, a push, a paste or a reset; each ends in config_updated.
         self.config_updated.connect(self.session.refresh_own_marks)
-        # A crop or Metering edit can leave the roll average out of date; the run checks each frame's inputs.
-        self.config_updated.connect(self._background_baseline_timer.start)
+        self.config_updated.connect(self._schedule_baseline_after_edit)
         self.render_requested.connect(self.render_worker.process)
         self.strip_requested.connect(self.render_worker.build_strip)
         self.pick_better_requested.connect(self.render_worker.build_pick_better)
@@ -1226,6 +1229,7 @@ class AppController(QObject):
         self.thumbnail_render_worker.error.connect(self._on_thumbnail_render_error)
         self.session.frames_edited_offscreen.connect(self._on_frames_edited_offscreen)
         self.session.auto_thumbnail_refresh_changed.connect(self._on_auto_thumbnail_refresh_changed)
+        self.session.auto_roll_average_changed.connect(self._on_auto_roll_average_changed)
 
         self.asset_discovery_requested.connect(self.discovery_worker.process)
         self.discovery_worker.progress.connect(self._on_discovery_progress)
@@ -1339,16 +1343,24 @@ class AppController(QObject):
             return
         self._render_debounce.start()
 
-    def generate_missing_thumbnails(self) -> None:
+    def generate_missing_thumbnails(self, *, reuse_stamps: bool = False) -> None:
+        """Queues every frame without a thumbnail. *reuse_stamps* resends the last request's copies
+        when they cover every missing frame: the open frame pauses the queue on each render."""
         missing = [f for f in self.state.uploaded_files if asset_thumbnail_key(f) not in self.state.thumbnails]
-        if missing:
-            self._thumbnail_queue_active = True
-            self.thumb_worker.cancel_pending()
+        if not missing:
+            return
+        self._thumbnail_queue_active = True
+        self.thumb_worker.cancel_pending()
+        keys = [asset_thumbnail_key(f) for f in missing]
+        stamped = {asset_thumbnail_key(f): f for f in self._thumbnail_backlog} if reuse_stamps else {}
+        if not all(k in stamped for k in keys):
             # Copies, carrying each frame's stored film process. The source decode cannot
             # tell a slide from a negative reliably, and inverting a positive is what put
             # negatives in the filmstrip. They are copies because these dicts cross to a
             # worker thread and uploaded_files must not grow a stale mode.
-            self.thumbnail_requested.emit([{**f, "process_mode": self.session.stored_process_mode(f)} for f in missing])
+            stamped = {k: {**f, "process_mode": self.session.stored_process_mode(f)} for k, f in zip(keys, missing)}
+        self._thumbnail_backlog = [stamped[k] for k in keys]
+        self.thumbnail_requested.emit(list(self._thumbnail_backlog))
 
     def thumbnail_turn_snapshot(self) -> dict[str, Optional[bool]]:
         """Per selected frame but the active one: whether its stored thumbnail shows its settings,
@@ -1653,7 +1665,7 @@ class AppController(QObject):
         ):
             return
         self._thumbnails_paused_for_foreground = False
-        self.generate_missing_thumbnails()
+        self.generate_missing_thumbnails(reuse_stamps=True)
 
     def _continue_background_work(self) -> None:
         """Resume deferred work after the selected frame becomes idle."""
@@ -4930,9 +4942,9 @@ class AppController(QObject):
         )
         return True
 
-    def _waits_for_auto_crop(self, asset: dict) -> bool:
+    def _waits_for_auto_crop(self, asset: dict, config: Optional[WorkspaceConfig] = None) -> bool:
         """Auto Crop is on, and no crop was found under the current settings (_resolve_armed_autocrop)."""
-        geometry = self._config_for_batch_asset(asset).geometry
+        geometry = (config or self._config_for_batch_asset(asset)).geometry
         found = geometry.crop_rect is not None and geometry.crop_detect_key == autocrop_detection_key(geometry)
         return geometry.crop_from_auto and geometry.autocrop_mode == AutocropMode.IMAGE and not found
 
@@ -6268,18 +6280,20 @@ class AppController(QObject):
         stays until Roll or Scene Analysis runs. A slide never prints on an average, so the run
         leaves slide frames out."""
         roll_id = self.state.active_roll_id
-        if roll_id is None or self._active_batch is not None or self._background_baseline is not None:
+        if roll_id is None or not self.state.auto_roll_average or self._active_batch is not None or self._background_baseline is not None:
             return
         repo = self.session.repo
         for scene_id in [None, *(sid for sid, _entry in rolls.roll_scenes(repo, roll_id))]:
-            targets = [f for f in self._normalization_targets(scene_id) if not self._waits_for_auto_crop(f)]
-            configs = {f["hash"]: self._config_for_batch_asset(f) for f in targets}
-            frames = [f for f in targets if render_path(configs[f["hash"]].process) is RenderPath.PRINT]
+            candidates = self._normalization_targets(scene_id)
+            configs = {f["hash"]: self._config_for_batch_asset(f) for f in candidates}
+            seen = {f["hash"]: self._baseline_inputs(f, configs[f["hash"]]) for f in candidates}
+            self._baseline_seen.update(seen)
+            frames = [f for f in candidates if not seen[f["hash"]][1] and seen[f["hash"]][0] is RenderPath.PRINT]
             hashes = tuple(f["hash"] for f in frames)
             saved = rolls.scene_normalization(repo, roll_id, scene_id) if scene_id else rolls.roll_normalization(repo, roll_id)
             if len(frames) < 2 or (saved and saved["frames"] is None):
                 continue
-            inputs = {h: meter_inputs_key(configs[h]) for h in hashes}
+            inputs = {h: seen[h][2] for h in hashes}
             if not saved or not set(hashes) <= set(saved["frames"]) or self._inputs_changed(saved, inputs):
                 break
         else:
@@ -6295,6 +6309,29 @@ class AppController(QObject):
             )
         )
         self.config_updated.emit()
+
+    def _baseline_inputs(self, asset: dict, config: WorkspaceConfig) -> tuple:
+        """What the background check reads from a frame: render path, whether it waits for Auto Crop, meter inputs."""
+        return render_path(config.process), self._waits_for_auto_crop(asset, config=config), meter_inputs_key(config)
+
+    def _schedule_baseline_after_edit(self) -> None:
+        """Schedules the background check when an edit can have moved a frame it reads: the open or
+        a written frame's inputs differ from the last check's, or a setting hydration reads changed.
+        The sticky snapshot copies the open frame, and only Restore Session reads the session_* keys."""
+        repo = self.session.repo
+        edits = set(repo.take_edit_writes())
+        settings = {k for k in repo.take_setting_writes() if k != STICKY_CONFIG_KEY and not k.startswith("session_")}
+        if "*" in edits or settings:
+            self._background_baseline_timer.start()
+            return
+        edits.add(self.state.current_file_hash or "")
+        frames = (f for f in self.state.uploaded_files if f.get("hash") in edits)
+        if any(self._baseline_seen.get(f["hash"]) != self._baseline_inputs(f, self._config_for_batch_asset(f)) for f in frames):
+            self._background_baseline_timer.start()
+
+    def _on_auto_roll_average_changed(self, on: bool) -> None:
+        if on:
+            self._background_baseline_timer.start()
 
     def _meter_inputs(self, frames: List[dict]) -> Dict[str, str]:
         return {f["hash"]: meter_inputs_key(self._config_for_batch_asset(f)) for f in frames}

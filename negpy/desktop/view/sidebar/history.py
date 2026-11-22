@@ -97,6 +97,7 @@ class HistoryPanel(BaseSidebar):
 
     def _init_ui(self) -> None:
         repo = self.controller.session.repo
+        self._stale = False
 
         self.work_prints = RowList(_RowDelegate, _ROW_HEIGHT)
         self.work_prints.setToolTip(_WORK_PRINT_TOOLTIP)
@@ -163,9 +164,21 @@ class HistoryPanel(BaseSidebar):
         self.apply_metadata_btn.toggled.connect(self._on_apply_metadata_toggled)
         self.undo_btn.clicked.connect(self.controller.session.undo)
         self.redo_btn.clicked.connect(self.controller.session.redo)
-        self.controller.session.history_changed.connect(self.refresh)
-        self.controller.session.work_prints_changed.connect(self.refresh)
-        self.controller.session.file_selected.connect(lambda _: self.refresh())
+        self.controller.session.history_changed.connect(self._refresh_when_shown)
+        self.controller.session.work_prints_changed.connect(self._refresh_when_shown)
+        self.controller.session.file_selected.connect(lambda _: self._refresh_when_shown())
+
+    def _refresh_when_shown(self) -> None:
+        """Refreshes now, or on the next show while the panel sits behind another tab."""
+        self._stale = not self.isVisible()
+        if not self._stale:
+            self.refresh()
+
+    def showEvent(self, event) -> None:  # noqa: N802
+        super().showEvent(event)
+        if self._stale:
+            self._stale = False
+            self.refresh()
 
     def refresh(self) -> None:
         session = self.controller.session

@@ -387,6 +387,15 @@ class PreferencesDialog(QDialog):
                     MODEL_DOWNLOAD_SIZE=semantic_model.MODEL_DOWNLOAD_SIZE,
                 )
             )
+        self.auto_roll_average_box = labeled_toggle(
+            "mdi6.filmstrip",
+            tr("Measure Roll Average Automatically"),
+            self.session.state.auto_roll_average,
+            tr("Measure the roll average in the background when a frame is new or its crop or Metering changed"),
+        )
+        self.auto_roll_average_box.toggled.connect(self.session.set_auto_roll_average)
+        self._add_toggles(grid, row, self.auto_roll_average_box)
+        row += 1
 
         self.low_vram_tiling_box = labeled_toggle(
             "fa5s.memory",

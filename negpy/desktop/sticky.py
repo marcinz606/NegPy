@@ -76,11 +76,18 @@ def sticky_snapshot(config: WorkspaceConfig) -> dict[str, Any]:
     return flat
 
 
+# The last snapshot parsed and its config: every frame hydration reads it, and it rarely changes.
+_parsed: Optional[tuple[dict, WorkspaceConfig]] = None
+
+
 def load_sticky_config(repo: IRepository) -> Optional[WorkspaceConfig]:
+    global _parsed
     stored = repo.get_global_setting(STICKY_CONFIG_KEY)
     if not isinstance(stored, dict) or not stored:
         return None
-    return WorkspaceConfig.from_flat_dict(stored)
+    if _parsed is None or _parsed[0] != stored:
+        _parsed = (stored, WorkspaceConfig.from_flat_dict(stored))
+    return _parsed[1]
 
 
 # Legacy per-key sticky store, superseded by STICKY_CONFIG_KEY. Only the keys the old

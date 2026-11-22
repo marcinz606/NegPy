@@ -55,6 +55,12 @@ class TestPreferencesDialog(unittest.TestCase):
         dlg.auto_thumbnails_box.setChecked(True)
         dlg.session.set_auto_thumbnail_refresh.assert_called_once_with(True)
 
+    def test_automatic_roll_average_defaults_on_and_goes_through_the_session(self):
+        dlg = _dlg()
+        self.assertTrue(dlg.auto_roll_average_box.isChecked())
+        dlg.auto_roll_average_box.setChecked(False)
+        dlg.session.set_auto_roll_average.assert_called_once_with(False)
+
     def test_color_vision_offers_every_palette_and_sets_it(self):
         from negpy.desktop.view.styles.color_vision import PALETTES
 

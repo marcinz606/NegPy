@@ -4279,7 +4279,7 @@ class TestPresetExportSelected(unittest.TestCase):
 
     def test_background_run_measures_a_new_frame_quietly(self):
         tasks = self._capture_background_runs()
-        self.controller._waits_for_auto_crop.side_effect = lambda f: f["hash"] == "h3"
+        self.controller._waits_for_auto_crop.side_effect = lambda f, config=None: f["hash"] == "h3"
 
         with patch.object(rolls, "roll_normalization", return_value={"frames": ("h1",)}):
             self.controller._run_background_baseline()
@@ -4313,6 +4313,68 @@ class TestPresetExportSelected(unittest.TestCase):
         for saved in ({"frames": ("h1", "h2", "h3", "h4")}, {"frames": None}):
             with patch.object(rolls, "roll_normalization", return_value=saved):
                 self.controller._run_background_baseline()
+        self.assertEqual(tasks, [])
+
+    def test_background_run_hydrates_each_frame_once(self):
+        self._capture_background_runs()
+        del self.controller._waits_for_auto_crop
+        self.mock_session_manager.state.current_file_hash = None
+        files = self.mock_session_manager.state.uploaded_files
+
+        with patch.object(rolls, "roll_normalization", return_value={"frames": None}):
+            self.controller._run_background_baseline()
+        self.assertEqual(self.mock_session_manager.config_for_asset.call_count, len(files))
+
+    def _after_a_check(self, edits: set, settings: set) -> None:
+        """A background check saw every frame; the next config_updated finds *edits* and *settings* written."""
+        self._capture_background_runs()
+        with patch.object(rolls, "roll_normalization", return_value={"frames": None}):
+            self.controller._run_background_baseline()
+        self.mock_session_manager.repo.take_edit_writes.return_value = edits
+        self.mock_session_manager.repo.take_setting_writes.return_value = settings
+        self.controller._background_baseline_timer.stop()
+
+    def _edit_open_frame(self, **process) -> bool:
+        """Edits the open frame's exposure (or *process* fields); True when the background check was scheduled."""
+        state = self.mock_session_manager.state
+        state.config = (
+            replace(state.config, process=replace(state.config.process, **process))
+            if process
+            else replace(state.config, exposure=replace(state.config.exposure, density=state.config.exposure.density + 0.1))
+        )
+        self.controller.config_updated.emit()
+        return self.controller._background_baseline_timer.isActive()
+
+    def test_an_edit_that_moves_no_meter_input_schedules_no_background_check(self):
+        self._after_a_check({"h2"}, {"sticky_config"})
+        self.assertFalse(self._edit_open_frame())
+
+    def test_a_metering_edit_schedules_the_background_check(self):
+        self._after_a_check({"h2"}, {"sticky_config"})
+        self.assertTrue(self._edit_open_frame(analysis_buffer=0.2))
+
+    def test_a_write_that_moves_another_frames_meter_inputs_schedules_the_background_check(self):
+        self._after_a_check({"h2", "h3"}, set())
+        self.assertFalse(self._edit_open_frame())
+
+        moved = replace(WorkspaceConfig(), process=replace(WorkspaceConfig().process, analysis_buffer=0.2))
+        self.mock_session_manager.config_for_asset.side_effect = lambda f: moved if f["hash"] == "h3" else WorkspaceConfig()
+        self.assertTrue(self._edit_open_frame())
+
+    def test_a_session_restore_setting_schedules_no_background_check(self):
+        self._after_a_check(set(), {"session_active_path", "session_files"})
+        self.assertFalse(self._edit_open_frame())
+
+    def test_a_changed_roll_schedules_the_background_check(self):
+        self._after_a_check(set(), {rolls.ROLLS_KEY})
+        self.assertTrue(self._edit_open_frame())
+
+    def test_turning_the_background_check_off_skips_it(self):
+        tasks = self._capture_background_runs()
+        self.mock_session_manager.state.auto_roll_average = False
+
+        with patch.object(rolls, "roll_normalization", return_value=None):
+            self.controller._run_background_baseline()
         self.assertEqual(tasks, [])
 
     def _slides(self, *hashes: str) -> None:
