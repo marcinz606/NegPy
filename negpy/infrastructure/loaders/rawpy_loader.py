@@ -29,6 +29,7 @@ logger = get_logger(__name__)
 _LINEAR_RAW = 34892
 _JPEG_XL_COMPRESSIONS = {50002, 52546}
 _PREVIEW_SEGMENT_MAX_BYTES = 64 * 1024 * 1024
+_PREVIEW_BAND_BYTES = 8 * 1024 * 1024
 _EMBEDDED_PREVIEW_MAX_BYTES = 64 * 1024 * 1024
 _NORMALIZED_SEGMENT_WORKING_MULTIPLIER = 16
 _CONVERTED_SEGMENT_WORKING_MULTIPLIER = 6
@@ -120,7 +121,8 @@ def _stream_linearraw_preview(
         if size > 1:
             ir_kernel = negpy_core.ellipse_kernel((size, size))
 
-    for decoded, position, _shape in page.segments(maxworkers=1):
+    segments = _linearraw_bands(page) if _linearraw_page_is_banded(page) else page.segments(maxworkers=1)
+    for decoded, position, _shape in segments:
         if should_cancel is not None and should_cancel():
             raise InterruptedError("preview load cancelled")
         if decoded is None:
@@ -177,7 +179,41 @@ def _stream_linearraw_preview(
 
 def _linearraw_page_is_streamable(page: Any) -> bool:
     segment_bytes = _linearraw_segment_bytes(page)
-    return segment_bytes is not None and segment_bytes <= _PREVIEW_SEGMENT_MAX_BYTES
+    return segment_bytes is not None and (segment_bytes <= _PREVIEW_SEGMENT_MAX_BYTES or _linearraw_page_is_banded(page))
+
+
+def _linearraw_page_is_banded(page: Any) -> bool:
+    """An uncompressed chunky page with an oversized strip is one run of rows in the file, so it reads in bands."""
+    segment_bytes = _linearraw_segment_bytes(page)
+    if segment_bytes is None or segment_bytes <= _PREVIEW_SEGMENT_MAX_BYTES:
+        return False
+    if page.is_tiled or int(page.compression) != 1 or int(getattr(page, "planarconfig", 1)) != 1:
+        return False
+    if int(page.bitspersample) != np.dtype(page.dtype).itemsize * 8 or int(page.predictor) != 1 or int(page.fillorder) != 1:
+        return False
+    offsets, counts = page.dataoffsets, page.databytecounts
+    height, width, samples = (int(value) for value in page.shape)
+    if sum(int(count) for count in counts) != height * width * samples * np.dtype(page.dtype).itemsize:
+        return False
+    return all(int(offsets[i]) + int(counts[i]) == int(offsets[i + 1]) for i in range(len(offsets) - 1))
+
+
+def _linearraw_bands(page: Any) -> Any:
+    """Yield `(rows, position, shape)` like `TiffPage.segments()`, reading bands straight from the file."""
+    height, width, samples = (int(value) for value in page.shape)
+    dtype = np.dtype(page.dtype).newbyteorder(page.parent.byteorder)
+    row_bytes = width * samples * dtype.itemsize
+    band_rows = max(1, _PREVIEW_BAND_BYTES // row_bytes)
+    handle = page.parent.filehandle
+    offset = int(page.dataoffsets[0])
+    for y in range(0, height, band_rows):
+        rows = min(band_rows, height - y)
+        handle.seek(offset + y * row_bytes)
+        data = handle.read(rows * row_bytes)
+        if len(data) != rows * row_bytes:
+            raise ValueError("LinearRaw DNG is shorter than its header says")
+        band = np.frombuffer(data, dtype=dtype).reshape(rows, width, samples).astype(page.dtype)
+        yield band, (0, 0, y, 0, 0), band.shape
 
 
 def _linearraw_segment_bytes(page: Any) -> Optional[int]:
@@ -199,8 +235,12 @@ def _streaming_linearraw_memory_estimate(
 ) -> Optional[PreviewMemoryEstimate]:
     """Estimate peak memory for the segmented LinearRaw preview path."""
     segment_bytes = _linearraw_segment_bytes(page)
-    if segment_bytes is None or segment_bytes > _PREVIEW_SEGMENT_MAX_BYTES:
+    if segment_bytes is None:
         return None
+    if segment_bytes > _PREVIEW_SEGMENT_MAX_BYTES:
+        if not _linearraw_page_is_banded(page):
+            return None
+        segment_bytes = _PREVIEW_BAND_BYTES
 
     height, width, samples = (int(value) for value in page.shape)
     scale = min(1.0, max(1, int(max_edge)) / max(height, width))
