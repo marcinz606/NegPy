@@ -1,5 +1,6 @@
 import os
 from dataclasses import dataclass, replace
+from datetime import datetime
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
 import negpy_core
@@ -31,6 +32,10 @@ _SIG_FLOOR = 1.0
 # weakest real triplet rather than just under the strongest confusable one: a folder
 # large enough to hold a confuser is also large enough for the ranking to catch it.
 MIN_TRIPLET_AFFINITY = 0.25
+
+# Capture stamps are whole seconds, so a gap between two of them is known only to within this.
+_STAMP_STEP = 1.0
+_EPOCH = datetime(1970, 1, 1)
 
 # Strongest channel over the next, above which a file was lit by one narrowband color.
 # Well clear of both: white light leaves the three channels within a small factor,
@@ -166,6 +171,35 @@ def capture_ordered(paths: Sequence[str], times: Dict[str, str]) -> List[str]:
     return sorted(paths, key=lambda path: (times[path], os.path.basename(path).lower()))
 
 
+def capture_seconds(stamp: str) -> Optional[float]:
+    """A capture stamp as seconds on the camera's own clock, or None when it does not parse.
+    No timezone: a local-time conversion fails before 1970 on Windows and moves gaps across a DST change."""
+    try:
+        return (datetime.strptime(stamp.strip(), "%Y-%m-%d %H:%M:%S") - _EPOCH).total_seconds()
+    except (ValueError, OverflowError):
+        return None
+
+
+def _tight_in_time(items: Sequence[Tuple[str, int]], start: int, seconds: Dict[str, float]) -> bool:
+    """Whether the chunk at ``start`` was shot in one burst, set apart from the shots on each side.
+
+    The three exposures of a frame follow each other within seconds; the next frame needs the
+    film to advance. Every gap inside the chunk must be at most half the gap to its neighbors,
+    with each gap taken at its worst within the stamp's whole-second rounding.
+    """
+    chunk = [path for path, _ in items[start : start + 3]]
+    if len(chunk) != 3 or any(path not in seconds for path in chunk):
+        return False
+    first, middle, last = (seconds[path] for path in chunk)
+    inner = max(middle - first, last - middle)
+    outer = []
+    if start > 0 and items[start - 1][0] in seconds:
+        outer.append(first - seconds[items[start - 1][0]])
+    if start + 3 < len(items) and items[start + 3][0] in seconds:
+        outer.append(seconds[items[start + 3][0]] - last)
+    return bool(outer) and 2 * (inner + _STAMP_STEP) <= min(outer) - _STAMP_STEP
+
+
 def _affinity_lookup(paths: Sequence[str], signatures: Dict[str, np.ndarray]) -> Callable[[str, str], float]:
     """An ``(a, b) -> affinity`` callable over ``paths``.
 
@@ -217,6 +251,7 @@ def group_triplets(
     items: Sequence[Tuple[str, int]],
     signatures: Optional[Dict[str, np.ndarray]] = None,
     min_affinity: float = MIN_TRIPLET_AFFINITY,
+    seconds: Optional[Dict[str, float]] = None,
 ) -> List[Triplet]:
     """Group classified files into consecutive triplets.
 
@@ -231,6 +266,9 @@ def group_triplets(
     they fail in different places — the three must each be the others' best match in the
     folder, and must clear ``min_affinity``. A chunk with a missing signature keeps the
     membership-only verdict rather than being rejected unseen.
+
+    With ``seconds`` (capture time per path), a chunk shot in one burst apart from its neighbors
+    skips the ranking: frames that look alike rank each other's exposures above its own.
     """
     known = [path for path, _ in items if signatures and path in signatures]
     affinity = _affinity_lookup(known, signatures) if known else None
@@ -253,7 +291,10 @@ def group_triplets(
         )
         if triplet.ok and signatures and affinity is not None:
             score = triplet_affinity(triplet, signatures)
-            if score is not None and (score < min_affinity or not _mutual_best(triplet, pools, affinity)):
+            if score is not None and (
+                score < min_affinity
+                or not (_mutual_best(triplet, pools, affinity) or (seconds is not None and _tight_in_time(items, i, seconds)))
+            ):
                 triplet = replace(triplet, ok=False)
         triplets.append(triplet)
     return triplets

@@ -1167,6 +1167,7 @@ class AssetDiscoveryWorker(QObject):
 
         from negpy.features.rgbscan.logic import (
             capture_ordered,
+            capture_seconds,
             capture_timestamp,
             classify_channel,
             group_triplets,
@@ -1201,7 +1202,10 @@ class AssetDiscoveryWorker(QObject):
         result = list(assembled)
         grouped = set()
         incomplete = mismatched = 0
-        for t in group_triplets(items, signatures):
+        seconds = None
+        if by_time:
+            seconds = {p: sec for p, t in times.items() if (sec := capture_seconds(t)) is not None}
+        for t in group_triplets(items, signatures, seconds=seconds):
             if not t.ok:
                 # Which test it failed separates "this folder does not hold whole
                 # triplets" from "these could not be put into the order they were shot".
