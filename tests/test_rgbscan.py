@@ -16,6 +16,7 @@ from negpy.features.rgbscan.logic import (
     classify_channel,
     frame_affinity,
     capture_ordered,
+    capture_seconds,
     MIN_TRIPLET_AFFINITY,
     group_triplets,
     merge_rgb_triplet,
@@ -283,6 +284,77 @@ def test_mutual_best_rejects_a_chunk_whose_partner_is_elsewhere():
     assert intruded.ok, "on its own the chunk clears the floor"
 
     assert not group_triplets(items, sigs)[0].ok, "b1 is the better blue for frame 1"
+
+
+def _lookalike_roll():
+    """Two frames whose exposures rank each other's above their own: the ranking rejects frame 1."""
+    sigs = {**_triplet_sigs(1), **_triplet_sigs(2)}
+    sigs["b2"] = _scene_sig(1, 0.3) * 0.55 + _scene_sig(2, 0.3) * 0.45
+    items = [("r1", RED), ("g1", GREEN), ("b2", BLUE), ("r2", RED), ("g2", GREEN), ("b1", BLUE)]
+    return sigs, items
+
+
+def test_a_burst_apart_from_its_neighbors_skips_the_ranking():
+    sigs, items = _lookalike_roll()
+    seconds = {"r1": 0, "g1": 5, "b2": 10, "r2": 300, "g2": 305, "b1": 310}
+    assert not group_triplets(items, sigs)[0].ok
+    assert group_triplets(items, sigs, seconds=seconds)[0].ok
+
+
+def test_a_chunk_spread_over_time_still_needs_the_ranking():
+    sigs, items = _lookalike_roll()
+    seconds = {"r1": 0, "g1": 5, "b2": 200, "r2": 300, "g2": 305, "b1": 310}
+    assert not group_triplets(items, sigs, seconds=seconds)[0].ok
+
+
+def test_a_burst_without_a_gap_to_its_neighbors_still_needs_the_ranking():
+    sigs, items = _lookalike_roll()
+    same_second = dict.fromkeys(("r1", "g1", "b2", "r2", "g2", "b1"), 0)
+    assert not group_triplets(items, sigs, seconds=same_second)[0].ok
+
+
+def _identical_roll(frames, drop=()):
+    """Frames that look the same: every chunk clears the floor and only the first wins the ranking."""
+    items = [(f"{c}{n}", ch) for n in range(1, frames + 1) for c, ch in (("r", RED), ("g", GREEN), ("b", BLUE))]
+    items = [item for item in items if item[0] not in drop]
+    return items, {path: _scene_sig(1) for path, _ in items}
+
+
+def _shot_seconds(frames, exposure_gap=5, advance=100):
+    return {f"{c}{n}": (n - 1) * advance + k * exposure_gap for n in range(1, frames + 1) for k, c in enumerate("rgb")}
+
+
+def test_time_rescues_middle_and_last_chunks_of_a_lookalike_roll():
+    items, sigs = _identical_roll(3)
+    assert [t.ok for t in group_triplets(items, sigs)] == [True, False, False]
+    assert all(t.ok for t in group_triplets(items, sigs, seconds=_shot_seconds(3)))
+
+
+def test_time_rejects_a_chunk_shifted_by_a_missing_exposure():
+    items, sigs = _identical_roll(3, drop={"g1"})
+    shifted = group_triplets(items, sigs, seconds=_shot_seconds(3))[1]
+    assert (shifted.red, shifted.green, shifted.blue) == ("r3", "g2", "b2")
+    assert not shifted.ok
+
+
+def test_time_rejects_a_shifted_chunk_that_whole_second_stamps_make_look_tight():
+    """A sub-second film advance: rounded stamps put no gap inside the wrong chunk and one second around it."""
+    items, sigs = _identical_roll(3, drop={"g1"})
+    seconds = {"r1": 0, "b1": 1, "r2": 3, "g2": 4, "b2": 4, "r3": 4, "g3": 5, "b3": 6}
+    assert not group_triplets(items, sigs, seconds=seconds)[1].ok
+
+
+def test_time_never_rescues_a_chunk_below_the_floor():
+    sigs = {"r1": _scene_sig(1), "g2": _scene_sig(2, 0.6), "b3": _scene_sig(3, 0.3)}
+    items = [("r1", RED), ("g2", GREEN), ("b3", BLUE)]
+    assert not group_triplets(items, sigs, seconds={"r1": 0, "g2": 5, "b3": 10})[0].ok
+
+
+def test_capture_seconds_parses_a_stamp_and_refuses_junk():
+    assert capture_seconds("2026-11-20 14:56:44") - capture_seconds("2026-11-20 14:56:34") == 10
+    assert capture_seconds("1970-01-01 00:00:05") == 5, "the camera's clock, with no timezone"
+    assert capture_seconds("") is None
+    assert capture_seconds("not a time") is None
 
 
 def test_floor_still_rejects_when_the_pool_is_too_small_to_rank():
