@@ -1295,7 +1295,8 @@ class ActionToolbar(QWidget):
             self.btn_tool_undo.setEnabled(state.undo_index > 0)
             self.btn_tool_redo.setEnabled(state.undo_index < state.max_history_index)
         # After the texts: the bar measures them.
-        if mode != self._shown_tool:
+        swapped = mode != self._shown_tool
+        if swapped:
             self._shown_tool = mode
             self._swap_tool_slider(spec[2] if spec else "")
         # An armed tool outranks the paper strip, which outranks the Zone Overlay, which outranks
@@ -1318,7 +1319,10 @@ class ActionToolbar(QWidget):
             self._sync_rows()
         if self._tool_slider is not None:
             self._tool_slider.setEnabled(self._tool_slider_source.isEnabled())
-            self._sync_brush_tool_slider(int(state.config.retouch.manual_dust_size))
+            if not swapped:
+                manual_dust_size = state.config.retouch.manual_dust_size
+                if isinstance(manual_dust_size, int | float) and not isinstance(manual_dust_size, bool):
+                    self._sync_brush_tool_slider(int(manual_dust_size))
 
     def _find_widget(self, path: str):
         from negpy.desktop.view.main_window import MainWindow
