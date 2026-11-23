@@ -7,8 +7,8 @@ settings JSON to the same paths the previous helper used, so the UI polls them u
 
 Five behaviours of the library shape this module; each is guarded below:
 
-* Reading a value off a choice widget that has **no** choices dereferences a NULL and
-  kills the process with SIGSEGV — no `except` can catch it. See `_safe_value`.
+* Reading an unset string value dereferences NULL and kills the process with SIGSEGV.
+  Choices can still be present. See `_safe_value`.
 * Property writes are asynchronous. The body needs ~1-2 s before it reports a new value
   back, so a write is confirmed by polling, never assumed. See `_set_verified`.
 * After a still, the event queue must be drained or the *next* capture fails with a bare
@@ -28,6 +28,7 @@ bodies have been tested.
 from __future__ import annotations
 
 from negpy.kernel.system.i18n import tr
+import ctypes
 import json
 import os
 import re
@@ -35,6 +36,8 @@ import tempfile
 import threading
 import time
 from dataclasses import dataclass
+from functools import cache
+from importlib import import_module
 from typing import Any, Callable, Optional
 
 from negpy.infrastructure import simulated
@@ -49,7 +52,7 @@ logger = get_logger(__name__)
 
 #: libgphoto2 property names behind the settings the scan window exposes, in the order they
 #: are tried. `iso` and `shutterspeed` are the same everywhere, but the aperture is not: the
-#: generic name is `f-number` (Sony, Panasonic) while Canon, Nikon, Fujifilm, Olympus and
+#: generic name is `f-number` (Sony, Panasonic, Fujifilm) while Canon, Nikon, Olympus and
 #: Sigma expose `aperture`. No body offers both.
 #:
 #: There is no white balance here: NegPy decodes with a fixed neutral WB, so the camera's
@@ -263,35 +266,38 @@ def default_settings_path() -> str:
     return os.path.join(tempfile.gettempdir(), name)
 
 
-def _safe_value(gp: Any, widget: Any) -> Optional[str]:
-    """A widget's value, or None when reading it would crash the process.
+@cache
+def _widget_value_library() -> Optional[ctypes.CDLL]:
+    """Keep the widget library and its configured string reader alive."""
+    try:
+        module = import_module("gphoto2._widget")
+        library = ctypes.CDLL(module.__file__)
+        reader = library.gp_widget_get_value
+        reader.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_void_p)]
+        reader.restype = ctypes.c_int
+    except (ImportError, OSError, AttributeError) as exc:
+        logger.warning("gphoto2: cannot check widget string values: %s", exc)
+        return None
+    return library
 
-    A choice widget with zero choices — `f-number` on a lens with no electronic
-    aperture, which is exactly the kind of lens used for film scanning — makes
-    libgphoto2 hand back a NULL string that the binding then dereferences. That is a
-    SIGSEGV, not an exception, so the only defence is not to ask.
-    """
+
+def _safe_value(gp: Any, widget: Any) -> Optional[str]:
+    """Read a value without passing an unset native string to the binding."""
     kind = widget.get_type()
     if kind in (gp.GP_WIDGET_RADIO, gp.GP_WIDGET_MENU) and widget.count_choices() == 0:
         return None
-
-    # Even if there are choices, the current value might be unset / NULL pointer.
-    try:
-        import ctypes
-
-        lib = ctypes.CDLL(None)
-        get_val = getattr(lib, "gp_widget_get_value", None)
-        if get_val and hasattr(widget, "this"):
-            get_val.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
-            get_val.restype = ctypes.c_int
-            ptr = ctypes.c_void_p()
-            res = get_val(int(widget.this), ctypes.byref(ptr))
-            if res == 0 and not ptr:
-                logger.debug("gphoto2: widget %r returned a NULL pointer; safely returning None", widget.get_name())
-                return None
-    except Exception:
-        pass
-
+    if kind in (gp.GP_WIDGET_RADIO, gp.GP_WIDGET_MENU, gp.GP_WIDGET_TEXT) and hasattr(widget, "this"):
+        library = _widget_value_library()
+        if library is None:
+            return None
+        pointer = ctypes.c_void_p()
+        result = library.gp_widget_get_value(int(widget.this), ctypes.byref(pointer))
+        if result != 0:
+            logger.warning("gphoto2: cannot read widget %r (error %d)", widget.get_name(), result)
+            return None
+        if pointer.value is None:
+            logger.debug("gphoto2: widget %r has no current string value", widget.get_name())
+            return None
     return widget.get_value()
 
 
@@ -367,6 +373,8 @@ class GphotoCamera:
     def _reset_body_state(self) -> None:
         """Forget controls whose names and semantics belong to one camera body."""
         self._capabilities = CameraCapabilities(driver_model="")
+        self._fuji_control = False
+        self._native_preview_active = False
         # Set once a stream has failed on a body that is otherwise fine, so nothing restarts it.
         # Retrying walks a Fujifilm off the USB bus entirely (issue #658).
         self._preview_broken = False
@@ -426,7 +434,8 @@ class GphotoCamera:
         self._model = _model_name(camera)
         self._alive = True
         self._capabilities = self._read_capabilities(camera)
-        if "fuji" in self._capabilities.driver_model.lower():
+        self._fuji_control = "fuji" in self._capabilities.driver_model.lower()
+        if self._fuji_control:
             self._drain_silence_ms = _FUJI_DRAIN_SILENCE_MS
             self._drain_budget_s = _FUJI_DRAIN_BUDGET_S
         logger.info(
@@ -487,6 +496,36 @@ class GphotoCamera:
 
     # ----- properties ------------------------------------------------------------
 
+    def _prepare_fuji_control(self) -> None:
+        """Leave native preview and select USB control before Fujifilm writes."""
+        if not self._fuji_control:
+            return
+        camera = self._require()
+        if self._native_preview_active:
+            # Stopping the Python worker leaves native open capture active. The public
+            # Fujifilm API has no viewfinder toggle, so restart the same device's session.
+            self._alive = False
+            camera.exit()
+            self._native_preview_active = False
+            self._drain_owed.clear()
+            camera.init()
+            self._alive = True
+            logger.info("gphoto2: restarted Fujifilm session for exposure control")
+        try:
+            widget = camera.get_single_config("prioritymode")
+        except self._gp.GPhoto2Error as exc:
+            if getattr(exc, "code", None) in (-2, -6):
+                return
+            raise
+        if "USB" not in _choices(self._gp, widget) or _safe_value(self._gp, widget) == "USB":
+            return
+        widget.set_value("USB")
+        camera.set_single_config("prioritymode", widget)
+        if _safe_value(self._gp, camera.get_single_config("prioritymode")) != "USB":
+            logger.warning("gphoto2: Fujifilm USB control did not settle")
+            raise self._gp.GPhoto2Error(-1)
+        logger.info("gphoto2: Fujifilm control priority set to USB")
+
     def _set_verified(
         self,
         name: str,
@@ -504,6 +543,7 @@ class GphotoCamera:
         accepts = match or (lambda got: got == value)
 
         try:
+            self._prepare_fuji_control()
             # Written every time: the driver's cached read-back does not follow the dial, so a
             # value that reads as set may not be what the body exposes at.
             widget = camera.get_single_config(name)
@@ -648,6 +688,7 @@ class GphotoCamera:
                             # Fire-and-forget: the next settings read confirms it.
                             lowest = min(fixed, key=lambda o: int(o["label"]))
                             try:
+                                self._prepare_fuji_control()
                                 widget.set_value(choices[lowest["raw"]])
                                 camera.set_single_config(name, widget)
                                 cur = lowest["raw"]
@@ -824,6 +865,7 @@ class GphotoCamera:
                             logger.warning("gphoto2: could not lock %s to %r for the scan; using the current setting", prop, value)
                 t_assert = time.perf_counter()
                 try:
+                    self._native_preview_active = False
                     path = camera.capture(self._gp.GP_CAPTURE_IMAGE)
                     t_shot = time.perf_counter()
                     _require_raw(path.name)
@@ -881,6 +923,7 @@ class GphotoCamera:
         try:
             with self._lock:
                 camera = self._require()
+                self._prepare_fuji_control()
                 held, self._bulb_held = self._bulb_held, None
                 if held is not None:
                     name, bulb, before = held
@@ -1111,12 +1154,15 @@ class GphotoCamera:
                 continue
             try:
                 with self._lock:
-                    if self._camera is None:
+                    if self._camera is None or not self._alive:
                         return
                     if self._drain_owed.is_set():
                         self._drain_owed.clear()
                         saw_capture = True
                         self._drain_events()
+                    if not self._native_preview_active:
+                        self._prepare_fuji_control()
+                    self._native_preview_active = True
                     frame = self._camera.capture_preview()
                     data = bytes(memoryview(frame.get_data_and_size()))
                 if not data and self._release_stalled_magnifier():

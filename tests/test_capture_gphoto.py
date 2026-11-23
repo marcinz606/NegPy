@@ -8,6 +8,9 @@ fails unless the event queue was drained.
 import json
 import logging
 import os
+from collections.abc import Iterator
+from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -109,7 +112,7 @@ class _Camera:
         if self._fake.readback_error and self._fake.writes and self._fake.writes[-1][0] == name:
             raise _Err("[-7] I/O problem during readback")
         if name not in self._fake.props:
-            raise _Err(f"no property {name}")
+            raise _Err(f"no property {name}", -2)
         return self._fake.props[name]
 
     def set_single_config(self, name, widget):
@@ -239,7 +242,7 @@ class FakeGP:
             "shutterspeed": _Widget(self, "shutterspeed", "1/5", ["1/2", "1/5", "1/10"]),
             "capturetarget": _Widget(self, "capturetarget", capture_target, ["card", "sdram"]),
         }
-        # Sony calls it f-number; Canon, Nikon, Fujifilm and Olympus call it aperture.
+        # Sony and Fujifilm use f-number; Canon, Nikon and Olympus use aperture.
         # Either way, a lens with no electronic diaphragm offers no choices, and reading
         # its value in the real library is a SIGSEGV.
         self.props[aperture_name] = _Widget(self, aperture_name, None, [], readonly=True)
@@ -810,6 +813,158 @@ def test_fuji_gets_a_patient_event_drain(tmp_path):
     camera._drain_events()
     assert other.event_waits[-1] == 50  # everyone else keeps the snappy window
     camera.close()
+
+
+class _FujiCamera(_Camera):
+    def __init__(self, fake: FakeGP) -> None:
+        super().__init__(fake)
+        self.native_preview = False
+        self.exits = 0
+
+    def init(self) -> None:
+        super().init()
+        self.native_preview = False
+
+    def exit(self) -> None:
+        self.exits += 1
+        self.native_preview = False
+        super().exit()
+
+    def set_single_config(self, name: str, widget: Any) -> None:
+        if self.native_preview:
+            raise _Err("[-1] exposure writes are blocked by native preview", -1)
+        if name != "prioritymode" and self._fake.props["prioritymode"].value != "USB":
+            raise _Err("[-1] USB control is required", -1)
+        super().set_single_config(name, widget)
+
+    def capture_preview(self) -> _File:
+        if not self.native_preview and self._fake.props["prioritymode"].value != "USB":
+            raise _Err("[-110] I/O in progress", -110)
+        frame = super().capture_preview()
+        self.native_preview = True
+        return frame
+
+    def capture(self, kind: int) -> _Path:
+        self.native_preview = False
+        self._fake.props["prioritymode"].value = "USB"
+        return super().capture(kind)
+
+    def file_delete(self, folder: str, name: str) -> None:
+        super().file_delete(folder, name)
+        self._fake.props["prioritymode"].value = "Camera"
+
+
+@pytest.fixture
+def fuji_cam(tmp_path: Path) -> Iterator[tuple[FakeGP, GphotoCamera]]:
+    fake = FakeGP(driver_model="Fuji Fujifilm X-T2", magnifier=None)
+    fake.props["prioritymode"] = _Widget(fake, "prioritymode", "Camera", ["Camera", "USB"])
+    fake.Camera = lambda: _FujiCamera(fake)
+    camera = GphotoCamera(gp_module=fake, jpeg_path=str(tmp_path / "lv.jpg"), settings_path=str(tmp_path / "lv.json"))
+    camera.open()
+    fake.writes.clear()
+    yield fake, camera
+    camera.close()
+
+
+def _preview_once(camera: GphotoCamera, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(camera, "_publish_frame", lambda data: camera._stop.set())
+    monkeypatch.setattr(camera, "_publish_settings", lambda: None)
+    camera._stop.clear()
+    camera._preview_loop()
+    assert camera._native_preview_active
+
+
+def test_fuji_shutter_write_leaves_native_preview(fuji_cam: tuple[FakeGP, GphotoCamera], monkeypatch: pytest.MonkeyPatch) -> None:
+    fake, camera = fuji_cam
+    handle = camera._camera
+    _preview_once(camera, monkeypatch)
+
+    camera.set_shutter(2)
+
+    assert fake.props["shutterspeed"].value == "1/10"
+    assert camera._camera is handle
+    assert handle.exits == 1 and fake.init_attempts == 2
+    assert not camera._native_preview_active
+    _preview_once(camera, monkeypatch)
+    assert fake.previews == 2
+
+
+def test_fuji_metering_shutter_is_set_before_capture(
+    fuji_cam: tuple[FakeGP, GphotoCamera], monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    fake, camera = fuji_cam
+    _preview_once(camera, monkeypatch)
+
+    camera.capture(str(tmp_path / "probe.ARW"), shutter="1/5")
+    camera._post_shot.join()
+
+    assert fake.props["shutterspeed"].value == "1/5"
+    assert fake.captures == 1
+    assert fake.init_attempts == 2
+    assert not camera._busy.is_set()
+
+
+def test_fuji_preview_restores_usb_control_after_each_capture(
+    fuji_cam: tuple[FakeGP, GphotoCamera], monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    fake, camera = fuji_cam
+    _preview_once(camera, monkeypatch)
+    for index in range(2):
+        camera.capture(str(tmp_path / f"frame{index}.ARW"))
+        camera._post_shot.join()
+        assert fake.props["prioritymode"].value == "Camera"
+        assert not camera._native_preview_active
+
+        _preview_once(camera, monkeypatch)
+
+        assert fake.props["prioritymode"].value == "USB"
+        assert not camera._preview_broken
+    assert fake.previews == 3
+    assert fake.init_attempts == 1  # Preview recovery does not reopen a working session.
+
+
+def test_fuji_restart_failure_keeps_session_dead(fuji_cam: tuple[FakeGP, GphotoCamera], monkeypatch: pytest.MonkeyPatch) -> None:
+    fake, camera = fuji_cam
+    _preview_once(camera, monkeypatch)
+    fake.init_error = "[-7] disconnected"
+
+    assert not camera._set_verified("shutterspeed", "1/10")
+    assert not camera.is_open()
+    assert not camera._native_preview_active
+    assert ("shutterspeed", "1/10") not in fake.writes
+    before = fake.previews
+    camera._stop.clear()
+    camera._preview_loop()
+    assert fake.previews == before
+
+
+def test_fuji_priority_failure_does_not_write_exposure(fuji_cam: tuple[FakeGP, GphotoCamera]) -> None:
+    fake, camera = fuji_cam
+    fake.props["prioritymode"].value = "Camera"
+    fake.reject_writes = True
+
+    assert not camera._set_verified("shutterspeed", "1/10")
+    assert ("shutterspeed", "1/10") not in fake.writes
+
+
+def test_fuji_without_priority_property_can_still_preview(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    fake = FakeGP(driver_model="Fuji Fujifilm X-T5")
+    camera = GphotoCamera(gp_module=fake, jpeg_path=str(tmp_path / "lv.jpg"))
+    try:
+        camera.open()
+        _preview_once(camera, monkeypatch)
+        assert fake.previews == 1
+    finally:
+        camera.close()
+
+
+def test_other_vendors_keep_their_session_for_exposure_writes(fake: FakeGP, cam: GphotoCamera) -> None:
+    cam._native_preview_active = True
+    cam.set_shutter(2)
+
+    assert fake.props["shutterspeed"].value == "1/10"
+    assert fake.init_attempts == 1
+    assert all(name != "prioritymode" for name, value in fake.writes)
 
 
 def test_the_preview_never_drains_before_a_capture_has_happened(fake, tmp_path):
