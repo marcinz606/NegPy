@@ -373,6 +373,8 @@ class GphotoCamera:
     def _reset_body_state(self) -> None:
         """Forget controls whose names and semantics belong to one camera body."""
         self._capabilities = CameraCapabilities(driver_model="")
+        self._fuji_control = False
+        self._native_preview_active = False
         # Set once a stream has failed on a body that is otherwise fine, so nothing restarts it.
         # Retrying walks a Fujifilm off the USB bus entirely (issue #658).
         self._preview_broken = False
@@ -432,7 +434,8 @@ class GphotoCamera:
         self._model = _model_name(camera)
         self._alive = True
         self._capabilities = self._read_capabilities(camera)
-        if "fuji" in self._capabilities.driver_model.lower():
+        self._fuji_control = "fuji" in self._capabilities.driver_model.lower()
+        if self._fuji_control:
             self._drain_silence_ms = _FUJI_DRAIN_SILENCE_MS
             self._drain_budget_s = _FUJI_DRAIN_BUDGET_S
         logger.info(
@@ -493,6 +496,36 @@ class GphotoCamera:
 
     # ----- properties ------------------------------------------------------------
 
+    def _prepare_fuji_control(self) -> None:
+        """Leave native preview and select USB control before Fujifilm writes."""
+        if not self._fuji_control:
+            return
+        camera = self._require()
+        if self._native_preview_active:
+            # Stopping the Python worker leaves native open capture active. The public
+            # Fujifilm API has no viewfinder toggle, so restart the same device's session.
+            self._alive = False
+            camera.exit()
+            self._native_preview_active = False
+            self._drain_owed.clear()
+            camera.init()
+            self._alive = True
+            logger.info("gphoto2: restarted Fujifilm session for exposure control")
+        try:
+            widget = camera.get_single_config("prioritymode")
+        except self._gp.GPhoto2Error as exc:
+            if getattr(exc, "code", None) in (-2, -6):
+                return
+            raise
+        if "USB" not in _choices(self._gp, widget) or _safe_value(self._gp, widget) == "USB":
+            return
+        widget.set_value("USB")
+        camera.set_single_config("prioritymode", widget)
+        if _safe_value(self._gp, camera.get_single_config("prioritymode")) != "USB":
+            logger.warning("gphoto2: Fujifilm USB control did not settle")
+            raise self._gp.GPhoto2Error(-1)
+        logger.info("gphoto2: Fujifilm control priority set to USB")
+
     def _set_verified(
         self,
         name: str,
@@ -510,6 +543,7 @@ class GphotoCamera:
         accepts = match or (lambda got: got == value)
 
         try:
+            self._prepare_fuji_control()
             # Written every time: the driver's cached read-back does not follow the dial, so a
             # value that reads as set may not be what the body exposes at.
             widget = camera.get_single_config(name)
@@ -654,6 +688,7 @@ class GphotoCamera:
                             # Fire-and-forget: the next settings read confirms it.
                             lowest = min(fixed, key=lambda o: int(o["label"]))
                             try:
+                                self._prepare_fuji_control()
                                 widget.set_value(choices[lowest["raw"]])
                                 camera.set_single_config(name, widget)
                                 cur = lowest["raw"]
@@ -830,6 +865,7 @@ class GphotoCamera:
                             logger.warning("gphoto2: could not lock %s to %r for the scan; using the current setting", prop, value)
                 t_assert = time.perf_counter()
                 try:
+                    self._native_preview_active = False
                     path = camera.capture(self._gp.GP_CAPTURE_IMAGE)
                     t_shot = time.perf_counter()
                     _require_raw(path.name)
@@ -887,6 +923,7 @@ class GphotoCamera:
         try:
             with self._lock:
                 camera = self._require()
+                self._prepare_fuji_control()
                 held, self._bulb_held = self._bulb_held, None
                 if held is not None:
                     name, bulb, before = held
@@ -1117,12 +1154,15 @@ class GphotoCamera:
                 continue
             try:
                 with self._lock:
-                    if self._camera is None:
+                    if self._camera is None or not self._alive:
                         return
                     if self._drain_owed.is_set():
                         self._drain_owed.clear()
                         saw_capture = True
                         self._drain_events()
+                    if not self._native_preview_active:
+                        self._prepare_fuji_control()
+                    self._native_preview_active = True
                     frame = self._camera.capture_preview()
                     data = bytes(memoryview(frame.get_data_and_size()))
                 if not data and self._release_stalled_magnifier():
