@@ -74,7 +74,15 @@ class CardPopup(QDialog):
     """A non-modal pop-up that holds a card from the controls panel while it is open. The
     canvas stays live beside it, so a change shows on the frame as it is made."""
 
-    def __init__(self, title: str, widget: QWidget, parent: QWidget, *, repo=None) -> None:
+    def __init__(
+        self,
+        title: str,
+        widget: QWidget,
+        parent: QWidget,
+        *,
+        repo=None,
+        action: Optional[tuple[str, Callable[[], None]]] = None,
+    ) -> None:
         super().__init__(parent)
         self.setWindowTitle(title)
         self.setModal(False)
@@ -105,6 +113,12 @@ class CardPopup(QDialog):
         buttons = QHBoxLayout()
         buttons.addStretch(1)
         buttons.addWidget(close_btn)
+        action_btn: Optional[QPushButton] = None
+        if action is not None:
+            label, run = action
+            action_btn = QPushButton(label)
+            action_btn.clicked.connect(lambda _checked=False: self._run_and_close(run))
+            buttons.addWidget(action_btn)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, THEME.space_md)
@@ -112,11 +126,16 @@ class CardPopup(QDialog):
         layout.addLayout(buttons)
         buttons.setContentsMargins(THEME.space_lg, 0, THEME.space_lg, 0)
 
-        # No Enter target: Enter in a card's field must not close the pop-up around it.
-        pin_dialog_default(None, close_btn, scope=self)
+        # Enter runs the pop-up's action and closes it. Without an action Enter does nothing, so
+        # Enter in a card's field never closes the pop-up around it.
+        pin_dialog_default(action_btn, close_btn, scope=self)
 
         self.finished.connect(self._give_back)
         remember_dialog_geometry(self, repo, "card_popup")
+
+    def _run_and_close(self, run: Callable[[], None]) -> None:
+        run()
+        self.close()
 
     def _give_back(self, *_args) -> None:
         if self._restore is None:
@@ -175,9 +194,12 @@ class UiMode(QObject):
             existing.raise_()
             existing.activateWindow()
             return
+        action = None
         if key == "export":
             widget = self._window.right_panel.export_sidebar
             title = tr("Export Preferences")
+            # Enter or the Export button exports what the Export button is set to, then closes.
+            action = (tr("Export"), widget.export_chosen_scope)
         elif key.startswith("roll:"):
             attr = key.removeprefix("roll:")
             labels = dict(ROLL_CARDS)
@@ -190,7 +212,7 @@ class UiMode(QObject):
             title = tr("Roll: {value}", value=labels[attr])
         else:
             return
-        popup = CardPopup(title, widget, self._window, repo=self._repo)
+        popup = CardPopup(title, widget, self._window, repo=self._repo, action=action)
         popup.destroyed.connect(lambda _obj=None, k=key: self._popups.pop(k, None))
         popup.finished.connect(lambda _result=0, k=key: self._popups.pop(k, None))
         self._popups[key] = popup

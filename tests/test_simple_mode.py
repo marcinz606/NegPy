@@ -161,3 +161,35 @@ def test_advanced_mode_group_clicks_are_unchanged():
     panel._group_keys = ["library", "roll", "frame"]
     RightPanel._on_group_clicked(panel, 2)
     panel._switch_group.assert_called_once_with(2)
+
+
+def test_a_popup_action_runs_then_closes_and_gives_the_card_back():
+    """Export Preferences: Enter (the default button) exports, then the pop-up closes."""
+    from PyQt6.QtWidgets import QPushButton
+
+    from negpy.desktop.view.simple_mode import CardPopup
+
+    host = QWidget()
+    page, layout, (a, b, c) = _column("a", "b", "c")
+    ran = []
+    popup = CardPopup("Test", b, host, action=("Export", lambda: ran.append(b.parentWidget() is not page)))
+    popup.show()
+    default = next(btn for btn in popup.findChildren(QPushButton) if btn.isDefault())
+    assert default.text() == "Export"
+
+    default.click()
+    assert ran == [True]
+    assert b.parentWidget() is page
+    assert [layout.itemAt(i).widget() for i in range(layout.count())] == [a, b, c]
+
+
+def test_a_popup_without_an_action_has_no_enter_target():
+    from PyQt6.QtWidgets import QPushButton
+
+    from negpy.desktop.view.simple_mode import CardPopup
+
+    host = QWidget()
+    _page, _layout, (_a, b, _c) = _column("a", "b", "c")
+    popup = CardPopup("Test", b, host)
+    assert not any(btn.isDefault() for btn in popup.findChildren(QPushButton))
+    popup.close()
