@@ -1,0 +1,55 @@
+name: Vacation notice
+
+on:
+  workflow_dispatch:
+  pull_request_target:
+    types: [opened, reopened, synchronize]
+  issue_comment:
+    types: [created]
+
+permissions:
+  pull-requests: write
+
+concurrency:
+  group: vacation-${{ github.event.pull_request.number || github.event.issue.number || 'all' }}
+
+jobs:
+  notice:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.actor != github.repository_owner &&
+      (github.event_name != 'issue_comment' || github.event.issue.pull_request))
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      OWNER: ${{ github.repository_owner }}
+      PR: ${{ github.event.pull_request.number || github.event.issue.number }}
+      PR_AUTHOR: ${{ github.event.pull_request.user.login || github.event.issue.user.login }}
+      LAST_DAY: "2026-12-27"
+      MARKER: "<!-- vacation-notice -->"
+      BODY: >-
+        Thank you for the pull request. I am on vacation and away from my
+        computer until after Christmas 2026. I will review this pull request
+        when I am back.
+    steps:
+      - name: Comment on pull requests
+        run: |
+          if [[ "$(date -u +%F)" > "$LAST_DAY" ]]; then
+            exit 0
+          fi
+          # One notice per pull request: later commits and comments find the marker.
+          notify() {
+            if ! gh pr view "$1" --json comments --jq '.comments[].body' | grep -qF -- "$MARKER"; then
+              gh pr comment "$1" --body "$BODY"$'\n\n'"$MARKER"
+            fi
+          }
+          if [ -n "$PR" ]; then
+            if [ "$PR_AUTHOR" != "$OWNER" ]; then
+              notify "$PR"
+            fi
+          else
+            gh pr list --state open --limit 1000 --json number,author \
+              --jq ".[] | select(.author.login != \"$OWNER\") | .number" |
+              while read -r n; do notify "$n"; done
+          fi
