@@ -321,7 +321,7 @@ def exclusion_cover(strokes: List[Tuple], shape: Tuple[int, int]) -> np.ndarray:
     bands = []
     for points, size in strokes:
         radius = max(1, int(round(float(size) * scale * 0.5)))
-        chain = [(float(p[0]) * w, float(p[1]) * h) for p in points]
+        chain = [(float(p[0]) * max(w - 1, 1), float(p[1]) * max(h - 1, 1)) for p in points]
         if len(chain) >= 3:
             chain = smooth_polyline(chain, closed=False)
         pts = np.ascontiguousarray(np.round(np.array(chain, dtype=np.float32)).astype(np.int32))
@@ -390,7 +390,7 @@ def paint_to_score(
 
     for points, size in entries:
         radius = max(1.0, size * scale * 0.5)
-        chain = [(float(p[0]) * w, float(p[1]) * h) for p in points]
+        chain = [(float(p[0]) * max(w - 1, 1), float(p[1]) * max(h - 1, 1)) for p in points]
         if len(chain) >= 3:
             chain = smooth_polyline(chain, closed=False)
         pts = np.array(chain, dtype=np.float32)

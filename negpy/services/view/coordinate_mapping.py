@@ -78,17 +78,18 @@ class CoordinateMapping:
         Four interior samples, exact for every projective op (rotation, flips, fine
         rotation, crop, keystone); only distortion stays approximate, and this is used
         only off the frame. Samples come from the middle, since a fine rotation fills
-        the border with zeros and those are not coordinates.
+        the border with zeros and those are not coordinates. Each grid entry (y, x) is
+        the sample at pixel center ((x + 0.5) / w_uv, (y + 0.5) / h_uv).
         """
         h_uv, w_uv = uv_grid.shape[:2]
         x0, x1 = w_uv // 4, w_uv - 1 - w_uv // 4
         y0, y1 = h_uv // 4, h_uv - 1 - h_uv // 4
         src = np.float32(
             [
-                [x0 / (w_uv - 1), y0 / (h_uv - 1)],
-                [x1 / (w_uv - 1), y0 / (h_uv - 1)],
-                [x1 / (w_uv - 1), y1 / (h_uv - 1)],
-                [x0 / (w_uv - 1), y1 / (h_uv - 1)],
+                [(x0 + 0.5) / w_uv, (y0 + 0.5) / h_uv],
+                [(x1 + 0.5) / w_uv, (y0 + 0.5) / h_uv],
+                [(x1 + 0.5) / w_uv, (y1 + 0.5) / h_uv],
+                [(x0 + 0.5) / w_uv, (y1 + 0.5) / h_uv],
             ]
         )
         dst = np.float32([uv_grid[y0, x0], uv_grid[y0, x1], uv_grid[y1, x1], uv_grid[y1, x0]])
@@ -105,33 +106,60 @@ class CoordinateMapping:
         )
 
     @staticmethod
+    def _sample_bilinear(uv_grid: np.ndarray, gx: float, gy: float) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Evaluate piecewise-bilinear `uv_grid` and its `(df/dgx, df/dgy)` Jacobian at `(gx, gy)`.
+
+        Allows `gx` in `[-0.5, w_uv - 0.5]` and `gy` in `[-0.5, h_uv - 0.5]` by linear
+        extrapolation on the outer half-pixel rim so viewport `[0, 1]` is continuous right to
+        the frame edge.
+        """
+        h_uv, w_uv = uv_grid.shape[:2]
+        cx = min(max(int(np.floor(gx)), 0), w_uv - 2)
+        cy = min(max(int(np.floor(gy)), 0), h_uv - 2)
+        tx = gx - cx
+        ty = gy - cy
+        c00 = uv_grid[cy, cx].astype(np.float64)
+        c10 = uv_grid[cy, cx + 1].astype(np.float64)
+        c01 = uv_grid[cy + 1, cx].astype(np.float64)
+        c11 = uv_grid[cy + 1, cx + 1].astype(np.float64)
+        val = (1.0 - ty) * ((1.0 - tx) * c00 + tx * c10) + ty * ((1.0 - tx) * c01 + tx * c11)
+        df_dx = (1.0 - ty) * (c10 - c00) + ty * (c11 - c01)
+        df_dy = (1.0 - tx) * (c01 - c00) + tx * (c11 - c10)
+        return val, df_dx, df_dy
+
+    @staticmethod
     def map_click_to_raw(nx: float, ny: float, uv_grid: np.ndarray) -> Tuple[float, float]:
         """
-        Viewport (0-1) -> Raw (0-1).
+        Viewport (0-1) -> Raw (0-1), sub-pixel interpolated around pixel centers.
 
-        A point off the frame has no grid sample, so the projective model of the grid
-        gives it. Dodge/burn masks use this, because a card edge must start outside the
-        picture to cover a corner when you tilt it.
+        Each grid cell `(y, x)` sits at viewport center `((x + 0.5) / w_uv, (y + 0.5) / h_uv)`.
+        Bilinear interpolation eliminates the 0.5-1.5 cell top-left floor snap that integer
+        grid indexing caused when zoomed in closely. Points off the frame use the projective
+        model of the grid so dodge/burn handles outside the picture continue smoothly.
         """
         h_uv, w_uv = uv_grid.shape[:2]
         if 0.0 <= nx <= 1.0 and 0.0 <= ny <= 1.0:
-            raw_uv = uv_grid[int(ny * (h_uv - 1)), int(nx * (w_uv - 1))]
-            return float(raw_uv[0]), float(raw_uv[1])
+            if h_uv < 2 or w_uv < 2:
+                raw_uv = uv_grid[0, 0]
+                return float(raw_uv[0]), float(raw_uv[1])
+            gx = nx * w_uv - 0.5
+            gy = ny * h_uv - 0.5
+            val, _, _ = CoordinateMapping._sample_bilinear(uv_grid, gx, gy)
+            return float(val[0]), float(val[1])
         return CoordinateMapping._apply_homography(CoordinateMapping._grid_homography(uv_grid), nx, ny)
 
     @staticmethod
     def map_raw_to_viewport(rx: float, ry: float, uv_grid: np.ndarray, buckets: int = 100) -> Tuple[float, float]:
         """
-        Raw (0-1) -> Viewport (0-1): the inverse of map_click_to_raw.
+        Raw (0-1) -> Viewport (0-1): continuous sub-pixel inverse of `map_click_to_raw`.
 
-        Two-stage nearest-neighbour: a coarse pass over a `buckets`-decimated grid
-        locates the neighbourhood cheaply, then a full-resolution pass over that
-        bucket's window pins the exact pixel. The coarse pass alone snapped results
-        to bucket centres (± step/2 grid pixels ≈ 3-20px depending on preview size,
-        magnified by zoom) — enough to draw a heal outline entirely off the healed
-        spot even though the heal itself landed exactly where clicked.
+        Locates the nearest grid sample via a two-stage coarse-to-fine search, then refines
+        continuous `(gx, gy)` with Newton steps on the bilinear cell so zoomed-in retouch
+        overlays stay locked onto the exact sub-pixel cursor position.
         """
         h_uv, w_uv = uv_grid.shape[:2]
+        if h_uv < 2 or w_uv < 2:
+            return 0.5, 0.5
         step = max(1, h_uv // buckets)
         small = uv_grid[::step, ::step]
         dist = (small[..., 0] - rx) ** 2 + (small[..., 1] - ry) ** 2
@@ -147,12 +175,25 @@ class CoordinateMapping:
         widx = int(np.argmin(wdist))
         wy, wx = divmod(widx, window.shape[1])
 
-        nx, ny = min((x0 + wx + 0.5) / w_uv, 1.0), min((y0 + wy + 0.5) / h_uv, 1.0)
-
-        # The nearest sample is more than one grid step away only if the raw point is off the
-        # frame. The projective model then gives the answer, the inverse of what
-        # map_click_to_raw does there.
+        # If the nearest grid sample is more than ~2 grid steps away, the raw point is off-frame.
         if float(wdist.flat[widx]) > (2.0 / max(h_uv, w_uv)) ** 2:
             inv = np.linalg.inv(CoordinateMapping._grid_homography(uv_grid))
             return CoordinateMapping._apply_homography(inv, rx, ry)
+
+        gx = float(x0 + wx)
+        gy = float(y0 + wy)
+        for _ in range(3):
+            val, df_dx, df_dy = CoordinateMapping._sample_bilinear(uv_grid, gx, gy)
+            ru = rx - val[0]
+            rv = ry - val[1]
+            det = df_dx[0] * df_dy[1] - df_dx[1] * df_dy[0]
+            if abs(det) < 1e-18:
+                break
+            dgx = (ru * df_dy[1] - rv * df_dy[0]) / det
+            dgy = (df_dx[0] * rv - df_dx[1] * ru) / det
+            gx = float(np.clip(gx + dgx, -0.5, w_uv - 0.5))
+            gy = float(np.clip(gy + dgy, -0.5, h_uv - 0.5))
+
+        nx = float(np.clip((gx + 0.5) / w_uv, 0.0, 1.0))
+        ny = float(np.clip((gy + 0.5) / h_uv, 0.0, 1.0))
         return nx, ny

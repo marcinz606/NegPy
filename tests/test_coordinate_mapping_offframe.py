@@ -73,3 +73,32 @@ def test_the_rotated_grid_matches_a_warp_inside_the_frame() -> None:
     solved = _grid(fine_rot=6.0)
     # warpAffine interpolates in 1/32 px steps; the solved grid is exact.
     np.testing.assert_allclose(solved[60:180, 80:240], warped[60:180, 80:240], atol=2e-4)
+
+
+@pytest.mark.parametrize("case", CASES)
+def test_zoomed_in_subpixel_click_has_zero_top_left_drift(case) -> None:
+    """Clicking off-center inside any preview pixel round-trips to sub-thousandth-pixel accuracy
+    instead of flooring to the top-left grid cell."""
+    grid = CoordinateMapping.create_uv_grid(120, 160, **case)
+    for nx, ny in [(0.8045, 0.7085), (0.1234, 0.8765), (0.5031, 0.5042), (0.991, 0.989)]:
+        rx, ry = CoordinateMapping.map_click_to_raw(nx, ny, grid)
+        bx, by = CoordinateMapping.map_raw_to_viewport(rx, ry, grid)
+        assert (bx, by) == pytest.approx((nx, ny), abs=1e-4)
+
+
+def test_pixel_center_click_hits_the_exact_displayed_pixel() -> None:
+    """On a tiny WxH frame, clicking anywhere inside displayed pixel (col, row) maps to raw pixel (col, row)."""
+    from negpy.features.retouch.logic import exclusion_cover
+
+    h, w = 8, 10
+    grid = CoordinateMapping.create_uv_grid(h, w, 0, 0.0)
+    for row in (0, 3, 7):
+        for col in (0, 5, 9):
+            # Click at 25%, 50%, and 80% across displayed pixel (col, row).
+            for fx, fy in ((0.25, 0.25), (0.5, 0.5), (0.8, 0.8)):
+                nx, ny = (col + fx) / w, (row + fy) / h
+                rx, ry = CoordinateMapping.map_click_to_raw(nx, ny, grid)
+                cover = exclusion_cover([([[rx, ry]], 1.0)], (h, w))
+                ys, xs = np.nonzero(cover)
+                assert int(np.round(xs.mean())) == col
+                assert int(np.round(ys.mean())) == row
