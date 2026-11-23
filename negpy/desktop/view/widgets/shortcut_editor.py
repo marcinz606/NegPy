@@ -128,11 +128,15 @@ class ShortcutEditorDialog(QDialog):
         buttons = QHBoxLayout()
         reset_btn = QPushButton(tr("Reset All"))
         reset_btn.clicked.connect(self._reset_all)
+        lightroom_btn = QPushButton(tr("Lightroom Keys"))
+        lightroom_btn.setToolTip(tr("Fill in keys laid out like Lightroom Classic's; Save keeps them"))
+        lightroom_btn.clicked.connect(lambda: self._load_preset("lightroom"))
         save_btn = QPushButton(tr("Save"))
         save_btn.clicked.connect(self._save)
         cancel_btn = QPushButton(tr("Cancel"))
         cancel_btn.clicked.connect(self.reject)
         buttons.addWidget(reset_btn)
+        buttons.addWidget(lightroom_btn)
         buttons.addStretch()
         buttons.addWidget(cancel_btn)
         buttons.addWidget(save_btn)
@@ -364,6 +368,14 @@ class ShortcutEditorDialog(QDialog):
         for group_id, value in default_slider_steps().items():
             if group_id in self._step_edits:
                 self._step_edits[group_id].setValue(value)
+        self._reload_search_model()
+
+    def _load_preset(self, name: str) -> None:
+        from negpy.desktop.view.shortcut_presets import preset_bindings
+
+        for action_id, key in preset_bindings(name).items():
+            if action_id in self._edits:
+                self._edits[action_id].setKeySequence(QKeySequence(key))
         self._reload_search_model()
 
     def _portable(self, edit: KeypadAwareKeySequenceEdit) -> str:

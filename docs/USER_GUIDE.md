@@ -34,6 +34,14 @@ For the math behind each step, read [PIPELINE.md](PIPELINE.md).
 
 **Shift+H** hides the panels, and **Reset Panel Layout** (Preferences → Interface, or `Ctrl+Shift+L`) restores them. With nothing open, the canvas offers **Load Scans…** and **Take the Tour**.
 
+### Simple and Advanced modes
+
+**Mode → Simple Mode** trims the controls to three tabs: **Library**, **Edit** and **Scan**. **Edit** is one column of the everyday cards: Filtration, Tone, Paper Response, Crop and Straighten, Lab, Retouch and Finishing. **Advanced Mode** is every tab, as described in the rest of this guide. NegPy remembers the mode.
+
+The **Roll** and **Export** menus on the menu bar work in both modes. **Roll** lists the Roll tab's cards, and each one opens in a window beside the canvas; closing the window puts the card back on its tab. It also holds **Import Folder as a Roll…**, **Run Roll Analysis** and **Roll Settings…**. **Export** exports the **Frame**, the **Selected** frames or the **Roll** with the current settings. The one you pick stays checked and becomes what the Export button and `Ctrl+E` export, the same choice the button's chevron makes; **Preferences…** (`Ctrl+Shift+E`) opens the whole Export panel in a window.
+
+**Mode → Keyboard Shortcuts** switches every key at once between **NegPy Shortcuts** and **Lightroom Shortcuts**, a set laid out like Lightroom Classic's: `G` Light Table, `E` back to the frame, `D` the edit controls, `R` crop, `Q` heal, `W` white balance picker, `K` dodge & burn brush, `P` and `X` keep and reject, `Z` fit or 100%, `J` clipping, `Tab` the controls panel, `Ctrl+Shift+C` / `Ctrl+Shift+V` copy and paste settings, and `Ctrl+Shift+E` Export Preferences. The Lightroom set leaves NegPy's letter keys for density, grade and the filtration sliders unbound; **Customize Shortcuts** (and its **Lightroom Keys** button) can bind them again.
+
 ### The workflow
 
 1.  On the **Library** tab, import a folder as a roll and open it.
@@ -102,7 +110,7 @@ A new frame gets the roll's film type, and the crop, print stock and Lab setting
 
 ### macOS and Windows
 
-`Ctrl` in this guide is `⌘` on macOS, where the **NegPy**, **Window** and **Help** menus hold Preferences, window commands, the tour and update checks.
+`Ctrl` in this guide is `⌘` on macOS, where the **NegPy**, **Mode**, **Roll**, **Export**, **Window** and **Help** menus hold Preferences, the mode and shortcut set, the Roll cards, export, window commands, the tour and update checks. On Windows and Linux the window has a menu bar with **NegPy**, **Mode**, **Roll** and **Export**.
 
 If Windows blocks the default data folder, NegPy suggests `%LOCALAPPDATA%\NegPy\data`. Click the path to pick another, then **Use This Folder**. Nothing is copied. `NEGPY_USER_DIR` overrides the choice.
 

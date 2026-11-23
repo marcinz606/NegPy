@@ -29,6 +29,8 @@ class OverflowBar(QWidget):
         self._items: list[tuple[QWidget, str]] = []
         self._pinned = -1
         self._hidden: list[int] = []
+        # Items left out of the bar altogether (Simple mode's retired tabs), not spilled into ».
+        self._excluded: set[int] = set()
         self.setFixedHeight(height)
 
         self.overflow_btn = QToolButton(self)
@@ -47,6 +49,17 @@ class OverflowBar(QWidget):
     def buttons(self) -> list[QWidget]:
         return [widget for widget, _label in self._items]
 
+    def set_excluded(self, button_index: int, excluded: bool) -> None:
+        """Leave a button out of the bar and its » menu, or bring it back."""
+        if excluded:
+            self._excluded.add(button_index)
+        else:
+            self._excluded.discard(button_index)
+        self._relayout()
+
+    def _candidates(self) -> list[int]:
+        return [i for i in range(len(self._items)) if i not in self._excluded]
+
     def set_pinned(self, button_index: int) -> None:
         """The button that must stay visible (the active tab). -1 for none."""
         self._pinned = button_index
@@ -64,7 +77,7 @@ class OverflowBar(QWidget):
         return QSize(self._min_item + self.OVERFLOW_W, self._height)
 
     def sizeHint(self) -> QSize:
-        return QSize(self._room(range(len(self._items))) or self._min_item, self._height)
+        return QSize(self._room(self._candidates()) or self._min_item, self._height)
 
     def resizeEvent(self, event) -> None:
         self._relayout()
@@ -78,22 +91,23 @@ class OverflowBar(QWidget):
         p.drawRoundedRect(QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5), THEME.radius_lg, THEME.radius_lg)
 
     def _visible_items(self, avail: int) -> list[int]:
-        count = len(self._items)
-        if avail >= self._room(range(count)):
-            return list(range(count))
+        candidates = self._candidates()
+        count = len(candidates)
+        if not count or avail >= self._room(candidates):
+            return candidates
         fits = 1
-        while fits < count and self._room(range(fits + 1)) <= avail - self.OVERFLOW_W:
+        while fits < count and self._room(candidates[: fits + 1]) <= avail - self.OVERFLOW_W:
             fits += 1
-        if 0 <= self._pinned and self._pinned >= fits:
-            return list(range(fits - 1)) + [self._pinned]
-        return list(range(fits))
+        if self._pinned in candidates and candidates.index(self._pinned) >= fits:
+            return candidates[: fits - 1] + [self._pinned]
+        return candidates[:fits]
 
     def _relayout(self) -> None:
         if not self._items:
             return
         avail = self.width()
         visible = self._visible_items(avail)
-        self._hidden = [i for i in range(len(self._items)) if i not in visible]
+        self._hidden = [i for i in self._candidates() if i not in visible]
 
         own = [self._own_width(self._items[i][0]) for i in visible]
         room = avail - (self.OVERFLOW_W if self._hidden else 0) - sum(own)
@@ -110,6 +124,8 @@ class OverflowBar(QWidget):
         for i in visible:
             self._items[i][0].show()
         for i in self._hidden:
+            self._items[i][0].hide()
+        for i in self._excluded:
             self._items[i][0].hide()
 
         if self._hidden:

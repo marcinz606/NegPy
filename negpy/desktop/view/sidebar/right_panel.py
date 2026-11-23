@@ -80,6 +80,29 @@ _TAB_ICONS = {
 # Frame tabs that show only their icon, after the workflow tabs.
 _ICON_TABS = ("favourites", "history")
 
+# Simple mode's Edit page: the everyday cards of the Frame tabs, in one column, in this order.
+SIMPLE_EDIT_SECTIONS = (
+    "color_section",  # Filtration
+    "tone_section",
+    "paper_section",
+    "autocrop_section",  # Geometry: Crop
+    "geometry_section",  # Geometry: Straighten
+    "lab_section",
+    "retouch_section",
+    "finish_section",
+)
+
+# Group tabs Simple mode leaves out: Roll and Export move to the menu bar as pop-ups.
+SIMPLE_HIDDEN_GROUPS = ("roll", "metadata", "export")
+
+# A Frame tab key, and the Simple Edit card that stands for it.
+_SIMPLE_TAB_SECTION = {
+    "geometry": "autocrop_section",
+    "tone": "color_section",
+    "color": "lab_section",
+    "finish": "retouch_section",
+}
+
 # A tab saved as an index, in this tab order.
 _INDEXED_GROUPS = ("roll", "frame", "metadata", "gear", "export", "scan")
 
@@ -105,6 +128,9 @@ class RightPanel(QWidget):
     pins its Preview above its own sub-tabs, and Export pins its Export button below its own."""
 
     analysis_overlay_changed = pyqtSignal()
+    # Simple mode asks the window for a pop-up in place of a tab it hides:
+    # "roll:<section attr>" for a Roll card, "export" for the Export settings.
+    popup_requested = pyqtSignal(str)
 
     def __init__(self, controller: AppController, library_tree: Optional[LibraryTree] = None):
         super().__init__()
@@ -112,6 +138,9 @@ class RightPanel(QWidget):
         self.library_tree = library_tree or LibraryTree(controller)
         # Heal/scratch tool suspended by leaving the Retouch tab; restored on return.
         self._suspended_retouch_tool = None
+        # Simple mode: the Frame cards moved onto the Edit page, each with the call that puts it back.
+        self._simple_mode = False
+        self._simple_restores: list = []
 
         self._init_ui()
         self._connect_signals()
@@ -172,7 +201,7 @@ class RightPanel(QWidget):
         for i, (key, tooltip, content) in enumerate(group_specs):
             btn = PanelTab(_TAB_ICONS[key], tooltip, stacked=True)
             btn.setToolTip(tooltip)
-            btn.clicked.connect(lambda _checked=False, idx=i: self._switch_group(idx))
+            btn.clicked.connect(lambda _checked=False, idx=i: self._on_group_clicked(idx))
             self.group_switcher.add_button(btn, tooltip)
 
             # These pages scroll inside, beside a pinned part; every other page scrolls whole.
@@ -390,6 +419,19 @@ class RightPanel(QWidget):
                 self._tab_sections[i] = section_attrs
             for attr in section_attrs:
                 self._section_tab_index[attr] = i
+
+        # Simple mode's Edit page: no tab button of its own, since Simple hides the switcher. The
+        # cards arrive in set_simple_mode and go back to their tabs when it ends.
+        self._simple_page = QWidget()
+        self._simple_layout = QVBoxLayout(self._simple_page)
+        self._simple_layout.setContentsMargins(0, 0, 0, 0)
+        self._simple_layout.setSpacing(THEME.space_lg)
+        self._simple_layout.addStretch(1)
+        self.stack.addWidget(wrap_scroll(self._simple_page))
+        self._simple_index = self.stack.count() - 1
+        self._tab_keys.append("edit")
+        self._tab_tooltips.append(tr("Edit"))
+        self._tab_edited.append(False)
 
         page_layout.addWidget(self.switcher)
         page_layout.addWidget(self.stack, 1)
@@ -810,11 +852,14 @@ class RightPanel(QWidget):
 
     def _switch_tab(self, index: int) -> None:
         self._active_index = index
-        self.controller.session.repo.save_global_setting("right_panel_tab", index)
+        simple_page = self._simple_mode is True and index == self._simple_index
+        if not simple_page:
+            # Only an Advanced tab is remembered: the Edit page has no button to come back to.
+            self.controller.session.repo.save_global_setting("right_panel_tab", index)
         self.stack.setCurrentIndex(index)
         for i, btn in enumerate(self._tab_buttons):
             btn.setChecked(i == index)
-        self.switcher.set_pinned(index)
+        self.switcher.set_pinned(index if index < len(self._tab_buttons) else -1)
         self._sync_local_masks()
 
         # The heal and scratch tools live on the tab hosting the Retouch section. Navigating to
@@ -825,7 +870,7 @@ class RightPanel(QWidget):
         from negpy.desktop.session import ToolMode
 
         state = self.controller.session.state
-        retouch_tab = self._section_tab_index.get("retouch_section")
+        retouch_tab = self._simple_index if self._simple_mode is True else self._section_tab_index.get("retouch_section")
         if index != retouch_tab:
             if state.active_tool in (ToolMode.DUST_PICK, ToolMode.SCRATCH_PICK, ToolMode.CLONE):
                 self._suspended_retouch_tool = state.active_tool
@@ -866,6 +911,13 @@ class RightPanel(QWidget):
 
     def reveal_section(self, section_attr: str) -> None:
         """Switch to the tab containing the given ControlsPanel section."""
+        if self._simple_mode is True:
+            if section_attr in _ROLL_SECTION_ATTRS:
+                self.popup_requested.emit(f"roll:{section_attr}")
+                return
+            if section_attr in SIMPLE_EDIT_SECTIONS:
+                self.show_simple_edit(section_attr)
+                return
         if section_attr in _ROLL_SECTION_ATTRS:
             self._switch_group(self._group_keys.index("roll"))
             return
@@ -875,6 +927,19 @@ class RightPanel(QWidget):
             self._switch_tab(idx)
 
     def show_tab_by_key(self, key: str) -> None:
+        if key == "edit" and self._simple_mode is not True:
+            # Advanced mode has no Edit page; its everyday cards start on Exposure.
+            key = "tone"
+        if self._simple_mode is True:
+            if key == "roll":
+                self.popup_requested.emit("roll:film_section")
+                return
+            if key == "export":
+                self.popup_requested.emit("export")
+                return
+            if key in _SIMPLE_TAB_SECTION or key == "edit":
+                self.show_simple_edit(_SIMPLE_TAB_SECTION.get(key))
+                return
         if key in self._group_keys:
             self._switch_group(self._group_keys.index(key))
             return
@@ -886,11 +951,74 @@ class RightPanel(QWidget):
         self._switch_group(self._group_keys.index("metadata"))
         self.metadata_sidebar.show_tab("presets" if key == "presets" else "gear")
 
+    # --- Simple mode -------------------------------------------------------------------------
+
+    @property
+    def simple_mode(self) -> bool:
+        return self._simple_mode
+
+    def set_simple_mode(self, simple: bool) -> None:
+        """Simple: Library, Edit and Scan, with Edit one column of Filtration, Tone, Paper
+        Response, Geometry, Lab, Retouch and Finishing. Advanced: every tab, as before."""
+        from negpy.desktop.view.widgets.borrow import borrow
+
+        if simple == self._simple_mode:
+            return
+        frame_group = self._group_keys.index("frame")
+        if simple:
+            cp = self.controls_panel
+            stretch = self._simple_layout.count() - 1
+            for attr in SIMPLE_EDIT_SECTIONS:
+                section = getattr(cp, attr)
+                self._simple_restores.append(borrow(section))
+                self._simple_layout.insertWidget(stretch, section)
+                stretch += 1
+            align_slider_columns(self._simple_page)
+        else:
+            # Back in reverse, so each card returns beside neighbours already in place.
+            for restore in reversed(self._simple_restores):
+                restore()
+            self._simple_restores.clear()
+            for i in range(len(self._tab_buttons)):
+                align_slider_columns(self.stack.widget(i))
+        self._simple_mode = simple
+
+        self.switcher.setVisible(not simple)
+        for i, key in enumerate(self._group_keys):
+            self.group_switcher.set_excluded(i, simple and key in SIMPLE_HIDDEN_GROUPS)
+        self._group_buttons[frame_group].setText(tr("Edit") if simple else self._group_tooltips[frame_group])
+
+        if simple:
+            if self._group_keys[self._active_group] in SIMPLE_HIDDEN_GROUPS:
+                self._switch_group(frame_group)
+            self._switch_tab(self._simple_index)
+        else:
+            saved = self.controller.session.repo.get_global_setting("right_panel_tab", 0)
+            self._switch_tab(saved if isinstance(saved, int) and 0 <= saved < len(self._tab_buttons) else 0)
+            self._switch_group(self._active_group)
+
+    def show_simple_edit(self, section_attr: Optional[str] = None) -> None:
+        """Simple mode's Edit page, scrolled to one of its cards when given."""
+        self._switch_group(self._group_keys.index("frame"))
+        self._switch_tab(self._simple_index)
+        if section_attr:
+            section = getattr(self.controls_panel, section_attr)
+            section.expand()
+            QTimer.singleShot(0, lambda: self.scroll_to(section))
+
+    def _on_group_clicked(self, index: int) -> None:
+        """A group tab click. In Simple mode the Edit tab always lands on the Edit page, even after
+        a shortcut or a search showed one of the Advanced tabs behind it."""
+        if self._simple_mode is True and self._group_keys[index] == "frame":
+            self.show_simple_edit()
+            return
+        self._switch_group(index)
+
     def _stacks(self) -> tuple:
         """Each tab stack with its switch and its tab names, outermost first."""
         return (
             (self.group_stack, self._switch_group, self._group_tooltips),
-            (self.stack, self._switch_tab, [btn.text() for btn in self._tab_buttons]),
+            (self.stack, self._switch_tab, [btn.text() for btn in self._tab_buttons] + [tr("Edit")]),
             *(
                 (tabs.stack, tabs.switch, [btn.text() for btn in tabs.buttons])
                 for tabs in (self.metadata_sidebar.tabs, self.export_sidebar.tabs)

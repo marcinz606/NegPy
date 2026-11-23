@@ -14,6 +14,28 @@ Numpad keys can be bound separately from the number row (for example `Num+9` and
 
 Actions with no default key are not listed; every one of them can still be bound in **Customize**.
 
+**Mode → Keyboard Shortcuts → Lightroom Shortcuts** swaps the whole set for one laid out like Lightroom Classic's (the **Lightroom Keys** button in **Customize** fills in the same keys for you to adjust):
+
+| Key | Action |
+|-----|--------|
+| `G` / `E` / `D` | Light Table / back to the frame / the frame with its edit controls |
+| `Z` | Fit to window or 100% |
+| `Tab` / `Shift + Tab` / `F6` | Controls panel / all panels / Film Strip |
+| `R` / `Q` / `W` | Crop / heal / white balance picker |
+| `K` / `M` / `Shift + M` | Dodge & burn brush / card edge / oval |
+| `[` / `]` | Brush size |
+| `Ctrl + [` / `Ctrl + ]` | Rotate 90° CCW / CW |
+| `P` / `X` | Keeper / reject |
+| `J` / `I` / `\` | Clipping overlay / frame info / before and after |
+| `Ctrl + U` | Auto density and grade |
+| `Ctrl + Shift + C` / `Ctrl + Alt + C` / `Ctrl + Shift + V` | Copy settings / copy with bounds / paste settings |
+| `Ctrl + Shift + Z` | Redo |
+| `Ctrl + Shift + I` | Import a folder as a roll |
+| `Ctrl + R` | Show the file in its folder |
+| `Ctrl + Shift + E` / `Ctrl + Alt + Shift + E` | Export Preferences / export (the frame, selection or roll, as the Export button is set) |
+
+The Lightroom set leaves NegPy's letter keys for density, grade, magenta, yellow and temperature unbound, along with the peeks on `M` and `P`, the crop offset on `Z` and `X`, and analysis region draw on `Ctrl + R`. Bind any of them again in **Customize**.
+
 <!-- shortcuts:start -->
 ## Navigation
 | Key | Action |
@@ -121,7 +143,8 @@ Actions with no default key are not listed; every one of them can still be bound
 ## Actions
 | Key | Action |
 |-----|--------|
-| `Ctrl + E` | Export |
+| `Ctrl + E` | Export the frame, the selection or the roll, as the Export button is set |
+| `Ctrl + Shift + E` | Open Export Preferences |
 | `Ctrl + C` | Copy settings |
 | `Ctrl + Shift + C` | Copy settings (with bounds) |
 | `Ctrl + V` | Paste settings |
