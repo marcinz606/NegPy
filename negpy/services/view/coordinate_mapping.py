@@ -1,6 +1,8 @@
+import math
+from typing import Optional, Tuple
+
 import negpy_core
 import numpy as np
-from typing import Tuple, Optional
 
 from negpy.kernel.image.logic import apply_geometry_orientation
 
@@ -106,26 +108,27 @@ class CoordinateMapping:
         )
 
     @staticmethod
-    def _sample_bilinear(uv_grid: np.ndarray, gx: float, gy: float) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    def _sample_bilinear(uv_grid: np.ndarray, gx: float, gy: float) -> Tuple[Tuple[float, float], Tuple[float, float], Tuple[float, float]]:
         """Evaluate piecewise-bilinear `uv_grid` and its `(df/dgx, df/dgy)` Jacobian at `(gx, gy)`.
 
         Allows `gx` in `[-0.5, w_uv - 0.5]` and `gy` in `[-0.5, h_uv - 0.5]` by linear
-        extrapolation on the outer half-pixel rim so viewport `[0, 1]` is continuous right to
+        extrapolation on the outer half-pixel rim so viewport `[0, 1]` stays continuous to
         the frame edge.
         """
         h_uv, w_uv = uv_grid.shape[:2]
-        cx = min(max(int(np.floor(gx)), 0), w_uv - 2)
-        cy = min(max(int(np.floor(gy)), 0), h_uv - 2)
+        cx = min(max(math.floor(gx), 0), w_uv - 2)
+        cy = min(max(math.floor(gy), 0), h_uv - 2)
         tx = gx - cx
         ty = gy - cy
-        c00 = uv_grid[cy, cx].astype(np.float64)
-        c10 = uv_grid[cy, cx + 1].astype(np.float64)
-        c01 = uv_grid[cy + 1, cx].astype(np.float64)
-        c11 = uv_grid[cy + 1, cx + 1].astype(np.float64)
-        val = (1.0 - ty) * ((1.0 - tx) * c00 + tx * c10) + ty * ((1.0 - tx) * c01 + tx * c11)
-        df_dx = (1.0 - ty) * (c10 - c00) + ty * (c11 - c01)
-        df_dy = (1.0 - tx) * (c01 - c00) + tx * (c11 - c10)
-        return val, df_dx, df_dy
+        ((u00, v00), (u10, v10)), ((u01, v01), (u11, v11)) = uv_grid[cy : cy + 2, cx : cx + 2].tolist()
+        omx, omy = 1.0 - tx, 1.0 - ty
+        u = omy * (omx * u00 + tx * u10) + ty * (omx * u01 + tx * u11)
+        v = omy * (omx * v00 + tx * v10) + ty * (omx * v01 + tx * v11)
+        du_dx = omy * (u10 - u00) + ty * (u11 - u01)
+        dv_dx = omy * (v10 - v00) + ty * (v11 - v01)
+        du_dy = omx * (u01 - u00) + tx * (u11 - u10)
+        dv_dy = omx * (v01 - v00) + tx * (v11 - v10)
+        return (u, v), (du_dx, dv_dx), (du_dy, dv_dy)
 
     @staticmethod
     def map_click_to_raw(nx: float, ny: float, uv_grid: np.ndarray) -> Tuple[float, float]:
@@ -133,20 +136,26 @@ class CoordinateMapping:
         Viewport (0-1) -> Raw (0-1), sub-pixel interpolated around pixel centers.
 
         Each grid cell `(y, x)` sits at viewport center `((x + 0.5) / w_uv, (y + 0.5) / h_uv)`.
-        Bilinear interpolation eliminates the 0.5-1.5 cell top-left floor snap that integer
-        grid indexing caused when zoomed in closely. Points off the frame use the projective
-        model of the grid so dodge/burn handles outside the picture continue smoothly.
+        Bilinear interpolation removes the top-left floor snap that integer grid indexing
+        caused at high zoom. Points off the frame use the projective model of the grid so
+        dodge/burn handles outside the picture continue smoothly.
         """
         h_uv, w_uv = uv_grid.shape[:2]
+        if h_uv < 2 or w_uv < 2:
+            raw_uv = uv_grid[0, 0]
+            return float(raw_uv[0]), float(raw_uv[1])
         if 0.0 <= nx <= 1.0 and 0.0 <= ny <= 1.0:
-            if h_uv < 2 or w_uv < 2:
-                raw_uv = uv_grid[0, 0]
-                return float(raw_uv[0]), float(raw_uv[1])
             gx = nx * w_uv - 0.5
             gy = ny * h_uv - 0.5
-            val, _, _ = CoordinateMapping._sample_bilinear(uv_grid, gx, gy)
-            return float(val[0]), float(val[1])
-        return CoordinateMapping._apply_homography(CoordinateMapping._grid_homography(uv_grid), nx, ny)
+            (u, v), _, _ = CoordinateMapping._sample_bilinear(uv_grid, gx, gy)
+            return u, v
+        try:
+            return CoordinateMapping._apply_homography(CoordinateMapping._grid_homography(uv_grid), nx, ny)
+        except ValueError:
+            gx = min(max(nx * w_uv - 0.5, -0.5), w_uv - 0.5)
+            gy = min(max(ny * h_uv - 0.5, -0.5), h_uv - 0.5)
+            (u, v), _, _ = CoordinateMapping._sample_bilinear(uv_grid, gx, gy)
+            return u, v
 
     @staticmethod
     def map_raw_to_viewport(rx: float, ry: float, uv_grid: np.ndarray, buckets: int = 100) -> Tuple[float, float]:
@@ -154,46 +163,50 @@ class CoordinateMapping:
         Raw (0-1) -> Viewport (0-1): continuous sub-pixel inverse of `map_click_to_raw`.
 
         Locates the nearest grid sample via a two-stage coarse-to-fine search, then refines
-        continuous `(gx, gy)` with Newton steps on the bilinear cell so zoomed-in retouch
-        overlays stay locked onto the exact sub-pixel cursor position.
+        continuous `(gx, gy)` with unclamped Newton steps on the bilinear cell. Points whose
+        solution lies outside the viewport grid domain project through the inverse homography.
         """
         h_uv, w_uv = uv_grid.shape[:2]
         if h_uv < 2 or w_uv < 2:
             return 0.5, 0.5
-        step = max(1, h_uv // buckets)
-        small = uv_grid[::step, ::step]
+        step_y = max(1, h_uv // buckets)
+        step_x = max(1, w_uv // buckets)
+        small = uv_grid[::step_y, ::step_x]
         dist = (small[..., 0] - rx) ** 2 + (small[..., 1] - ry) ** 2
         idx = int(np.argmin(dist))
         vy, vx = divmod(idx, small.shape[1])
 
         # Refine: exact search across the coarse cell and its neighbours.
-        py, px = vy * step, vx * step
-        y0, y1 = max(0, py - step), min(h_uv, py + step + 1)
-        x0, x1 = max(0, px - step), min(w_uv, px + step + 1)
+        py, px = vy * step_y, vx * step_x
+        y0, y1 = max(0, py - step_y), min(h_uv, py + step_y + 1)
+        x0, x1 = max(0, px - step_x), min(w_uv, px + step_x + 1)
         window = uv_grid[y0:y1, x0:x1]
         wdist = (window[..., 0] - rx) ** 2 + (window[..., 1] - ry) ** 2
         widx = int(np.argmin(wdist))
         wy, wx = divmod(widx, window.shape[1])
 
-        # If the nearest grid sample is more than ~2 grid steps away, the raw point is off-frame.
-        if float(wdist.flat[widx]) > (2.0 / max(h_uv, w_uv)) ** 2:
-            inv = np.linalg.inv(CoordinateMapping._grid_homography(uv_grid))
-            return CoordinateMapping._apply_homography(inv, rx, ry)
-
         gx = float(x0 + wx)
         gy = float(y0 + wy)
-        for _ in range(3):
-            val, df_dx, df_dy = CoordinateMapping._sample_bilinear(uv_grid, gx, gy)
-            ru = rx - val[0]
-            rv = ry - val[1]
-            det = df_dx[0] * df_dy[1] - df_dx[1] * df_dy[0]
+        degenerate = False
+        for _ in range(4):
+            (u, v), (du_dx, dv_dx), (du_dy, dv_dy) = CoordinateMapping._sample_bilinear(uv_grid, gx, gy)
+            ru = rx - u
+            rv = ry - v
+            det = du_dx * dv_dy - dv_dx * du_dy
             if abs(det) < 1e-18:
+                degenerate = ru * ru + rv * rv > 1e-12
                 break
-            dgx = (ru * df_dy[1] - rv * df_dy[0]) / det
-            dgy = (df_dx[0] * rv - df_dx[1] * ru) / det
-            gx = float(np.clip(gx + dgx, -0.5, w_uv - 0.5))
-            gy = float(np.clip(gy + dgy, -0.5, h_uv - 0.5))
+            gx += (ru * dv_dy - rv * du_dy) / det
+            gy += (du_dx * rv - dv_dx * ru) / det
+            if gx < -2.0 or gx > w_uv + 1.0 or gy < -2.0 or gy > h_uv + 1.0:
+                break
 
-        nx = float(np.clip((gx + 0.5) / w_uv, 0.0, 1.0))
-        ny = float(np.clip((gy + 0.5) / h_uv, 0.0, 1.0))
-        return nx, ny
+        eps = 1e-3
+        if degenerate or not (-0.5 - eps <= gx <= w_uv - 0.5 + eps and -0.5 - eps <= gy <= h_uv - 0.5 + eps):
+            try:
+                inv = np.linalg.inv(CoordinateMapping._grid_homography(uv_grid))
+            except (ValueError, np.linalg.LinAlgError):
+                return min(max((gx + 0.5) / w_uv, 0.0), 1.0), min(max((gy + 0.5) / h_uv, 0.0), 1.0)
+            return CoordinateMapping._apply_homography(inv, rx, ry)
+
+        return min(max((gx + 0.5) / w_uv, 0.0), 1.0), min(max((gy + 0.5) / h_uv, 0.0), 1.0)
