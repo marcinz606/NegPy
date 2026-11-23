@@ -7,8 +7,8 @@ settings JSON to the same paths the previous helper used, so the UI polls them u
 
 Five behaviours of the library shape this module; each is guarded below:
 
-* Reading a value off a choice widget that has **no** choices dereferences a NULL and
-  kills the process with SIGSEGV — no `except` can catch it. See `_safe_value`.
+* Reading an unset string value dereferences NULL and kills the process with SIGSEGV.
+  Choices can still be present. See `_safe_value`.
 * Property writes are asynchronous. The body needs ~1-2 s before it reports a new value
   back, so a write is confirmed by polling, never assumed. See `_set_verified`.
 * After a still, the event queue must be drained or the *next* capture fails with a bare
@@ -28,6 +28,7 @@ bodies have been tested.
 from __future__ import annotations
 
 from negpy.kernel.system.i18n import tr
+import ctypes
 import json
 import os
 import re
@@ -35,6 +36,8 @@ import tempfile
 import threading
 import time
 from dataclasses import dataclass
+from functools import cache
+from importlib import import_module
 from typing import Any, Callable, Optional
 
 from negpy.infrastructure import simulated
@@ -49,7 +52,7 @@ logger = get_logger(__name__)
 
 #: libgphoto2 property names behind the settings the scan window exposes, in the order they
 #: are tried. `iso` and `shutterspeed` are the same everywhere, but the aperture is not: the
-#: generic name is `f-number` (Sony, Panasonic) while Canon, Nikon, Fujifilm, Olympus and
+#: generic name is `f-number` (Sony, Panasonic, Fujifilm) while Canon, Nikon, Olympus and
 #: Sigma expose `aperture`. No body offers both.
 #:
 #: There is no white balance here: NegPy decodes with a fixed neutral WB, so the camera's
@@ -263,35 +266,38 @@ def default_settings_path() -> str:
     return os.path.join(tempfile.gettempdir(), name)
 
 
-def _safe_value(gp: Any, widget: Any) -> Optional[str]:
-    """A widget's value, or None when reading it would crash the process.
+@cache
+def _widget_value_library() -> Optional[ctypes.CDLL]:
+    """Keep the widget library and its configured string reader alive."""
+    try:
+        module = import_module("gphoto2._widget")
+        library = ctypes.CDLL(module.__file__)
+        reader = library.gp_widget_get_value
+        reader.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_void_p)]
+        reader.restype = ctypes.c_int
+    except (ImportError, OSError, AttributeError) as exc:
+        logger.warning("gphoto2: cannot check widget string values: %s", exc)
+        return None
+    return library
 
-    A choice widget with zero choices — `f-number` on a lens with no electronic
-    aperture, which is exactly the kind of lens used for film scanning — makes
-    libgphoto2 hand back a NULL string that the binding then dereferences. That is a
-    SIGSEGV, not an exception, so the only defence is not to ask.
-    """
+
+def _safe_value(gp: Any, widget: Any) -> Optional[str]:
+    """Read a value without passing an unset native string to the binding."""
     kind = widget.get_type()
     if kind in (gp.GP_WIDGET_RADIO, gp.GP_WIDGET_MENU) and widget.count_choices() == 0:
         return None
-
-    # Even if there are choices, the current value might be unset / NULL pointer.
-    try:
-        import ctypes
-
-        lib = ctypes.CDLL(None)
-        get_val = getattr(lib, "gp_widget_get_value", None)
-        if get_val and hasattr(widget, "this"):
-            get_val.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
-            get_val.restype = ctypes.c_int
-            ptr = ctypes.c_void_p()
-            res = get_val(int(widget.this), ctypes.byref(ptr))
-            if res == 0 and not ptr:
-                logger.debug("gphoto2: widget %r returned a NULL pointer; safely returning None", widget.get_name())
-                return None
-    except Exception:
-        pass
-
+    if kind in (gp.GP_WIDGET_RADIO, gp.GP_WIDGET_MENU, gp.GP_WIDGET_TEXT) and hasattr(widget, "this"):
+        library = _widget_value_library()
+        if library is None:
+            return None
+        pointer = ctypes.c_void_p()
+        result = library.gp_widget_get_value(int(widget.this), ctypes.byref(pointer))
+        if result != 0:
+            logger.warning("gphoto2: cannot read widget %r (error %d)", widget.get_name(), result)
+            return None
+        if pointer.value is None:
+            logger.debug("gphoto2: widget %r has no current string value", widget.get_name())
+            return None
     return widget.get_value()
 
 

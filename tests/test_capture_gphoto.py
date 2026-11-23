@@ -239,7 +239,7 @@ class FakeGP:
             "shutterspeed": _Widget(self, "shutterspeed", "1/5", ["1/2", "1/5", "1/10"]),
             "capturetarget": _Widget(self, "capturetarget", capture_target, ["card", "sdram"]),
         }
-        # Sony calls it f-number; Canon, Nikon, Fujifilm and Olympus call it aperture.
+        # Sony and Fujifilm use f-number; Canon, Nikon and Olympus use aperture.
         # Either way, a lens with no electronic diaphragm offers no choices, and reading
         # its value in the real library is a SIGSEGV.
         self.props[aperture_name] = _Widget(self, aperture_name, None, [], readonly=True)
