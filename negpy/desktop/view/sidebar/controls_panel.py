@@ -25,6 +25,7 @@ from negpy.features.process.path import RenderPath, render_path
 from negpy.features.finish.models import FinishConfig
 from negpy.features.flatfield.models import FlatFieldConfig
 from negpy.kernel.system.config import DEFAULT_WORKSPACE_CONFIG
+from negpy.domain.models import WorkspaceConfig
 from negpy.services.assets.rolls import ROLL_DEFAULT_FIELDS
 from negpy.desktop.settings_catalog import (
     COLOR_FIELDS,
@@ -574,6 +575,15 @@ class ControlsPanel(QWidget):
         self.sensor_section.reset_requested.connect(lambda: self._reset_process_fields(_SENSOR_FIELDS, ("sensor",)))
         self.fade_section.reset_requested.connect(lambda: self._reset_process_fields(_FADE_FIELDS, ("fade",)))
         self.demosaic_section.reset_requested.connect(lambda: self._reset_process_fields(_DEMOSAIC_FIELDS, ("demosaic",)))
+
+        for key, section in self._compare_sections():
+            eye = section.add_compare_button(tr("Hold to see the frame without {title}", title=section._title_text))
+            eye.pressed.connect(
+                lambda k=key, s=section: self.controller.begin_card_compare(
+                    self._card_off_config(k), tr("WITHOUT {title}", title=s._title_text.upper())
+                )
+            )
+            eye.released.connect(self.controller.end_card_compare)
 
         self.controller.batch_started.connect(lambda *_: self._sync_crop_block())
         self.controller.batch_finished.connect(self._sync_crop_block)
@@ -1182,6 +1192,31 @@ class ControlsPanel(QWidget):
         self.tone_histogram.update_data(buf)
         self.color_histogram.update_data(buf)
         self.metering_histogram.update_data(buf)
+
+    def _compare_sections(self) -> list[tuple[str, CollapsibleSection]]:
+        """The creative cards a held eye turns off. The others change the framing or the scan reading."""
+        return [
+            ("color", self.color_section),
+            ("tone", self.tone_section),
+            ("paper", self.paper_section),
+            ("lab", self.lab_section),
+            ("altproc", self.altproc_section),
+            ("toning", self.toning_section),
+            ("local", self.local_section),
+            ("finish", self.finish_section),
+            ("retouch", self.retouch_section),
+        ]
+
+    def _card_off_config(self, key: str) -> WorkspaceConfig:
+        """The edit with card *key* at the defaults its Reset gives."""
+        from dataclasses import replace
+
+        cfg = self.controller.state.config
+        fields = {"color": COLOR_FIELDS, "tone": TONE_FIELDS, "paper": PAPER_FIELDS}.get(key)
+        if fields is not None:
+            mode = cfg.process.process_mode
+            return replace(cfg, exposure=replace(cfg.exposure, **{f: _default_exposure_field(f, mode) for f in fields}))
+        return replace(cfg, **{key: getattr(_DEFAULT_CONFIG, key)})
 
     def _reset_film_fields(self) -> None:
         """Film Mode and Positive both carry side effects their plain fields do not

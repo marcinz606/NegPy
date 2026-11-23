@@ -129,6 +129,9 @@ class CollapsibleSection(QWidget):
             self.info_btn.clicked.connect(self.info_requested)
             btn_layout.addWidget(self.info_btn)
 
+        # Built by add_compare_button; shown with reset_btn.
+        self.compare_btn: Optional[QPushButton] = None
+
         self.reset_btn = header_button(_header_icon("fa5s.undo"), tr("Reset {title} to defaults", title=title))
         self.reset_btn.setVisible(False)
         self.reset_btn.clicked.connect(self._on_reset_clicked)
@@ -208,6 +211,8 @@ class CollapsibleSection(QWidget):
         self.modified_count = count
         visible = count > 0
         self.reset_btn.setVisible(visible)
+        if self.compare_btn is not None:
+            self.compare_btn.setVisible(visible)
         self.title_label.setText(f"{self._title_text} · {count}" if visible else self._title_text)
         self._refresh_scope_stripe()
 
@@ -251,6 +256,14 @@ class CollapsibleSection(QWidget):
         btn = header_button(_header_icon(icon_name), tooltip)
         btn.setCheckable(True)
         self._header_row.insertWidget(self._header_row.count() - 1, btn)
+        return btn
+
+    def add_compare_button(self, tooltip: str) -> QPushButton:
+        """The eye left of Reset: held, the canvas shows the frame without this card."""
+        btn = header_button(_header_icon("fa5s.eye"), tooltip)
+        btn.setVisible(self.modified_count > 0)
+        self._header_row.insertWidget(self._header_row.indexOf(self.reset_btn), btn)
+        self.compare_btn = btn
         return btn
 
     def add_header_button(self, icon_name: str, tooltip: str) -> QPushButton:

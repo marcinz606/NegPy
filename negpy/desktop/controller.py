@@ -754,6 +754,8 @@ class AppController(QObject):
         self.session = session_manager
         self.state: AppState = session_manager.state
         self._thumb_config: Optional[WorkspaceConfig] = None
+        # The compare reference and label a held card eye borrowed (begin_card_compare).
+        self._card_compare_saved: Optional[Tuple[Optional[WorkspaceConfig], str]] = None
         self._active_diptych_memo: tuple[str, Optional[tuple[dict, tuple[WorkspaceConfig, WorkspaceConfig]]]] = ("", None)
         # Halves already known to hold a real edit; spares _may_persist_measured_bounds a
         # repeat lookup per render. Only ever grows, since a row is never deleted mid-session.
@@ -8870,6 +8872,35 @@ class AppController(QObject):
         if self.state.compare_hold:
             self.state.compare_hold = False
             self.compare_hold_changed.emit(False)
+
+    def begin_card_compare(self, config: WorkspaceConfig, label: str) -> None:
+        """Hold *config* (the edit with one card at its defaults) over the picture until
+        end_card_compare. It borrows the compare reference, which end_card_compare gives back."""
+        st = self.state
+        if st.compare_hold:
+            return
+        self._card_compare_saved = (st.compare_reference, st.compare_reference_label)
+        st.compare_reference, st.compare_reference_label = config, label
+        self.begin_compare_hold()
+        if not st.compare_hold:
+            self._restore_card_compare()
+
+    def end_card_compare(self) -> None:
+        if self._card_compare_saved is None:
+            return
+        self.end_compare_hold()
+        self._restore_card_compare()
+
+    def _restore_card_compare(self) -> None:
+        st = self.state
+        st.compare_reference, st.compare_reference_label = self._card_compare_saved
+        self._card_compare_saved = None
+        # The stash holds the card's pixels, never the split's baseline.
+        st.compare_before = None
+        st.compare_before_key = ""
+        if st.compare_mode:
+            self.compare_frame_ready.emit()
+            self._request_compare_baseline()
 
     def toggle_compare(self) -> None:
         """Toggle the before/after split between the edit and the auto baseline, or the

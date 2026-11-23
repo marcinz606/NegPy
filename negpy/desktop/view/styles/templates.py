@@ -427,6 +427,30 @@ def header_button(icon: QIcon, tooltip: str) -> QPushButton:
     return btn
 
 
+STEP_ARROW_WIDTH = 14
+
+
+def step_arrow(up: bool, tooltip: str) -> QPushButton:
+    """Half of a slider's step pair: a flat chevron, half a row tall, that repeats while held.
+    It takes no focus, so the value field keeps its own."""
+    btn = QPushButton()
+    btn.setIcon(
+        qta.icon(
+            "fa5s.chevron-up" if up else "fa5s.chevron-down",
+            color=THEME.text_hint,
+            color_active=THEME.text_primary,
+            color_disabled=THEME.text_muted,
+        )
+    )
+    btn.setFixedSize(STEP_ARROW_WIDTH, HEADER_BUTTON_SIZE // 2 - 2)
+    btn.setIconSize(QSize(8, 8))
+    btn.setObjectName("collapsible_reset_btn")
+    btn.setAutoRepeat(True)
+    btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+    btn.setToolTip(wrap_tooltip(tooltip))
+    return btn
+
+
 def wrap_tooltip(text: str, footer: str = "") -> str:
     """Plain-text tooltips never word-wrap in Qt; rich text does. Wrap in <qt> so
     long tooltips break into lines instead of spanning the screen. Text that
@@ -724,7 +748,6 @@ def slider_value_qss(color: str = THEME.text_primary) -> str:
     return (
         f"QDoubleSpinBox {{font-size: {THEME.font_size_base}px; color: {color}; background: transparent;"
         " border: none; border-bottom: 1px solid transparent; padding: 0px;}"
-        f"QDoubleSpinBox:hover {{border-bottom: 1px solid {THEME.border_hover};}}"
         f"QDoubleSpinBox:focus {{border-bottom: 1px solid {THEME.border_focus};}}"
         f"QDoubleSpinBox:disabled {{color: {THEME.text_muted};}}"
     )

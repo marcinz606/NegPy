@@ -308,3 +308,15 @@ def test_a_header_over_a_chart_draws_its_title_above_the_chart() -> None:
     section = CollapsibleSection("Tone", background_widget=QWidget())
     stack = section.toggle_button.parentWidget().layout()
     assert stack.currentWidget() is section.toggle_button
+
+
+def test_the_compare_eye_sits_left_of_reset_and_shows_with_it(qapp) -> None:
+    section = CollapsibleSection("Tone")
+    eye = section.add_compare_button("Hold")
+    row = section._header_row
+    assert row.indexOf(eye) == row.indexOf(section.reset_btn) - 1
+    assert eye.isHidden()
+    section.set_modified(2)
+    assert not eye.isHidden()
+    section.set_modified(0)
+    assert eye.isHidden()
