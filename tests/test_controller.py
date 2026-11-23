@@ -1216,6 +1216,56 @@ class TestAppController(unittest.TestCase):
         self.assertEqual(first.protected_file_hashes, ("selected",))
         self.assertEqual(second.protected_file_hashes, ("selected", "previous"))
 
+    def test_neighbor_prefetch_admits_trichrome_triplets_and_skips_stitches(self):
+        from dataclasses import replace
+        from negpy.domain.models import WorkspaceConfig
+        from negpy.features.rgbscan.models import RgbScanConfig
+
+        rgb_cfg = RgbScanConfig(enabled=True, green_path="/tmp/g.arw", blue_path="/tmp/b.arw", align=True)
+        cfg = replace(WorkspaceConfig(), rgbscan=rgb_cfg)
+        self.controller.session.repo.load_file_settings.return_value = None
+        self.controller.session.config_for_asset = MagicMock(return_value=cfg)
+        self.controller.film_base_for = MagicMock(return_value=None)
+
+        triplet = {"path": "/tmp/r.arw", "hash": "trip", "green_path": "/tmp/g.arw", "blue_path": "/tmp/b.arw"}
+        task = self.controller._neighbor_prefetch_task(triplet, generation=2, protected_file_hashes=("sel",))
+        self.assertIsNotNone(task)
+        self.assertEqual(task.rgbscan, rgb_cfg)
+        self.assertIsNone(task.half_slice)
+
+        stitch = {"path": "/tmp/p1.arw", "hash": "st", "stitch_paths": ["/tmp/p1.arw", "/tmp/p2.arw"]}
+        self.assertIsNone(self.controller._neighbor_prefetch_task(stitch, generation=2, protected_file_hashes=()))
+
+        # Unvisited sticky-linear-raw triplet uses hydrated config's linear_raw so prefetch key matches foreground open.
+        linear_cfg = replace(cfg, process=replace(cfg.process, linear_raw=True))
+        self.controller.session.config_for_asset.return_value = linear_cfg
+        linear_task = self.controller._neighbor_prefetch_task(triplet, generation=3, protected_file_hashes=("sel",))
+        self.assertFalse(linear_task.use_camera_wb)
+
+        # Overlapping prefetch generations completing out of order clear in-flight state cleanly.
+        from negpy.desktop.workers.render import PreviewLoadTask
+
+        t_gen1 = PreviewLoadTask(
+            file_path="/tmp/g1.arw", workspace_color_space="Adobe RGB", use_camera_wb=True, generation=1, for_cache_warm=True
+        )
+        t_gen2 = PreviewLoadTask(
+            file_path="/tmp/g2.arw", workspace_color_space="Adobe RGB", use_camera_wb=True, generation=2, for_cache_warm=True
+        )
+        self.controller._prefetch_max_slots = 2
+        self.controller._foreground_preview_generation = None
+        self.controller._is_rendering = False
+        self.controller._pending_render_task = None
+        self.controller._neighbor_prefetch_queue = [t_gen1]
+        self.controller._start_next_neighbor_prefetch()
+        self.controller._neighbor_prefetch_queue = [t_gen2]
+        self.controller._start_next_neighbor_prefetch()
+        self.controller._on_neighbor_prefetch_finished(2, "/tmp/g2.arw")
+        self.assertEqual(self.controller._prefetch_in_flight_count, 1)
+        self.assertEqual(self.controller._prefetch_in_flight_generation, 1)
+        self.controller._on_neighbor_prefetch_finished(1, "/tmp/g1.arw")
+        self.assertEqual(self.controller._prefetch_in_flight_count, 0)
+        self.assertIsNone(self.controller._prefetch_in_flight_generation)
+
     def test_render_does_not_wait_for_a_running_neighbor_prefetch(self):
         import numpy as np
 
@@ -8572,3 +8622,45 @@ class TestSplashPreviewRaceGuard(unittest.TestCase):
 
         self.assertNotIn("base_positive", panel.state.last_metrics)
         panel.image_updated.emit.assert_not_called()
+
+    def test_deferred_neighbor_wave_retries_when_in_flight_ram_clears_and_stops_when_stalled(self):
+        from negpy.desktop.workers.render import PreviewLoadTask
+
+        # Share `/scan.arw` across two half-frame slices and complete out of order (h2 rejects before h1 warms).
+        t1 = PreviewLoadTask(file_path="/scan.arw", workspace_color_space="sRGB", use_camera_wb=False, generation=7, file_hash="s#1")
+        t2 = PreviewLoadTask(file_path="/scan.arw", workspace_color_space="sRGB", use_camera_wb=False, generation=7, file_hash="s#2")
+        warm_hashes: set[str] = set()
+        emitted: list[str] = []
+
+        ctrl = SimpleNamespace(
+            _foreground_work_active=lambda: False,
+            _prefetch_max_slots=2,
+            _prefetch_gen=7,
+            _prefetch_in_flight_count=0,
+            _prefetch_in_flight_generation=None,
+            _prefetch_active_generations={},
+            _neighbor_prefetch_queue=[t1, t2],
+            _prefetch_wave_tasks=[],
+            _thumbnails_paused_for_foreground=False,
+            preview_service=SimpleNamespace(
+                peek_linear_preview=lambda _p, _cs, *, file_hash=None, **_kw: (("BUF", (4, 4), {}) if file_hash in warm_hashes else None),
+            ),
+            prefetch_load_requested=SimpleNamespace(emit=lambda task: emitted.append(task.file_hash)),
+        )
+        ctrl._start_next_neighbor_prefetch = lambda: AppController._start_next_neighbor_prefetch(ctrl)
+
+        # Wave 1 dispatches both; t2 rejects early while t1 warms afterward.
+        AppController._start_next_neighbor_prefetch(ctrl)
+        self.assertEqual(emitted, ["s#1", "s#2"])
+
+        AppController._on_neighbor_prefetch_finished(ctrl, 7, "/scan.arw")  # t2 rejected first
+        warm_hashes.add("s#1")
+        AppController._on_neighbor_prefetch_finished(ctrl, 7, "/scan.arw")  # t1 warmed second
+
+        # Because Wave 1 warmed s#1, Wave 2 retries only s#2 in dispatch order.
+        self.assertEqual(emitted, ["s#1", "s#2", "s#2"])
+
+        # If Wave 2 warms 0 tasks (e.g. cache is genuinely full), Wave 3 is NOT scheduled.
+        AppController._on_neighbor_prefetch_finished(ctrl, 7, "/scan.arw")
+        self.assertEqual(emitted, ["s#1", "s#2", "s#2"])
+        self.assertEqual(ctrl._prefetch_wave_tasks, [])

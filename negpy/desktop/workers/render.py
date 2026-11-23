@@ -55,38 +55,51 @@ logger = get_logger(__name__)
 
 
 class _DecodeGate:
-    """One native decode at a time, so codec buffers never overlap. A foreground preview may run
-    beside a prefetch of another file: LibRaw's unpack cannot stop mid-read. Each kind is one thread."""
+    """Coordinates foreground, prefetch, and thumbnail decodes. Multiple prefetches of distinct
+    files may run concurrently across cores; a foreground click enters immediately unless its own
+    file is already mid-prefetch (in which case waiting reuses that warm decode)."""
 
     def __init__(self) -> None:
         self._cond = threading.Condition()
-        self._holders: dict[str, str] = {}
+        self._exclusive: dict[str, str] = {}
+        self._prefetch_paths: set[str] = set()
+        self._anon_seq = 0
 
     def _may_enter(self, kind: str, path: str) -> bool:
-        if not self._holders:
-            return True
-        if kind == "foreground" and set(self._holders) == {"prefetch"}:
-            return self._holders["prefetch"] != path
-        return False
+        if kind == "prefetch":
+            return not self._exclusive and path not in self._prefetch_paths
+        if kind == "foreground":
+            return not self._exclusive and (not path or path not in self._prefetch_paths)
+        return not self._exclusive and not self._prefetch_paths
 
     @contextmanager
     def hold(self, kind: str, path: str = "", abandoned: Optional[Callable[[], bool]] = None) -> Iterator[bool]:
         """Yields whether the gate was taken; a wait gives up and yields False once *abandoned* is true."""
         acquired = False
+        token = path
         with self._cond:
-            while not self._may_enter(kind, path):
+            if kind == "prefetch" and not token:
+                self._anon_seq += 1
+                token = f"\x00anon:{self._anon_seq}"
+            while not self._may_enter(kind, token):
                 if abandoned is not None and abandoned():
                     break
                 self._cond.wait(0.1 if abandoned is not None else None)
             else:
-                self._holders[kind] = path
+                if kind == "prefetch":
+                    self._prefetch_paths.add(token)
+                else:
+                    self._exclusive[kind] = token
                 acquired = True
         try:
             yield acquired
         finally:
             if acquired:
                 with self._cond:
-                    self._holders.pop(kind, None)
+                    if kind == "prefetch":
+                        self._prefetch_paths.discard(token)
+                    else:
+                        self._exclusive.pop(kind, None)
                     self._cond.notify_all()
 
 
@@ -1296,12 +1309,33 @@ class PreviewLoadWorker(QObject):
         super().__init__()
         self._preview_service = preview_service
         self._state = state or PreviewLoadState()
+        self._prefetch_pool: Optional[ThreadPoolExecutor] = None
+        self._shutting_down = False
+        self._pool_lock = threading.Lock()
 
     def _is_current(self, task: PreviewLoadTask) -> bool:
         return self._state.is_current(task.generation)
 
     def _prefetch_is_current(self, task: PreviewLoadTask) -> bool:
         return self._state.prefetch_is_current(task.generation, task.file_path)
+
+    @pyqtSlot(PreviewLoadTask)
+    def enqueue_prefetch(self, task: PreviewLoadTask) -> None:
+        """Submit a neighbor cache-warm onto the concurrent prefetch pool."""
+        with self._pool_lock:
+            if self._shutting_down:
+                return
+            if self._prefetch_pool is None:
+                self._prefetch_pool = ThreadPoolExecutor(max_workers=_DECODE_WORKERS)
+            self._prefetch_pool.submit(self._process_prefetch, task)
+
+    def shutdown(self) -> None:
+        with self._pool_lock:
+            self._shutting_down = True
+            pool = self._prefetch_pool
+            self._prefetch_pool = None
+        if pool is not None:
+            pool.shutdown(wait=True, cancel_futures=True)
 
     @pyqtSlot(PreviewLoadTask)
     def process(self, task: PreviewLoadTask) -> None:
@@ -1318,40 +1352,68 @@ class PreviewLoadWorker(QObject):
         try:
             if not self._prefetch_is_current(task):
                 return
-            with _DECODE_MEMORY_GATE.hold("prefetch", task.file_path):
-                if not self._prefetch_is_current(task):
+            with _DECODE_MEMORY_GATE.hold("prefetch", task.file_path, abandoned=lambda: not self._prefetch_is_current(task)) as entered:
+                if not entered or not self._prefetch_is_current(task):
                     return
-                self._preview_service.prefetch_linear_preview(
-                    task.file_path,
-                    task.workspace_color_space,
-                    use_camera_wb=task.use_camera_wb,
-                    file_hash=task.file_hash,
-                    half_slice=task.half_slice,
-                    demosaic=task.demosaic,
-                    positive_decode=task.positive_decode,
-                    integrated_gpu=task.integrated_gpu,
-                    protected_file_hashes=task.protected_file_hashes,
-                    should_cancel=lambda: not self._prefetch_is_current(task),
-                    highlight_mode=task.highlight_mode,
-                    bake_camera_wb=task.bake_camera_wb,
-                    lens_corrections=task.lens_corrections,
-                    lens_flatfield=task.lens_flatfield,
-                )
+                full_kw = {"full_resolution": True} if task.full_resolution else {}
+                if is_rgb_triplet(task.rgbscan):
+                    self._preview_service.prefetch_linear_preview_rgb(
+                        task.file_path,
+                        task.rgbscan,
+                        task.workspace_color_space,
+                        use_camera_wb=task.use_camera_wb,
+                        file_hash=task.file_hash,
+                        demosaic=task.demosaic,
+                        integrated_gpu=task.integrated_gpu,
+                        protected_file_hashes=task.protected_file_hashes,
+                        should_cancel=lambda: not self._prefetch_is_current(task),
+                        **full_kw,
+                    )
+                else:
+                    self._preview_service.prefetch_linear_preview(
+                        task.file_path,
+                        task.workspace_color_space,
+                        use_camera_wb=task.use_camera_wb,
+                        file_hash=task.file_hash,
+                        half_slice=task.half_slice,
+                        demosaic=task.demosaic,
+                        positive_decode=task.positive_decode,
+                        integrated_gpu=task.integrated_gpu,
+                        protected_file_hashes=task.protected_file_hashes,
+                        should_cancel=lambda: not self._prefetch_is_current(task),
+                        highlight_mode=task.highlight_mode,
+                        bake_camera_wb=task.bake_camera_wb,
+                        lens_corrections=task.lens_corrections,
+                        lens_flatfield=task.lens_flatfield,
+                        **full_kw,
+                    )
             # Outside the memory gate: the read holds no decode memory, and a foreground decode
             # of this file must not wait on it.
             if task.base_settings is not None and self._prefetch_is_current(task):
-                cached = self._preview_service.peek_linear_preview(
-                    task.file_path,
-                    task.workspace_color_space,
-                    use_camera_wb=task.use_camera_wb,
-                    file_hash=task.file_hash,
-                    demosaic=task.demosaic,
-                    positive_decode=task.positive_decode,
-                    highlight_mode=task.highlight_mode,
-                    bake_camera_wb=task.bake_camera_wb,
-                    lens_corrections=task.lens_corrections,
-                    lens_flatfield=task.lens_flatfield,
-                )
+                full_kw = {"full_resolution": True} if task.full_resolution else {}
+                if is_rgb_triplet(task.rgbscan):
+                    cached = self._preview_service.peek_linear_preview_rgb(
+                        task.rgbscan,
+                        task.workspace_color_space,
+                        use_camera_wb=task.use_camera_wb,
+                        file_hash=task.file_hash,
+                        demosaic=task.demosaic,
+                        **full_kw,
+                    )
+                else:
+                    cached = self._preview_service.peek_linear_preview(
+                        task.file_path,
+                        task.workspace_color_space,
+                        use_camera_wb=task.use_camera_wb,
+                        file_hash=task.file_hash,
+                        demosaic=task.demosaic,
+                        positive_decode=task.positive_decode,
+                        highlight_mode=task.highlight_mode,
+                        bake_camera_wb=task.bake_camera_wb,
+                        lens_corrections=task.lens_corrections,
+                        lens_flatfield=task.lens_flatfield,
+                        **full_kw,
+                    )
                 if cached is not None:
                     buffer, _dims, metadata = cached
                     read_source_base(buffer, task.base_settings, task.file_hash, metadata.get("orientation", 1))

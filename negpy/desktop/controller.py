@@ -1001,7 +1001,11 @@ class AppController(QObject):
         self._foreground_preview_generation: Optional[int] = None
         self._neighbor_prefetch_generation: Optional[int] = None
         self._neighbor_prefetch_queue: list[PreviewLoadTask] = []
+        self._prefetch_wave_tasks: list[tuple[PreviewLoadTask, bool]] = []
         self._prefetch_in_flight_generation: Optional[int] = None
+        self._prefetch_in_flight_count: int = 0
+        self._prefetch_active_generations: dict[int, int] = {}
+        self._prefetch_max_slots: int = max(1, APP_CONFIG.max_workers // 2)
         self._thumbnail_queue_active = False
         self._thumbnails_paused_for_foreground = False
 
@@ -1247,7 +1251,7 @@ class AppController(QObject):
         self.preview_load_worker.vram_capped.connect(self._on_hq_preview_vram_capped)
         self.preview_load_worker.error.connect(self._on_preview_load_error)
         self.preview_load_worker.load_failed.connect(self._on_preview_load_failed)
-        self.prefetch_load_requested.connect(self.prefetch_load_worker.process)
+        self.prefetch_load_requested.connect(self.prefetch_load_worker.enqueue_prefetch)
         self.prefetch_load_worker.prefetch_finished.connect(self._on_neighbor_prefetch_finished)
 
         self.scan_devices_requested.connect(self.scan_worker.list_devices)
@@ -1664,7 +1668,20 @@ class AppController(QObject):
             self._neighbor_prefetch_generation = None
             self._schedule_prefetch_neighbors()
             return
-        if getattr(self, "_prefetch_in_flight_generation", None) is not None or getattr(self, "_neighbor_prefetch_queue", []):
+        in_flight_count = getattr(self, "_prefetch_in_flight_count", 0)
+        in_flight_active = (isinstance(in_flight_count, int) and in_flight_count > 0) or (
+            getattr(self, "_prefetch_in_flight_generation", None) is not None
+            and not getattr(self, "_prefetch_active_generations", None)
+            and not isinstance(getattr(self, "_prefetch_in_flight_count", None), int)
+        )
+        wave_tasks = getattr(self, "_prefetch_wave_tasks", None)
+        has_queued_prefetch = bool(getattr(self, "_neighbor_prefetch_queue", [])) or (
+            not in_flight_active and isinstance(wave_tasks, list) and bool(wave_tasks)
+        )
+        if has_queued_prefetch and isinstance(self, AppController):
+            self._start_next_neighbor_prefetch()
+            return
+        if in_flight_active or has_queued_prefetch:
             return
         AppController._resume_background_thumbnails(self)
 
@@ -1680,8 +1697,13 @@ class AppController(QObject):
         """Fire-and-forget: the decode cannot stop mid-read, so nothing waits for it."""
         self._neighbor_prefetch_generation = None
         self._neighbor_prefetch_queue.clear()
-        generation = self._prefetch_in_flight_generation
-        if generation is not None:
+        wave_tasks = getattr(self, "_prefetch_wave_tasks", None)
+        if isinstance(wave_tasks, list):
+            wave_tasks.clear()
+        generations = set(getattr(self, "_prefetch_active_generations", ()))
+        if self._prefetch_in_flight_generation is not None:
+            generations.add(self._prefetch_in_flight_generation)
+        for generation in generations:
             self.preview_load_state.cancel_prefetch(generation)
 
     # --- Batch progress popup -------------------------------------------------
@@ -3523,15 +3545,27 @@ class AppController(QObject):
         display_order = self.session.asset_model.visible_actual_indices_ordered()
         selected_hash = files[index].get("hash")
         protected_file_hashes = [selected_hash] if selected_hash else []
+        hq_prefetch = bool(getattr(self.state, "hq_preview", False) and getattr(APP_CONFIG, "preview_cache_max_full_res_entries", 2) > 2)
+        if hq_prefetch:
+            slot_budget = min(APP_CONFIG.preview_cache_max_entries, APP_CONFIG.preview_cache_max_full_res_entries)
+            max_protected = max(1, slot_budget - 1)
+            neighbor_budget = max(1, slot_budget - 1)
+        else:
+            max_protected = max(1, APP_CONFIG.preview_cache_max_entries - 1)
+            neighbor_budget = max(1, APP_CONFIG.preview_cache_max_entries - 2)
+        candidates = neighbor_assets(files, display_order, index, max_distance=neighbor_budget)[:neighbor_budget]
         tasks = []
-        for asset in neighbor_assets(files, display_order, index):
-            task = self._neighbor_prefetch_task(asset, generation, tuple(protected_file_hashes))
+        for asset in candidates:
+            task = self._neighbor_prefetch_task(asset, generation, tuple(protected_file_hashes), full_resolution=hq_prefetch)
             if task is None:
                 continue
             tasks.append(task)
-            if task.file_hash:
+            if task.file_hash and len(protected_file_hashes) < max_protected:
                 protected_file_hashes.append(task.file_hash)
         self._neighbor_prefetch_queue = [task for task in tasks if task is not None]
+        wave_tasks = getattr(self, "_prefetch_wave_tasks", None)
+        if isinstance(wave_tasks, list):
+            wave_tasks.clear()
         self._start_next_neighbor_prefetch()
 
     def _neighbor_prefetch_task(
@@ -3539,61 +3573,149 @@ class AppController(QObject):
         asset: dict,
         generation: int,
         protected_file_hashes: tuple[str, ...],
+        *,
+        full_resolution: bool = False,
     ) -> Optional[PreviewLoadTask]:
-        if is_composite(asset):
+        if asset.get("stitch_paths") or asset.get("hdr_paths"):
             return None
         file_hash = asset.get("hash")
         if not file_hash:
             return None
         saved = self.session.repo.load_file_settings(file_hash)
-        linear_raw = effective_linear_raw(saved.process) if saved else False
         try:
             integrated_gpu = bool(self.state.gpu_enabled and GPUDevice.get().is_integrated)
         except Exception:
             integrated_gpu = False
-        half_slice = self._half_slice_for_asset(asset["path"], file_hash)
+        half_slice = None if is_composite(asset) else self._half_slice_for_asset(asset["path"], file_hash)
+        config = self.session.config_for_asset(asset) if (half_slice is None or is_composite(asset)) else None
+        effective_cfg = saved if isinstance(saved, WorkspaceConfig) else (config if isinstance(config, WorkspaceConfig) else None)
+        linear_raw = effective_linear_raw(effective_cfg.process) if effective_cfg is not None else False
+        rgbscan = config.rgbscan if isinstance(config, WorkspaceConfig) else WorkspaceConfig().rgbscan
         # The render reads the base only for a whole negative frame on a roll with no picked base.
         base_settings = None
-        if half_slice is None:
-            config = self.session.config_for_asset(asset)
+        if half_slice is None and isinstance(config, WorkspaceConfig):
             if self.film_base_for(asset, config.process) is None and render_path(config.process) is RenderPath.PRINT:
                 base_settings = config
+        lens_source = effective_cfg if effective_cfg is not None else self.state.config
         return PreviewLoadTask(
             file_path=asset["path"],
             workspace_color_space=self.state.workspace_color_space,
             use_camera_wb=not linear_raw,
             generation=generation,
-            positive_decode=positive_decode(saved.process) if saved else "",
-            highlight_mode=effective_highlight_reconstruction(saved.process) if saved else 0,
-            bake_camera_wb=(highlight_reconstruction_bakes_wb(saved.process) if saved else False),
-            full_resolution=False,
+            positive_decode=positive_decode(effective_cfg.process) if effective_cfg is not None else "",
+            highlight_mode=effective_highlight_reconstruction(effective_cfg.process) if effective_cfg is not None else 0,
+            bake_camera_wb=(highlight_reconstruction_bakes_wb(effective_cfg.process) if effective_cfg is not None else False),
+            full_resolution=full_resolution,
             file_hash=file_hash,
             use_splash=False,
             for_cache_warm=True,
             integrated_gpu=integrated_gpu,
             protected_file_hashes=protected_file_hashes,
+            rgbscan=rgbscan,
             half_slice=half_slice,
-            demosaic=saved.process.demosaic_preview if saved else self.state.config.process.demosaic_preview,
-            lens_corrections=metadata_lens_corrections(saved or self.state.config),
-            lens_flatfield=(saved or self.state.config).flatfield,
+            demosaic=(effective_cfg.process.demosaic_preview if effective_cfg is not None else self.state.config.process.demosaic_preview),
+            lens_corrections=metadata_lens_corrections(lens_source),
+            lens_flatfield=lens_source.flatfield,
             base_settings=base_settings,
         )
+
+    def _is_neighbor_task_warm(self, task: PreviewLoadTask) -> bool:
+        from negpy.features.rgbscan.models import is_rgb_triplet
+
+        svc = getattr(self, "preview_service", None)
+        if svc is None:
+            return False
+        full_kw = {"full_resolution": True} if task.full_resolution else {}
+        if is_rgb_triplet(task.rgbscan):
+            peek = getattr(svc, "peek_linear_preview_rgb", None)
+            if not callable(peek):
+                return False
+            hit = peek(
+                task.rgbscan,
+                task.workspace_color_space,
+                use_camera_wb=task.use_camera_wb,
+                file_hash=task.file_hash,
+                demosaic=task.demosaic,
+                **full_kw,
+            )
+            return isinstance(hit, tuple) and len(hit) == 3
+        peek = getattr(svc, "peek_linear_preview", None)
+        if not callable(peek):
+            return False
+        hit = peek(
+            task.file_path,
+            task.workspace_color_space,
+            use_camera_wb=task.use_camera_wb,
+            file_hash=task.file_hash,
+            half_slice=task.half_slice,
+            demosaic=task.demosaic,
+            positive_decode=task.positive_decode,
+            highlight_mode=task.highlight_mode,
+            bake_camera_wb=task.bake_camera_wb,
+            lens_corrections=task.lens_corrections,
+            lens_flatfield=task.lens_flatfield,
+            **full_kw,
+        )
+        return isinstance(hit, tuple) and len(hit) == 3
 
     def _start_next_neighbor_prefetch(self) -> None:
         if self._foreground_work_active():
             return
-        if self._prefetch_in_flight_generation is not None:
-            return
+        max_slots = getattr(self, "_prefetch_max_slots", 1)
+        if not isinstance(max_slots, int):
+            max_slots = 1
+        active_gens = getattr(self, "_prefetch_active_generations", None)
+        in_flight = getattr(self, "_prefetch_in_flight_count", None)
+        if not isinstance(in_flight, int):
+            in_flight = 1 if self._prefetch_in_flight_generation is not None else 0
+        wave_tasks = getattr(self, "_prefetch_wave_tasks", None)
+        if not self._neighbor_prefetch_queue and in_flight == 0 and isinstance(wave_tasks, list) and wave_tasks:
+            current_gen = getattr(self, "_prefetch_gen", None)
+            current_wave = [(t, was_warm) for t, was_warm in wave_tasks if t.generation == current_gen]
+            wave_tasks.clear()
+            progressed = False
+            retry: list[PreviewLoadTask] = []
+            for t, was_warm in current_wave:
+                now_warm = AppController._is_neighbor_task_warm(self, t)
+                if now_warm and not was_warm:
+                    progressed = True
+                elif not now_warm:
+                    retry.append(t)
+            if progressed and retry:
+                self._neighbor_prefetch_queue.extend(retry)
         if not self._neighbor_prefetch_queue:
-            AppController._resume_background_thumbnails(self)
+            if in_flight == 0:
+                AppController._resume_background_thumbnails(self)
             return
-        task = self._neighbor_prefetch_queue.pop(0)
-        self._prefetch_in_flight_generation = task.generation
-        self.prefetch_load_requested.emit(task)
+        while self._neighbor_prefetch_queue and in_flight < max_slots:
+            task = self._neighbor_prefetch_queue.pop(0)
+            in_flight += 1
+            self._prefetch_in_flight_count = in_flight
+            if isinstance(active_gens, dict):
+                active_gens[task.generation] = active_gens.get(task.generation, 0) + 1
+            if isinstance(wave_tasks, list) and task.generation == getattr(self, "_prefetch_gen", None):
+                wave_tasks.append((task, AppController._is_neighbor_task_warm(self, task)))
+            self._prefetch_in_flight_generation = task.generation
+            self.prefetch_load_requested.emit(task)
 
     def _on_neighbor_prefetch_finished(self, generation: int, _file_path: str) -> None:
-        if self._prefetch_in_flight_generation == generation:
-            self._prefetch_in_flight_generation = None
+        active_gens = getattr(self, "_prefetch_active_generations", None)
+        if isinstance(active_gens, dict) and generation in active_gens:
+            remaining = active_gens[generation] - 1
+            if remaining > 0:
+                active_gens[generation] = remaining
+            else:
+                active_gens.pop(generation, None)
+            self._prefetch_in_flight_count = sum(active_gens.values())
+            self._prefetch_in_flight_generation = max(active_gens) if active_gens else None
+        else:
+            in_flight = getattr(self, "_prefetch_in_flight_count", 0)
+            if isinstance(in_flight, int) and in_flight > 0:
+                self._prefetch_in_flight_count = in_flight - 1
+            else:
+                self._prefetch_in_flight_count = 0
+            if self._prefetch_in_flight_count == 0:
+                self._prefetch_in_flight_generation = None
         # No early return for a stale generation: a mid-decode click rebuilt the queue,
         # and only this finish frees the slot that queue waits for.
         if self._foreground_work_active():
@@ -10680,6 +10802,9 @@ class AppController(QObject):
         self._foreground_preview_generation = None
         self._neighbor_prefetch_generation = None
         self._neighbor_prefetch_queue.clear()
+        wave_tasks = getattr(self, "_prefetch_wave_tasks", None)
+        if isinstance(wave_tasks, list):
+            wave_tasks.clear()
         logger.error(f"Preview load failure: {message}")
         self.set_status(tr("Failed to load file: {message}", message=message), 5000, kind="error")
         self.load_failed.emit()
@@ -10899,6 +11024,7 @@ class AppController(QObject):
         if self.prefetch_load_thread.isRunning():
             self.prefetch_load_thread.quit()
             self.prefetch_load_thread.wait()
+        self.prefetch_load_worker.shutdown()
         self.scan_worker.cancel()
         if self.scan_thread.isRunning():
             self.scan_thread.quit()
