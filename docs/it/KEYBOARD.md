@@ -204,7 +204,11 @@ Su macOS NegPy ha una barra dei menu: **Preferenze…** si trova nel menu dell'a
 
 | Tasto | Azione |
 |-----|--------|
+| `⌘ + H` | Nascondi NegPy |
+| `⌥ + ⌘ + H` | Nascondi le altre applicazioni |
+| `⌘ + Q` | Esci da NegPy |
 | `⌘ + M` | Riduci a icona la finestra in primo piano |
+| `⌃ + ⌘ + F` | Attiva o disattiva la modalità a tutto schermo |
 | `⌘ + W` | Chiudi la finestra in primo piano (chiudere la finestra principale chiude NegPy) |
 
 Ogni altra voce di menu usa l'associazione indicata sopra per la sua azione, e la mostra solo quando quell'associazione usa `⌘`. Una scorciatoia assegnata a un tasto semplice funziona comunque dalla tastiera; il menu semplicemente non la riporta, perché macOS dà la precedenza a un tasto di menu su tutto il resto e un `?` semplice scatterebbe mentre scrivi in una casella di testo.

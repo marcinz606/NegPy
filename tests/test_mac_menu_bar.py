@@ -112,7 +112,12 @@ def test_menu_keys_do_not_collide_with_the_registry(bar):
     assert len({QKeySequence(k).toString() for k in reserved}) == len(reserved)
 
     taken = {QKeySequence(k) for k in reserved}
-    clashes = [action_id for action_id, entry in REGISTRY.items() if entry.default_key and QKeySequence(entry.default_key) in taken]
+    clashes = [
+        action_id
+        for action_id, entry in REGISTRY.items()
+        for key in ({entry.default_key, getattr(entry, "key_for_platform", lambda _p: entry.default_key)("darwin")} - {""})
+        if QKeySequence(key) in taken
+    ]
     assert clashes == []
 
 

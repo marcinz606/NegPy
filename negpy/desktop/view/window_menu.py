@@ -1,16 +1,16 @@
 """The macOS Window menu.
 
 Without a menu bar, the key equivalents AppKit takes from the standard Window menu — Cmd+M,
-Cmd+W — do nothing. That is why NegPy has a bar at all; this is one of the menus
+Cmd+W, Ctrl+Cmd+F — do nothing. That is why NegPy has a bar at all; this is one of the menus
 ``mac_menu_bar`` assembles.
 
-These keys stay out of ``shortcut_registry``. They are platform window commands, not NegPy
-actions, and a native menu key equivalent silently outranks a QShortcut — so a rebindable
-copy could only ever disagree with the menu. ``MENU_KEYS`` is here so a test can prove no
-registry default collides with one.
+These keys, plus AppKit's application-menu shortcuts (Cmd+H, Opt+Cmd+H, Cmd+Q), stay out of
+``shortcut_registry``. They are platform window commands, not NegPy actions, and a native menu
+key equivalent silently outranks a QShortcut — so a rebindable copy could only ever disagree
+with the menu. ``MENU_KEYS`` is here so a test can prove no registry default collides with one.
 
-Full screen is not here. AppKit adds its own Enter Full Screen item to any menu titled
-View, so an item of ours could only ever be the second one in the menu.
+Enter Full Screen lives here in the Window menu (as macOS Monterey+ places it) rather than in a
+View menu: AppKit injects a second Enter Full Screen item into any menu titled View.
 
 Qt maps the window states onto AppKit correctly, so nothing here needs Objective-C:
 ``showMaximized`` leaves the NSWindow ``isZoomed``.
@@ -20,14 +20,18 @@ from negpy.kernel.system.i18n import tr
 
 from typing import Optional
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import QTimer, Qt
 from PyQt6.QtGui import QAction, QKeySequence
 from PyQt6.QtWidgets import QApplication, QMainWindow, QMenu, QWidget
 
-# Qt swaps Ctrl and Meta on macOS, so "Ctrl+M" is ⌘M.
+# Qt swaps Ctrl and Meta on macOS, so "Ctrl+M" is ⌘M and "Meta+Ctrl+F" is ⌃⌘F.
 MENU_KEYS: dict[str, str] = {
     "minimize": "Ctrl+M",
+    "full_screen": "Meta+Ctrl+F",
     "close": "Ctrl+W",
+    "hide": "Ctrl+H",
+    "hide_others": "Ctrl+Alt+H",
+    "quit": "Ctrl+Q",
 }
 
 _EXCLUDED_WINDOW_TYPES = {
@@ -65,6 +69,7 @@ class WindowMenu(QMenu):
 
         self.act_minimize = self._add(tr("Minimize"), MENU_KEYS["minimize"], self._minimize)
         self.act_zoom = self._add(tr("Zoom"), "", self._zoom)
+        self.act_full_screen = self._add(tr("Enter Full Screen"), MENU_KEYS["full_screen"], self._toggle_full_screen)
         self.addSeparator()
         self.act_close = self._add(tr("Close"), MENU_KEYS["close"], self._close)
         self.addSeparator()
@@ -72,6 +77,9 @@ class WindowMenu(QMenu):
         self._list_separator = self.addSeparator()
 
         self.aboutToShow.connect(self.refresh)
+        # QCocoaMenuDelegate checks NSMenuItem.enabled without emitting aboutToShow, so re-arm
+        # key equivalents on close and enforce state guards inside the handlers.
+        self.aboutToHide.connect(lambda: QTimer.singleShot(0, self._restore_shortcut_enabled))
 
     def _add(self, text: str, key: str, slot) -> QAction:
         action = QAction(text, self)
@@ -92,11 +100,25 @@ class WindowMenu(QMenu):
         return active if active is not None else self._window
 
     def _minimize(self) -> None:
-        self.target().showMinimized()
+        target = self.target()
+        if QApplication.activeModalWidget() is not None or target.isFullScreen() or target.isMinimized():
+            return
+        target.showMinimized()
+
+    def _restore_shortcut_enabled(self) -> None:
+        self.act_minimize.setEnabled(True)
+        self.act_full_screen.setEnabled(True)
 
     def _zoom(self) -> None:
         target = self.target()
+        if QApplication.activeModalWidget() is not None or target.isFullScreen() or target.isMinimized():
+            return
         target.showNormal() if target.isMaximized() else target.showMaximized()
+
+    def _toggle_full_screen(self) -> None:
+        if QApplication.activeModalWidget() is not None or self._window.isMinimized():
+            return
+        self._window.setWindowState(self._window.windowState() ^ Qt.WindowState.WindowFullScreen)
 
     def _close(self) -> None:
         self.target().close()
@@ -109,11 +131,14 @@ class WindowMenu(QMenu):
 
     def refresh(self) -> None:
         """Match the menu to the front window. macOS retires Minimize and Zoom in full
-        screen, which the front window can enter from the green button or ⌃⌘F."""
+        screen, which the main window can enter from the green button or ⌃⌘F."""
         target = self.target()
-        full_screen = target.isFullScreen()
-        self.act_minimize.setEnabled(not full_screen)
-        self.act_zoom.setEnabled(not full_screen)
+        no_modal = QApplication.activeModalWidget() is None
+        can_resize = no_modal and not target.isFullScreen() and not target.isMinimized()
+        self.act_minimize.setEnabled(can_resize)
+        self.act_zoom.setEnabled(can_resize)
+        self.act_full_screen.setText(tr("Exit Full Screen") if self._window.isFullScreen() else tr("Enter Full Screen"))
+        self.act_full_screen.setEnabled(no_modal and not self._window.isMinimized())
         self._rebuild_window_list(target)
 
     def _rebuild_window_list(self, target: QWidget) -> None:

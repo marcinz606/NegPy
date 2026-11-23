@@ -204,7 +204,11 @@ NegPy has a menu bar on macOS: **Preferences…** sits in the application menu, 
 
 | Key | Action |
 |-----|--------|
+| `⌘ + H` | Hide NegPy |
+| `⌥ + ⌘ + H` | Hide other apps |
+| `⌘ + Q` | Quit NegPy |
 | `⌘ + M` | Minimize the front window |
+| `⌃ + ⌘ + F` | Enter or exit full screen |
 | `⌘ + W` | Close the front window (closing the main window quits NegPy) |
 
 Every other menu item uses the binding listed above for its action, and shows it only when that binding uses `⌘`. A shortcut bound to a plain key still works from the keyboard; the menu just does not print it, because macOS gives a menu key priority over everything and a plain `?` would fire while you type into a text box.

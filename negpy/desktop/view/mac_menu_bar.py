@@ -8,8 +8,8 @@ button, a window control or a keyboard shortcut already runs.
 This is the first stage: the standard macOS window commands, which do nothing in an app
 with no menu bar, and Help. The File and View menus come later.
 
-There is no View menu, and so no Enter Full Screen item. AppKit adds one of its own to any
-menu titled View, and ours only ever appeared under it as the duplicate.
+There is no View menu: Enter Full Screen lives in WindowMenu instead, because AppKit adds its
+own Enter Full Screen item to any menu titled View.
 
 **Key equivalents are only ever ⌘ combinations.** AppKit dispatches a menu key equivalent
 before Qt's shortcut machinery sees the event, so a bare-key equivalent ("?" for Keyboard

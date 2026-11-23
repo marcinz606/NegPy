@@ -223,8 +223,9 @@ def test_every_default_key_parses(qapp):
     from negpy.desktop.view.shortcut_registry import REGISTRY
 
     bad = [
-        (action, entry.default_key)
+        (action, key)
         for action, entry in REGISTRY.items()
-        if entry.default_key and not QKeySequence(entry.default_key).toString(QKeySequence.SequenceFormat.PortableText)
+        for key in ({entry.default_key, *(entry.platform_keys or ())} - {""})
+        if not QKeySequence(key).toString(QKeySequence.SequenceFormat.PortableText)
     ]
     assert bad == []
