@@ -1,3 +1,4 @@
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable, Dict, Optional, Tuple
 
 from PIL import Image
@@ -75,9 +76,9 @@ def _decode_triplet_preview(red_path: str, green_path: str, blue_path: str) -> O
         with ctx_mgr as raw:
             return _fast_demosaic(raw, path), metadata
 
-    r, red_meta = _decode(red_path)
-    g, _ = _decode(green_path)
-    b, _ = _decode(blue_path)
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        futs = [pool.submit(_decode, p) for p in (red_path, green_path, blue_path)]
+        (r, red_meta), (g, _), (b, _) = (f.result() for f in futs)
     merged = assemble_rgb(r, g, b, align=False)
 
     img = Image.fromarray(merged)
@@ -139,9 +140,9 @@ def decode_bounded_source_preview(
 
     from negpy.features.rgbscan.logic import assemble_rgb
 
-    red_image = decode_one(file_path)
-    green_image = decode_one(green_path)
-    blue_image = decode_one(blue_path)
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        futs = [pool.submit(decode_one, p) for p in (file_path, green_path, blue_path)]
+        red_image, green_image, blue_image = (f.result() for f in futs)
     if red_image is None or green_image is None or blue_image is None:
         return None
     red = np.asarray(red_image.convert("RGB"))

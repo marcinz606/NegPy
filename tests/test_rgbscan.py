@@ -864,3 +864,87 @@ def test_export_triplet_keeps_an_aligned_overshoot_saturated(tmp_path, monkeypat
 
     assert f32.dtype == np.float32
     assert f32.min() >= 1.0
+
+
+def test_load_linear_preview_rgb_decodes_three_exposures_concurrently_without_double_caching_red(tmp_path):
+    """All three narrowband exposures enter load_linear_preview concurrently with file_hash=None,
+    so only the merged `(RGB)` entry occupies a preview cache slot."""
+    import threading
+    from negpy.services.rendering.preview_manager import PreviewManager
+
+    red, green, blue = (tmp_path / f"{c}.arw" for c in "rgb")
+    for p in (red, green, blue):
+        p.write_bytes(b"x")
+
+    barrier = threading.Barrier(3, timeout=3.0)
+    pm = PreviewManager()
+    file_hashes_seen: list = []
+
+    def concurrent_decode(path, color_space=None, use_camera_wb=False, full_resolution=False, file_hash=None, **_k):
+        barrier.wait()
+        file_hashes_seen.append(file_hash)
+        val = {str(red): 0.2, str(green): 0.5, str(blue): 0.8}[path]
+        return np.full((8, 8, 3), val, dtype=np.float32), (8, 8), {"color_space": "Adobe RGB"}
+
+    pm.load_linear_preview = concurrent_decode
+    rgbscan = RgbScanConfig(enabled=True, green_path=str(green), blue_path=str(blue), align=False)
+    merged, dims, _meta = pm.load_linear_preview_rgb(str(red), rgbscan, "Adobe RGB", file_hash="h1")
+
+    assert dims == (8, 8)
+    assert np.allclose(merged[..., 0], 0.2)
+    assert np.allclose(merged[..., 1], 0.5)
+    assert np.allclose(merged[..., 2], 0.8)
+    assert file_hashes_seen == [None, None, None]
+    assert pm._cache.usage().entries == 1
+
+
+def test_tile_channel_means_and_uint16_signature_match_float32_oracle():
+    """Direct uint16 mosaic probing must match the full float32 + raw_colors_visible path."""
+    from negpy.features.rgbscan.logic import _channel_means, _scene_signature, _tile_channel_means
+
+    rng = np.random.default_rng(19)
+    h, w = 513, 769  # odd dimensions so partial trailing CFA tiles are exercised too
+    u16 = rng.integers(300, 18000, size=(h, w), dtype=np.uint16)
+    tile = np.array([[0, 1], [3, 2]], dtype=np.uint8)
+    colors = np.tile(tile, (h // 2 + 1, w // 2 + 1))[:h, :w]
+    black = 512.0
+
+    f32 = u16.astype(np.float32)
+    assert _tile_channel_means(u16, tile, black) == pytest.approx(_channel_means(f32, colors, black), abs=1e-2)
+    sig_u16 = _scene_signature(u16, black)
+    sig_f32 = _scene_signature(f32, black)
+    assert frame_affinity(sig_u16, sig_f32) > 0.999999
+    assert np.allclose(sig_u16, sig_f32, atol=1e-4)
+
+
+def test_bounded_triplet_thumbnail_decodes_concurrently(monkeypatch):
+    import threading
+    from PIL import Image
+    from negpy.services.assets import thumbnails
+
+    barrier = threading.Barrier(3, timeout=3.0)
+
+    def concurrent_bounded(path, max_edge, **_kw):
+        barrier.wait()
+        rgb = {"r.arw": (200, 10, 10), "g.arw": (10, 210, 10), "b.arw": (10, 10, 220)}[path]
+        return Image.new("RGB", (16, 16), rgb)
+
+    monkeypatch.setattr(thumbnails.loader_factory, "load_bounded_preview", concurrent_bounded)
+    out = thumbnails.decode_bounded_source_preview("r.arw", "g.arw", "b.arw", max_edge=64)
+    assert out is not None
+    arr = np.asarray(out)
+    assert tuple(arr[0, 0]) == (200, 210, 220)
+
+
+def test_assemble_rgb_aligned_uint16_promotes_to_float32_without_integer_wrap():
+    """Bicubic shift on integer inputs can overshoot (<0 or >max); promoting to float32 prevents wraparound."""
+    g = np.zeros((64, 64, 3), dtype=np.uint16)
+    g[20:44, 20:44, GREEN] = 50000
+    r = np.zeros_like(g)
+    r[20:44, 22:46, RED] = 50000  # shifted +2px in x
+    b = np.zeros_like(g)
+    b[21:45, 20:44, BLUE] = 50000  # shifted +1px in y
+
+    merged = assemble_rgb(r, g, b, align=True)
+    assert merged.dtype == np.float32
+    assert float(merged.max()) < 60000.0, "negative bicubic ringing must not wrap to 65535"

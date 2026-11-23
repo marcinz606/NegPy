@@ -81,6 +81,43 @@ class TestMapFiles(unittest.TestCase):
         out = _worker()._map_files(["only"], lambda p: p.upper(), str, 8)
         self.assertEqual(out, ["ONLY"])
 
+    def test_rgb_grouping_preserves_timestamps_when_non_raw_probe_raises(self):
+        import numpy as np
+
+        from negpy.desktop.workers.render import AssetDiscoveryWorker
+        from negpy.features.rgbscan.logic import BLUE, GREEN, RED, FrameProbe
+
+        worker = AssetDiscoveryWorker()
+        assets = [
+            {"name": "c_b.arw", "path": "/tmp/c_b.arw", "hash": "hb"},
+            {"name": "a_r.arw", "path": "/tmp/a_r.arw", "hash": "hr"},
+            {"name": "b_g.arw", "path": "/tmp/b_g.arw", "hash": "hg"},
+            {"name": "z_note.jpg", "path": "/tmp/z_note.jpg", "hash": "hj"},
+        ]
+        stamps = {
+            "/tmp/a_r.arw": "2026:11:22 10:00:01",
+            "/tmp/b_g.arw": "2026:11:22 10:00:02",
+            "/tmp/c_b.arw": "2026:11:22 10:00:03",
+            "/tmp/z_note.jpg": "2026:11:22 10:00:04",
+        }
+        sig = np.ones(64, dtype=np.float32)
+
+        def fake_probe(path: str):
+            if path.endswith(".jpg"):
+                raise RuntimeError("not a raw mosaic")
+            means = {"a_r.arw": (10.0, 1.0, 1.0), "b_g.arw": (1.0, 10.0, 1.0), "c_b.arw": (1.0, 1.0, 10.0)}[path.split("/")[-1]]
+            return FrameProbe(means=means, signature=sig)
+
+        with (
+            patch("negpy.features.rgbscan.logic.capture_timestamp", side_effect=stamps.__getitem__),
+            patch("negpy.features.rgbscan.logic.probe_frame", side_effect=fake_probe),
+        ):
+            grouped = worker._group_rgb_triplets(assets)
+        self.assertEqual(len(grouped), 2)
+        self.assertEqual(grouped[0]["path"], "/tmp/a_r.arw")
+        self.assertEqual((grouped[0]["green_path"], grouped[0]["blue_path"]), ("/tmp/b_g.arw", "/tmp/c_b.arw"))
+        self.assertEqual((RED, GREEN, BLUE), (0, 1, 2))
+
 
 class TestThumbnailStreaming(unittest.TestCase):
     """The filmstrip queue yields between files and can be cancelled."""

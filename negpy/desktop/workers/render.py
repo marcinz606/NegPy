@@ -1186,15 +1186,33 @@ class AssetDiscoveryWorker(QObject):
         by_path = {a["path"]: a for a in assets}
         ordered = sorted(by_path, key=lambda p: os.path.basename(p).lower())
 
-        stamps = self._map_files(ordered, capture_timestamp, lambda p: f"Time {os.path.basename(p)}", _HASH_WORKERS)
-        times = {p: t for p, t in zip(ordered, stamps) if t}
+        def _stamp_and_probe(path: str) -> tuple[str, Any]:
+            try:
+                stamp = capture_timestamp(path)
+            except Exception:
+                logger.exception("Asset timestamp read failed for %s", path)
+                stamp = ""
+            if os.path.splitext(os.path.basename(path))[0].lower().endswith("_ir"):
+                return stamp, None
+            try:
+                probe = probe_frame(path)
+            except Exception:
+                logger.exception("RGB probe failed for %s", path)
+                probe = None
+            return stamp, probe
+
+        # Integer CFA probing holds only LibRaw's raw mosaic, so all cores run concurrently.
+        probe_workers = max(1, APP_CONFIG.max_workers)
+        combined = self._map_files(ordered, _stamp_and_probe, lambda p: f"RGB {os.path.basename(p)}", probe_workers)
+        times = {p: pair[0] for p, pair in zip(ordered, combined) if pair is not None and pair[0]}
+        probes_by_path = {p: pair[1] for p, pair in zip(ordered, combined) if pair is not None and pair[1] is not None}
         by_time = len(times) == len(ordered)
         ordered = capture_ordered(ordered, times)
 
         # An infrared exposure shot beside a triplet (`_IR`) stays its own frame: gray, it would
         # classify as a channel and shift every chunk after it.
         candidates = [p for p in ordered if not os.path.splitext(os.path.basename(p))[0].lower().endswith("_ir")]
-        probes = self._map_files(candidates, probe_frame, lambda p: f"RGB {os.path.basename(p)}", _DECODE_WORKERS)
+        probes = [probes_by_path.get(p) for p in candidates]
         items = [(p, classify_channel(pr.means)) for p, pr in zip(candidates, probes) if pr is not None]
         signatures = {p: pr.signature for p, pr in zip(candidates, probes) if pr is not None}
 

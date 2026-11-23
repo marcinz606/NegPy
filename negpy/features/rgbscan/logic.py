@@ -1,4 +1,5 @@
 import os
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
@@ -68,6 +69,27 @@ def _channel_means(mosaic: np.ndarray, colors: np.ndarray, black: float) -> Tupl
     )
 
 
+def _tile_channel_means(mosaic: np.ndarray, tile: np.ndarray, black: float) -> Tuple[float, float, float]:
+    """Exact per-CFA-channel means straight off an integer mosaic and its repeating CFA tile,
+    avoiding both the full-sensor float32 copy and rawpy's full-sensor raw_colors_visible build."""
+    th, tw = tile.shape
+    sums = [0, 0, 0]
+    counts = [0, 0, 0]
+    for r in range(th):
+        for c in range(tw):
+            code = int(tile[r, c])
+            grp = 1 if code in (1, 3) else (0 if code == 0 else (2 if code == 2 else -1))
+            if grp >= 0:
+                sub = mosaic[r::th, c::tw]
+                sums[grp] += int(sub.sum(dtype=np.uint64))
+                counts[grp] += sub.size
+    return (
+        (sums[0] / counts[0] - black) if counts[0] else 0.0,
+        (sums[1] / counts[1] - black) if counts[1] else 0.0,
+        (sums[2] / counts[2] - black) if counts[2] else 0.0,
+    )
+
+
 def _scene_signature(mosaic: np.ndarray, black: float) -> np.ndarray:
     """Edge structure of the frame interior, as a z-scored gradient map of density.
 
@@ -82,7 +104,14 @@ def _scene_signature(mosaic: np.ndarray, black: float) -> np.ndarray:
     hh, ww = (h // block) * block, (w // block) * block
     if hh < block or ww < block:
         return np.zeros((1, 1), dtype=np.float32)
-    small = mosaic[:hh, :ww].reshape(hh // block, block, ww // block, block).mean(axis=(1, 3)) - black
+    if np.issubdtype(mosaic.dtype, np.integer):
+        small = (
+            mosaic[:hh, :ww].reshape(hh // block, block, ww // block, block).sum(axis=(1, 3), dtype=np.uint64).astype(np.float64)
+            / (block * block)
+            - black
+        )
+    else:
+        small = mosaic[:hh, :ww].reshape(hh // block, block, ww // block, block).mean(axis=(1, 3)) - black
 
     sh, sw = small.shape
     dh, dw = int(sh * (1.0 - _SIG_INTERIOR) / 2), int(sw * (1.0 - _SIG_INTERIOR) / 2)
@@ -110,10 +139,17 @@ def probe_frame(path: str) -> FrameProbe:
     import rawpy
 
     with rawpy.imread(path) as raw:
-        mosaic = raw.raw_image_visible.astype(np.float32)
-        colors = raw.raw_colors_visible
+        mosaic = raw.raw_image_visible
         black = float(np.mean(raw.black_level_per_channel))
-        return FrameProbe(means=_channel_means(mosaic, colors, black), signature=_scene_signature(mosaic, black))
+        pattern = getattr(raw, "raw_pattern", None)
+        if pattern is not None and pattern.size > 0 and mosaic.ndim == 2 and np.issubdtype(mosaic.dtype, np.integer):
+            th, tw = pattern.shape
+            top, left = int(raw.sizes.top_margin), int(raw.sizes.left_margin)
+            tile = np.array([[raw.raw_color(top + r, left + c) for c in range(tw)] for r in range(th)], dtype=np.uint8)
+            means = _tile_channel_means(mosaic, tile, black)
+        else:
+            means = _channel_means(mosaic.astype(np.float32, copy=False), raw.raw_colors_visible, black)
+        return FrameProbe(means=means, signature=_scene_signature(mosaic, black))
 
 
 def probe_channel_means(path: str) -> Tuple[float, float, float]:
@@ -294,14 +330,15 @@ def estimate_shift(ref_gray: np.ndarray, mov_gray: np.ndarray) -> Tuple[float, f
 
 
 def _align_to(ref_gray: np.ndarray, mov: np.ndarray, mov_ch: int, max_shift: float) -> np.ndarray:
-    """Shift ``mov`` so its scene content lines up with ``ref_gray``. No-op if the
-    estimate is implausibly large (correlation failed)."""
-    dx, dy = estimate_shift(ref_gray, mov[..., mov_ch])
+    """Extract ``mov_ch`` and shift it so its scene content lines up with ``ref_gray``. No-op if
+    the estimate is implausibly large (correlation failed)."""
+    plane = negpy_core.extract_channel(np.ascontiguousarray(mov, dtype=np.float32), mov_ch)
+    dx, dy = estimate_shift(ref_gray, plane)
     if max(abs(dx), abs(dy)) > max_shift:
-        return mov
-    h, w = mov.shape[:2]
-    matrix = np.array([[1.0, 0.0, -dx], [0.0, 1.0, -dy]], dtype=np.float32)
-    return negpy_core.warp_affine(np.ascontiguousarray(mov, dtype=np.float32), matrix.astype(np.float64), (w, h), interpolation="cubic")
+        return mov[..., mov_ch]
+    h, w = plane.shape[:2]
+    matrix = np.array([[1.0, 0.0, -dx], [0.0, 1.0, -dy]], dtype=np.float32).astype(np.float64)
+    return negpy_core.warp_affine(plane, matrix, (w, h), interpolation="cubic")
 
 
 def assemble_rgb(r: np.ndarray, g: np.ndarray, b: np.ndarray, align: bool = True) -> np.ndarray:
@@ -316,8 +353,15 @@ def assemble_rgb(r: np.ndarray, g: np.ndarray, b: np.ndarray, align: bool = True
     if align:
         ref = negpy_core.extract_channel(np.ascontiguousarray(g, dtype=np.float32), GREEN)
         max_shift = max(16.0, 0.02 * r.shape[1])
-        r = _align_to(ref, r, RED, max_shift)
-        b = _align_to(ref, b, BLUE, max_shift)
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            r_fut = pool.submit(_align_to, ref, r, RED, max_shift)
+            b_fut = pool.submit(_align_to, ref, b, BLUE, max_shift)
+            r_aligned, b_aligned = r_fut.result(), b_fut.result()
+        r_plane = r_aligned[..., RED] if r_aligned.ndim == 3 else r_aligned
+        b_plane = b_aligned[..., BLUE] if b_aligned.ndim == 3 else b_aligned
+        out_dtype = np.float32 if (r_plane.dtype == np.float32 or b_plane.dtype == np.float32) else r.dtype
+        g_plane = ref if out_dtype == np.float32 else g[..., GREEN]
+        return np.ascontiguousarray(np.stack((r_plane, g_plane, b_plane), axis=-1).astype(out_dtype, copy=False))
     return negpy_core.pick_channels(*(np.ascontiguousarray(x, dtype=r.dtype) for x in (r, g, b)))
 
 
