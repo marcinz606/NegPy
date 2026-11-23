@@ -57,7 +57,7 @@ For the math behind each step, read [PIPELINE.md](PIPELINE.md).
 
 ### Using the controls
 
-On a slider, click the value to type a number, drag the name to adjust (**Shift** for fine steps), and double-click to reset. Put the pointer on a slider to show its step arrows: a click moves one step, **Shift**-click moves ten, and a held arrow repeats. A chevron hides fine-tune controls; a dot on a closed fold, a card or a tab marks a changed value. On a dropdown, **‹** and **›** step through the choices. Each card has a reset arrow and an **ⓘ** that opens its part of this guide. On an edited card of the Exposure, Look or Finish tab, hold the eye to see the frame without that card.
+On a slider, click the value to type a number, drag the name to adjust (**Shift** for fine steps), and double-click to reset. Its arrows move one step (**Shift** for ten). A chevron hides fine-tune controls; a dot on a closed fold, a card or a tab marks a changed value. On a dropdown, **‹** and **›** step through the choices. Each card has a reset arrow and an **ⓘ** that opens its part of this guide. Hold a card's eye to see the frame without it.
 
 A tab with several cards has a bar such as **3 of 5 cards edited**, with reset, **Reset to Roll**, **Apply** and collapse for the whole tab. On the Roll and Metadata tabs, **Apply** gives the roll every card this frame changed. On a Frame tab, it copies the tab to other frames.
 
