@@ -1,5 +1,6 @@
 from negpy.kernel.system.i18n import tr
 import re
+import sys
 from dataclasses import dataclass
 from typing import Iterable
 
@@ -22,6 +23,26 @@ class ShortcutEntry:
     category: str
     # The window that dispatches the key; keys clash only within one window.
     window: str = "main"
+    # Optional (non-macOS, macOS) pair when macOS uses a different default chord;
+    # `default_key` carries the active platform's key, while `keyboard_doc` lists both.
+    platform_keys: tuple[str, str] | None = None
+
+    def key_for_platform(self, platform: str) -> str:
+        if self.platform_keys is not None:
+            other_key, mac_key = self.platform_keys
+            return mac_key if platform == "darwin" else other_key
+        return self.default_key
+
+
+def _platform_shortcut(
+    other_key: str,
+    mac_key: str,
+    description: str,
+    category: str,
+    window: str = "main",
+) -> ShortcutEntry:
+    active = mac_key if sys.platform == "darwin" else other_key
+    return ShortcutEntry(active, description, category, window, platform_keys=(other_key, mac_key))
 
 
 LIVE_VIEW = "live_view"
@@ -352,7 +373,7 @@ REGISTRY: dict[str, ShortcutEntry] = {
     "save_work_print": ShortcutEntry("Ctrl+Shift+S", tr("Save the current edit as a named work print"), tr("Actions")),
     "apply_work_print_metadata": ShortcutEntry("", tr("When a work print loads, restore its saved metadata"), tr("Actions")),
     "undo": ShortcutEntry("Ctrl+Z", tr("Undo"), tr("Actions")),
-    "redo": ShortcutEntry("Ctrl+Y", tr("Redo"), tr("Actions")),
+    "redo": _platform_shortcut("Ctrl+Y", "Ctrl+Shift+Z", tr("Redo"), tr("Actions")),
     "live_view_scan": ShortcutEntry("S", tr("Scan, or stop the capture"), tr("Camera Live View"), LIVE_VIEW),
     "live_view_scan_space": ShortcutEntry("Space", tr("Scan, or stop the capture (second key)"), tr("Camera Live View"), LIVE_VIEW),
     "live_view_retake": ShortcutEntry("R", tr("Retake the current frame"), tr("Camera Live View"), LIVE_VIEW),

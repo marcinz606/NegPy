@@ -128,7 +128,7 @@ Actions with no default key are not listed; every one of them can still be bound
 | `Ctrl + ,` | Open Preferences |
 | `Ctrl + Shift + S` | Save the current edit as a named work print |
 | `Ctrl + Z` | Undo |
-| `Ctrl + Y` | Redo |
+| `Ctrl + Y` (`Ctrl + Shift + Z` on macOS) | Redo |
 
 ## Process
 | Key | Action |

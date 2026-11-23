@@ -129,7 +129,7 @@ Le azioni senza un tasto predefinito non sono elencate; ognuna di esse si può c
 | `Ctrl + ,` | Apri le preferenze |
 | `Ctrl + Maiusc + S` | Salva la modifica attuale come stampa di lavoro con un nome |
 | `Ctrl + Z` | Annulla |
-| `Ctrl + Y` | Ripeti |
+| `Ctrl + Y` (`Ctrl + Maiusc + Z` su macOS) | Ripeti |
 
 ## Processo
 | Tasto | Azione |

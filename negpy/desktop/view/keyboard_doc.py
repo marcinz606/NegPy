@@ -51,7 +51,12 @@ def render_tables() -> str:
                 assert isinstance(row, EditorRowSingle)
                 if not row.entry.default_key:
                     continue
-                rows.append(f"| {_key(row.entry.default_key)} | {row.entry.description} |")
+                if row.entry.platform_keys is not None:
+                    other_key, mac_key = row.entry.platform_keys
+                    key_col = f"{_key(other_key)} ({_key(mac_key)} on macOS)"
+                else:
+                    key_col = _key(row.entry.default_key)
+                rows.append(f"| {key_col} | {row.entry.description} |")
         if not rows:
             continue
         lines += [f"## {category}", "| Key | Action |", "|-----|--------|", *rows, ""]
