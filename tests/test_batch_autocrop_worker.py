@@ -106,7 +106,10 @@ def test_batch_autocrop_decodes_with_render_white_balance(qapp, monkeypatch) -> 
 
     worker.process(_task(_input("camera", camera_wb), _input("flat", flat_wb)))
 
-    assert [call["use_camera_wb"] for call in preview.linear_calls] == [True, False]
+    assert {call["file_hash"]: call["use_camera_wb"] for call in preview.linear_calls} == {
+        "hash-camera": True,
+        "hash-flat": False,
+    }
     assert all(call["color_space"] == "Display P3" for call in preview.linear_calls)
     assert all(call["full_resolution"] is False for call in preview.linear_calls)
 

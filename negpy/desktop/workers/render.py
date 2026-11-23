@@ -667,33 +667,62 @@ class ThumbnailWorker(QObject):
         from negpy.services.assets.thumbnails import asset_thumbnail_key, get_thumbnail_worker
 
         f_info = self._files[self._current]
-        key = asset_thumbnail_key(f_info)
-        self.activity.emit(key)
-        try:
-            with _DECODE_MEMORY_GATE.hold("thumbnail"):
-                thumb = get_thumbnail_worker(
-                    f_info["path"],
-                    f_info["hash"],
+        batch: list[dict] = [f_info]
+        if f_info.get("green_path") and f_info.get("blue_path"):
+            limit = _scaled_worker_limit(available_system_memory_bytes(), _THUMB_BATCH_SLOT_BYTES, _THUMB_TRIPLET_WORKERS, 1)
+            idx = self._current + 1
+            while idx < len(self._files) and len(batch) < limit:
+                cand = self._files[idx]
+                if not (cand.get("green_path") and cand.get("blue_path")):
+                    break
+                batch.append(cand)
+                idx += 1
+
+        def _safe_thumb_for(item: dict):
+            try:
+                return get_thumbnail_worker(
+                    item["path"],
+                    item["hash"],
                     self._store,
-                    int(f_info.get("half") or 0),
-                    float(f_info.get("split_x") or 0.5),
-                    f_info.get("green_path") or "",
-                    f_info.get("blue_path") or "",
-                    tuple(f_info["crop_rect"]) if f_info.get("crop_rect") else None,
-                    float(f_info.get("gutter_thickness") or 0.0),
-                    str(f_info.get("process_mode") or ""),
-                    split_axis=str(f_info.get("split_axis") or "x"),
+                    int(item.get("half") or 0),
+                    float(item.get("split_x") or 0.5),
+                    item.get("green_path") or "",
+                    item.get("blue_path") or "",
+                    tuple(item["crop_rect"]) if item.get("crop_rect") else None,
+                    float(item.get("gutter_thickness") or 0.0),
+                    str(item.get("process_mode") or ""),
+                    split_axis=str(item.get("split_axis") or "x"),
                     fast_only=not self._slow_phase,
                     should_cancel=self._cancel_requested.is_set,
                 )
+            except Exception as e:
+                logger.error(f"Thumbnail generation failure: {e}")
+                return None
+
+        first_key = asset_thumbnail_key(batch[0])
+        self.activity.emit(first_key)
+        with _DECODE_MEMORY_GATE.hold("thumbnail", abandoned=self._cancel_requested.is_set) as entered:
+            if not entered or self._cancel_requested.is_set():
+                self._finish()
+                return
+            if len(batch) == 1:
+                results = [(first_key, batch[0], _safe_thumb_for(batch[0]))]
+            else:
+                with ThreadPoolExecutor(max_workers=len(batch)) as pool:
+                    futs = [(asset_thumbnail_key(item), item, pool.submit(_safe_thumb_for, item)) for item in batch]
+                    results = [(key, item, fut.result()) for key, item, fut in futs]
+
+        for idx_in_batch, (key, item, thumb) in enumerate(results):
+            if idx_in_batch > 0:
+                if self._cancel_requested.is_set():
+                    self._finish()
+                    return
+                self.activity.emit(key)
             if thumb is not None:
                 self.partial.emit({key: thumb})
             elif not self._slow_phase:
-                self._slow_files.append(f_info)
-        except Exception as e:
-            logger.error(f"Thumbnail generation failure: {e}")
-
-        self._current += 1
+                self._slow_files.append(item)
+            self._current += 1
         if self._cancel_requested.is_set():
             self._finish()
             return
@@ -754,9 +783,23 @@ def _safe_call(fn: Callable[[str], Any], path: str) -> Any:
 
 # Seek-bound: each hash costs many seeks, so cpu_count() concurrent readers thrash a
 # spinning disk.
-_HASH_WORKERS = min(8, APP_CONFIG.max_workers)
+_HASH_WORKERS = max(1, APP_CONFIG.max_workers)
 # Real decodes; halved for memory headroom, as NormalizationWorker does.
 _DECODE_WORKERS = max(1, APP_CONFIG.max_workers // 2)
+_THUMB_TRIPLET_WORKERS = max(1, APP_CONFIG.max_workers // 3)
+_THUMB_BATCH_SLOT_BYTES = 128 * 1024 * 1024
+_PREVIEW_BATCH_SLOT_BYTES = 256 * 1024 * 1024
+
+
+def _scaled_worker_limit(avail: Optional[int], per_worker_bytes: int, max_slots: int, fallback: int) -> int:
+    """Scale worker count when known free RAM covers `MIN_RAM_RESERVE_BYTES` plus each worker's
+    budget; unknown RAM keeps `fallback`, and low known RAM clamps down to what fits."""
+    if avail is None:
+        return max(1, fallback)
+    if avail <= MIN_RAM_RESERVE_BYTES:
+        return 1
+    slots = (avail - MIN_RAM_RESERVE_BYTES) // max(1, per_worker_bytes)
+    return max(1, min(max_slots, int(slots)))
 
 
 def rgb_grouping_notice(made: int, loose: int, incomplete: int, mismatched: int, by_time: bool) -> str:
@@ -1642,11 +1685,57 @@ def _slice_meta_planes(meta: dict, file_info: dict) -> dict:
     }
 
 
+def _peek_asset_preview_with_meta(
+    preview_service,
+    file_info: dict,
+    config: WorkspaceConfig,
+    workspace_color_space: str,
+) -> Optional[tuple[np.ndarray, dict]]:
+    """Copy a warm single or trichrome preview out of `preview_service` without decoding or
+    reordering its LRU; None on miss or composite."""
+    from negpy.services.assets.half_frame import base_hash, slice_for_asset
+
+    if stitch_active(config.stitch) or hdr_active(config.hdr):
+        return None
+    if is_rgb_triplet(config.rgbscan):
+        if not hasattr(preview_service, "peek_linear_preview_rgb"):
+            return None
+        hit = preview_service.peek_linear_preview_rgb(
+            config.rgbscan,
+            workspace_color_space,
+            use_camera_wb=not effective_linear_raw(config.process),
+            file_hash=base_hash(file_info.get("hash")),
+            demosaic=config.process.demosaic_preview,
+        )
+    else:
+        if not hasattr(preview_service, "peek_linear_preview"):
+            return None
+        hit = preview_service.peek_linear_preview(
+            file_info["path"],
+            workspace_color_space,
+            use_camera_wb=not effective_linear_raw(config.process),
+            file_hash=base_hash(file_info.get("hash")),
+            demosaic=config.process.demosaic_preview,
+            positive_decode=positive_decode(config.process),
+            highlight_mode=effective_highlight_reconstruction(config.process),
+            bake_camera_wb=highlight_reconstruction_bakes_wb(config.process),
+            lens_corrections=metadata_lens_corrections(config),
+            lens_flatfield=config.flatfield,
+        )
+    if hit is None:
+        return None
+    raw, _dims, meta = hit
+    meta = {k: np.copy(v) if isinstance(v, np.ndarray) else v for k, v in meta.items()}
+    return slice_for_asset(np.copy(raw), file_info), _slice_meta_planes(meta, file_info)
+
+
 def _decode_asset_preview_with_meta(
     preview_service,
     file_info: dict,
     config: WorkspaceConfig,
     workspace_color_space: str,
+    *,
+    cache_for_navigation: bool = True,
 ) -> tuple[np.ndarray, dict]:
     """Decode one asset the way the render path does, with its loader metadata: a stitch
     through its stored registration, a composite through the merge that assembles it, a
@@ -1663,7 +1752,7 @@ def _decode_asset_preview_with_meta(
     common = {
         "use_camera_wb": not effective_linear_raw(config.process),
         "full_resolution": False,
-        "file_hash": base_hash(file_info.get("hash")),  # halves share one decode
+        "file_hash": base_hash(file_info.get("hash")) if cache_for_navigation else None,  # halves share one decode
         "demosaic": config.process.demosaic_preview,
     }
     hdr = config.hdr
@@ -1829,9 +1918,13 @@ class BatchAutoCropWorker(QObject):
             return str(info.get("name") or info.get("path") or index + 1)
 
         try:
-            # Half the cores: each worker holds a preview-scale frame, and the detector
-            # inside it is already multi-core.
-            workers = max(1, min(APP_CONFIG.max_workers // 2, total))
+            cap = _scaled_worker_limit(
+                available_system_memory_bytes(),
+                _PREVIEW_BATCH_SLOT_BYTES,
+                APP_CONFIG.max_workers,
+                _DECODE_WORKERS,
+            )
+            workers = max(1, min(cap, total))
             candidates: list[Optional[CropEvidence]] = [None] * total
             keystone_by_key: dict[str, tuple[float, float]] = {}
             with ThreadPoolExecutor(max_workers=workers) as ex:
@@ -1880,20 +1973,48 @@ class BatchAutoCropWorker(QObject):
             self.error.emit(str(exc))
 
 
-_THUMBNAIL_WORKERS = 2
+_THUMBNAIL_WORKERS = max(2, APP_CONFIG.max_workers // 3)
 
 
-def _room_for_another_frame(frame: ThumbnailRenderInput) -> bool:
-    """True when RAM holds this frame's preview decode beside the one already in flight. A composite
-    reads several files, and an unknown RAM size gives no margin, so both wait their turn."""
+def _frame_working_bytes(frame: ThumbnailRenderInput) -> Optional[int]:
+    """Estimated working RAM for one thumbnail preview decode, or None for stitch/HDR composites."""
+    from negpy.services.rendering import preview_manager
+
     config = frame.config
-    if stitch_active(config.stitch) or hdr_active(config.hdr) or is_rgb_triplet(config.rgbscan):
+    if stitch_active(config.stitch) or hdr_active(config.hdr):
+        return None
+    if is_rgb_triplet(config.rgbscan):
+        triplet_est = getattr(preview_manager, "estimate_rgb_triplet_preview_memory", None)
+        if callable(triplet_est):
+            est = triplet_est(
+                frame.file_info["path"],
+                config.rgbscan.green_path,
+                config.rgbscan.blue_path,
+                APP_CONFIG.preview_render_size,
+                demosaic=config.process.demosaic_preview,
+            )
+            return est.cached_bytes + est.temporary_bytes
+        est_r = loader_factory.estimate_linear_preview_prefetch_memory(frame.file_info["path"], APP_CONFIG.preview_render_size)
+        est_g = loader_factory.estimate_linear_preview_prefetch_memory(config.rgbscan.green_path, APP_CONFIG.preview_render_size)
+        est_b = loader_factory.estimate_linear_preview_prefetch_memory(config.rgbscan.blue_path, APP_CONFIG.preview_render_size)
+        return est_r.cached_bytes + est_r.temporary_bytes + est_g.temporary_bytes + est_b.temporary_bytes
+    estimate = loader_factory.estimate_linear_preview_prefetch_memory(frame.file_info["path"], APP_CONFIG.preview_render_size)
+    return estimate.temporary_bytes + estimate.cached_bytes
+
+
+def _room_for_another_frame(frame: ThumbnailRenderInput, in_flight_bytes: int = 0) -> bool:
+    """True when RAM holds this frame's preview decode beside `in_flight_bytes` already in flight.
+    Stitches and HDR brackets wait their turn; trichrome triplets sum all three exposures."""
+    working = _frame_working_bytes(frame)
+    if working is None:
         return False
     available = available_system_memory_bytes()
     if available is None:
         return False
-    estimate = loader_factory.estimate_linear_preview_prefetch_memory(frame.file_info["path"], APP_CONFIG.preview_render_size)
-    return available >= MIN_RAM_RESERVE_BYTES + estimate.temporary_bytes + estimate.cached_bytes
+    return available >= MIN_RAM_RESERVE_BYTES + max(0, in_flight_bytes) + working
+
+
+_DEFAULT_ROOM_FOR_ANOTHER_FRAME = _room_for_another_frame
 
 
 class ThumbnailRenderWorker(QObject):
@@ -1951,20 +2072,31 @@ class ThumbnailRenderWorker(QObject):
         from negpy.services.assets.half_frame import base_hash, slice_for_asset
 
         config = frame.config
-        if self._live_preview_service is None or stitch_active(config.stitch) or hdr_active(config.hdr) or is_rgb_triplet(config.rgbscan):
+        if self._live_preview_service is None or stitch_active(config.stitch) or hdr_active(config.hdr):
             return None
-        hit = self._live_preview_service.peek_linear_preview(
-            frame.file_info["path"],
-            workspace_color_space,
-            use_camera_wb=not effective_linear_raw(config.process),
-            file_hash=base_hash(frame.file_info.get("hash")),
-            demosaic=config.process.demosaic_preview,
-            positive_decode=positive_decode(config.process),
-            highlight_mode=effective_highlight_reconstruction(config.process),
-            bake_camera_wb=highlight_reconstruction_bakes_wb(config.process),
-            lens_corrections=metadata_lens_corrections(config),
-            lens_flatfield=config.flatfield,
-        )
+        if is_rgb_triplet(config.rgbscan):
+            if not hasattr(self._live_preview_service, "peek_linear_preview_rgb"):
+                return None
+            hit = self._live_preview_service.peek_linear_preview_rgb(
+                config.rgbscan,
+                workspace_color_space,
+                use_camera_wb=not effective_linear_raw(config.process),
+                file_hash=base_hash(frame.file_info.get("hash")),
+                demosaic=config.process.demosaic_preview,
+            )
+        else:
+            hit = self._live_preview_service.peek_linear_preview(
+                frame.file_info["path"],
+                workspace_color_space,
+                use_camera_wb=not effective_linear_raw(config.process),
+                file_hash=base_hash(frame.file_info.get("hash")),
+                demosaic=config.process.demosaic_preview,
+                positive_decode=positive_decode(config.process),
+                highlight_mode=effective_highlight_reconstruction(config.process),
+                bake_camera_wb=highlight_reconstruction_bakes_wb(config.process),
+                lens_corrections=metadata_lens_corrections(config),
+                lens_flatfield=config.flatfield,
+            )
         logger.debug("thumbnail refresh live cache %s: %s", "miss" if hit is None else "hit", frame.file_info["path"])
         if hit is None:
             return None
@@ -2008,16 +2140,28 @@ class ThumbnailRenderWorker(QObject):
         total = len(task.frames)
         rendered_count = 0
         pending: deque[tuple[int, str, ThumbnailRenderInput, Future]] = deque()
+
+        def _can_admit_next(nxt_frame: ThumbnailRenderInput) -> bool:
+            if not pending:
+                return True
+            if len(pending) >= _THUMBNAIL_WORKERS:
+                return False
+            in_flight_bytes = 0
+            for _d, _n, p_frame, _fut in pending:
+                p_bytes = _frame_working_bytes(p_frame)
+                if p_bytes is None:
+                    return False
+                in_flight_bytes += p_bytes
+            if _room_for_another_frame is _DEFAULT_ROOM_FOR_ANOTHER_FRAME:
+                return _room_for_another_frame(nxt_frame, in_flight_bytes)
+            return _room_for_another_frame(nxt_frame)
+
         try:
             with ThreadPoolExecutor(_THUMBNAIL_WORKERS, initializer=negpy_core.set_background_thread, initargs=(True,)) as pool:
                 frames = iter(enumerate(task.frames, 1))
                 nxt = next(frames, None)
                 while nxt is not None or pending:
-                    if (
-                        nxt is not None
-                        and not self._cancel_requested(generation)
-                        and (not pending or (len(pending) < _THUMBNAIL_WORKERS and _room_for_another_frame(nxt[1])))
-                    ):
+                    if nxt is not None and not self._cancel_requested(generation) and _can_admit_next(nxt[1]):
                         done, frame = nxt
                         name = str(frame.file_info.get("name") or frame.file_info.get("path") or done)
                         self.frame_started.emit(done, total, name)
@@ -2150,10 +2294,34 @@ class NormalizationWorker(QObject):
         from negpy.features.geometry.processor import GeometryProcessor
 
         total = len(task.frames)
-        limit = 1 if task.background else max(1, APP_CONFIG.max_workers // 2)
+        avail = available_system_memory_bytes()
+        if task.background:
+            limit = _scaled_worker_limit(avail, _PREVIEW_BATCH_SLOT_BYTES, max(1, APP_CONFIG.max_workers // 3), 1)
+        else:
+            limit = _scaled_worker_limit(avail, _PREVIEW_BATCH_SLOT_BYTES, APP_CONFIG.max_workers, _DECODE_WORKERS)
+        limit = max(1, min(limit, max(1, total)))
         semaphore = asyncio.Semaphore(limit)
         lock = asyncio.Lock()
         completed = 0
+
+        def _decode_for_norm(f_info: dict, params: WorkspaceConfig) -> tuple[np.ndarray, dict]:
+            if task.background:
+                warm = _peek_asset_preview_with_meta(self._preview_service, f_info, params, task.workspace_color_space)
+                if warm is not None:
+                    return warm
+                return _decode_asset_preview_with_meta(
+                    self._preview_service,
+                    f_info,
+                    params,
+                    task.workspace_color_space,
+                    cache_for_navigation=False,
+                )
+            return _decode_asset_preview_with_meta(
+                self._preview_service,
+                f_info,
+                params,
+                task.workspace_color_space,
+            )
 
         async def _analyze_file(frame: NormalizationInput):
             nonlocal completed
@@ -2170,13 +2338,7 @@ class NormalizationWorker(QObject):
 
                     # Decode with the render path's WB (use_camera_wb = not effective linear RAW):
                     # the roll bounds apply to the render-decoded image, and another WB casts it.
-                    raw, decode_meta = await asyncio.to_thread(
-                        _decode_asset_preview_with_meta,
-                        self._preview_service,
-                        f_info,
-                        params,
-                        task.workspace_color_space,
-                    )
+                    raw, decode_meta = await asyncio.to_thread(_decode_for_norm, f_info, params)
                     # The flat field the render applies.
                     raw = await asyncio.to_thread(
                         flatfield_source,
@@ -2220,8 +2382,12 @@ class NormalizationWorker(QObject):
                     )
                     axis = None
                     if process_mode == ProcessMode.C41:
-                        grid = unmix_log_image(prefilter_log_grid(transformed, roi, buffer), unmix)
-                        axis = await asyncio.to_thread(measure_neutral_axis_from_log, grid, bounds, None, 0.0)
+
+                        def _measure_c41_axis():
+                            grid = unmix_log_image(prefilter_log_grid(transformed, roi, buffer), unmix)
+                            return measure_neutral_axis_from_log(grid, bounds, None, 0.0)
+
+                        axis = await asyncio.to_thread(_measure_c41_axis)
 
                     async with lock:
                         completed += 1
@@ -2244,12 +2410,19 @@ class NormalizationWorker(QObject):
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             if task.background:
-                loop.set_default_executor(ThreadPoolExecutor(1, initializer=negpy_core.set_background_thread, initargs=(True,)))
-            batch_results = loop.run_until_complete(_run_batch())
+                loop.set_default_executor(ThreadPoolExecutor(limit, initializer=negpy_core.set_background_thread, initargs=(True,)))
+            else:
+                loop.set_default_executor(ThreadPoolExecutor(limit))
             try:
-                loop.close()
+                batch_results = loop.run_until_complete(_run_batch())
             finally:
-                asyncio.set_event_loop(None)
+                try:
+                    loop.run_until_complete(loop.shutdown_default_executor())
+                finally:
+                    try:
+                        loop.close()
+                    finally:
+                        asyncio.set_event_loop(None)
 
             if self._cancel.is_set():
                 self.cancelled.emit()

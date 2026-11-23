@@ -526,3 +526,27 @@ def test_room_for_another_frame_needs_known_ram_above_the_reserve(monkeypatch) -
     assert render_workers._room_for_another_frame(frame)
     stitch = replace(WorkspaceConfig(), stitch=StitchConfig(stitch_enabled=True, stitch_paths=("/a.dng", "/b.dng")))
     assert not render_workers._room_for_another_frame(_input("pano", stitch))
+
+
+def test_thumbnail_render_accounts_for_in_flight_bytes_and_composites(qapp, monkeypatch) -> None:
+    monkeypatch.setattr(render_workers, "_THUMBNAIL_WORKERS", 4)
+    estimate = render_workers.loader_factory.estimate_preview_memory("/missing.dng", 100)
+    per_frame = estimate.temporary_bytes + estimate.cached_bytes
+    monkeypatch.setattr(render_workers.loader_factory, "estimate_linear_preview_prefetch_memory", lambda *_args: estimate)
+    # Enough RAM for 2 frames side-by-side (1 in flight + 1 new), not 3.
+    monkeypatch.setattr(
+        render_workers,
+        "available_system_memory_bytes",
+        lambda: render_workers.MIN_RAM_RESERVE_BYTES + 2 * per_frame,
+    )
+    worker, _processor = _worker(monkeypatch)
+    seen = _counting_decode(monkeypatch)
+    base = WorkspaceConfig()
+    worker.process(_task(*(_input(n, base) for n in "abcd")))
+    assert seen["most"] <= 2
+
+    # A stitch in pending[0] blocks a plain frame from overlapping beside it.
+    stitch = replace(base, stitch=StitchConfig(stitch_enabled=True, stitch_paths=("/a.dng", "/b.dng")))
+    seen_stitch = _counting_decode(monkeypatch)
+    worker.process(_task(_input("pano", stitch), _input("plain", base)))
+    assert seen_stitch["most"] == 1

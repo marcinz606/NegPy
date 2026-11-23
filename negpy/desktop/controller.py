@@ -46,8 +46,8 @@ from negpy.desktop.workers.export import (
 )
 from negpy.desktop.workers.fade_roll import FadeRollResult, FadeRollTask, FadeRollWorker
 from negpy.services.export.launch_recipe import LaunchRecipe, apply_recipe, recipe_intent, recipe_key
+import negpy.desktop.workers.render as _render_workers
 from negpy.desktop.workers.render import (
-    _THUMBNAIL_WORKERS,
     AssetDiscoveryTask,
     AssetDiscoveryWorker,
     AutoDetectAllSplitsTask,
@@ -5276,7 +5276,7 @@ class AppController(QObject):
             return
         self.thumbnail_refresh_progress.emit(
             thumbnail_refresh_progress_text(
-                index, total, *self._thumbnail_render_means(), in_flight=True, frames_at_once=_THUMBNAIL_WORKERS
+                index, total, *self._thumbnail_render_means(), in_flight=True, frames_at_once=_render_workers._THUMBNAIL_WORKERS
             )
         )
 
@@ -5289,7 +5289,9 @@ class AppController(QObject):
         timing[2] += 1
         self.status_progress_requested.emit(current, total)
         self.thumbnail_refresh_progress.emit(
-            thumbnail_refresh_progress_text(current, total, *self._thumbnail_render_means(), frames_at_once=_THUMBNAIL_WORKERS)
+            thumbnail_refresh_progress_text(
+                current, total, *self._thumbnail_render_means(), frames_at_once=_render_workers._THUMBNAIL_WORKERS
+            )
         )
 
     def _on_thumbnail_rendered(self, frame: ThumbnailRenderInput, buffer: np.ndarray) -> None:
