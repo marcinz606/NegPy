@@ -1409,7 +1409,9 @@ class CanvasOverlay(QWidget):
         if before is None or target.isEmpty():
             return
         painter.drawImage(target, before, self._compare_before_src(before))
-        draw_view_badge(painter, tr("BEFORE"), target.left() + THEME.space_xl, target.top() + THEME.space_xl)
+        draw_view_badge(
+            painter, self.state.compare_reference_label or tr("BEFORE"), target.left() + THEME.space_xl, target.top() + THEME.space_xl
+        )
 
     def _split_screen_x(self) -> float:
         rect = self._content_view_rect()
