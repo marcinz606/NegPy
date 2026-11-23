@@ -162,6 +162,9 @@ pub fn gaussian_kernel_f64(n: usize, sigma: f64) -> Vec<f64> {
     result
 }
 
+/// Upper bound on Gaussian `sigma`, keeping `gaussian_ksize` small enough to allocate safely.
+pub const MAX_GAUSSIAN_SIGMA: f64 = 4096.0;
+
 /// `createGaussianKernels`' size from sigma for a float image.
 pub fn gaussian_ksize(sigma: f64) -> usize {
     ((sigma * 4.0 * 2.0 + 1.0).round_ties_even() as i64 | 1) as usize
@@ -566,6 +569,97 @@ pub fn sep_filter2d(
     Some(())
 }
 
+/// `sep_filter2d` on `(x0..x1, y0..y1)`, with borders interpolated against the full `(h, w)` frame.
+/// Matches full-frame `sep_filter2d` bit for bit when `x0 * cn` and non-edge `x1 * cn` align to `LANES`.
+pub fn sep_filter2d_roi(
+    src: &[f32],
+    dst: &mut [f32],
+    (h, w, cn): (usize, usize, usize),
+    (x0, y0, x1, y1): (usize, usize, usize, usize),
+    (kx, ky): (&[f32], &[f32]),
+    border: Border,
+) -> Option<()> {
+    let (sub_w, sub_h) = (x1.checked_sub(x0)?, y1.checked_sub(y0)?);
+    let (rx, ry) = (kx.len() / 2, ky.len() / 2);
+    let pad_w = sub_w.checked_add(2 * rx)?;
+    if h == 0
+        || w == 0
+        || cn == 0
+        || sub_w == 0
+        || sub_h == 0
+        || x1 > w
+        || y1 > h
+        || h.checked_mul(w).and_then(|v| v.checked_mul(cn)) != Some(src.len())
+        || sub_h.checked_mul(sub_w).and_then(|v| v.checked_mul(cn)) != Some(dst.len())
+        || pad_w.checked_mul(cn).is_none()
+        || kx.len().is_multiple_of(2)
+        || ky.len().is_multiple_of(2)
+    {
+        return None;
+    }
+    let (sx, sy) = (symmetry(kx), symmetry(ky));
+    let covered = |s: Symmetry, len: usize| {
+        s == Symmetry::Symmetric || (s == Symmetry::Asymmetric && len == 3)
+    };
+    if !covered(sx, kx.len()) || !covered(sy, ky.len()) {
+        return None;
+    }
+    let n = w * cn;
+    let sub_n = sub_w * cn;
+    let in_start = rx.saturating_sub(x0);
+    let in_end = (w + rx).saturating_sub(x0).min(pad_w);
+    let fast = has_fma();
+    let xmap: Vec<Option<usize>> = if in_start > 0 || in_end < pad_w {
+        (0..pad_w)
+            .map(|px| border_interpolate((x0 + px) as isize - rx as isize, w, border))
+            .collect()
+    } else {
+        Vec::new()
+    };
+    let row_pass = |padded: &mut [f32], syi: usize, out: &mut [f32]| {
+        let row = &src[syi * n..(syi + 1) * n];
+        let sx0 = x0 + in_start - rx;
+        let count = in_end - in_start;
+        padded[in_start * cn..in_end * cn].copy_from_slice(&row[sx0 * cn..(sx0 + count) * cn]);
+        for px in (0..in_start).chain(in_end..pad_w) {
+            let chunk = &mut padded[px * cn..(px + 1) * cn];
+            match xmap[px] {
+                Some(sxi) => chunk.copy_from_slice(&row[sxi * cn..(sxi + 1) * cn]),
+                None => chunk.fill(0.0),
+            }
+        }
+        row_filter(fast, padded, out, cn, kx, sx);
+    };
+
+    let klen = ky.len();
+    let mut padded = vec![0f32; pad_w * cn];
+    let mut buf = vec![0f32; klen * sub_n];
+    for t in 0..klen - 1 {
+        let line = &mut buf[t * sub_n..(t + 1) * sub_n];
+        match border_interpolate((y0 + t) as isize - ry as isize, h, border) {
+            Some(syi) => row_pass(&mut padded, syi, line),
+            None => line.fill(0.0),
+        }
+    }
+    for (yy, out_line) in dst.chunks_exact_mut(sub_n).enumerate() {
+        let newest = yy + klen - 1;
+        let slot = newest % klen;
+        let line = &mut buf[slot * sub_n..(slot + 1) * sub_n];
+        match border_interpolate((y0 + newest) as isize - ry as isize, h, border) {
+            Some(syi) => row_pass(&mut padded, syi, line),
+            None => line.fill(0.0),
+        }
+        let rows: Vec<&[f32]> = (0..klen)
+            .map(|j| {
+                let s = (yy + j) % klen;
+                &buf[s * sub_n..(s + 1) * sub_n]
+            })
+            .collect();
+        column_filter(fast, &rows, out_line, ky, sy);
+    }
+    Some(())
+}
+
 /// `cv2.GaussianBlur(src, (kw, kh), sigma_x, sigmaY=sigma_y, borderType=border)` for float32.
 pub fn gaussian_blur(
     src: &[f32],
@@ -576,6 +670,13 @@ pub fn gaussian_blur(
     border: Border,
 ) -> Option<()> {
     let (mut kw, mut kh) = ksize;
+    if !sigma_x.is_finite()
+        || !sigma_y.is_finite()
+        || sigma_x > MAX_GAUSSIAN_SIGMA
+        || sigma_y > MAX_GAUSSIAN_SIGMA
+    {
+        return None;
+    }
     let sigma_y = if sigma_y <= 0.0 { sigma_x } else { sigma_y };
     if kw == 0 && sigma_x > 0.0 {
         kw = gaussian_ksize(sigma_x);
@@ -934,5 +1035,69 @@ mod tests {
         )
         .unwrap();
         assert!(out.iter().all(|&v| v == 0.5));
+    }
+
+    #[test]
+    fn roi_blur_matches_full_frame_bits() {
+        let mut seed = 19u64;
+        for (h, w) in [(2, 2), (7, 9), (23, 31), (40, 64), (55, 190)] {
+            let mut src = vec![0f32; h * w * 3];
+            for v in &mut src {
+                seed = seed
+                    .wrapping_mul(6364136223846793005)
+                    .wrapping_add(1442695040888963407);
+                *v = (seed >> 40) as f32 / (1u32 << 24) as f32;
+            }
+            let vec_end = (3 * w) & !7;
+            for sigma in [0.8, 1.0, 2.2, 4.5] {
+                let mut full = vec![0f32; src.len()];
+                gaussian_blur(
+                    &src,
+                    &mut full,
+                    (h, w, 3),
+                    (0, 0),
+                    (sigma, sigma),
+                    Border::Reflect101,
+                )
+                .unwrap();
+                let mut kw = gaussian_ksize(sigma);
+                let mut kh = kw;
+                if h == 1 {
+                    kh = 1;
+                }
+                if w == 1 {
+                    kw = 1;
+                }
+                let kx = gaussian_kernel(kw, sigma);
+                let ky = gaussian_kernel(kh, sigma);
+                for gx0 in [0, w / 3, w.saturating_sub(2)] {
+                    for gx1 in [gx0, (gx0 + 13).min(w - 1), w - 1] {
+                        let x0 = gx0 & !7;
+                        let cand = (gx1 + 8) & !7;
+                        let x1 = if 3 * cand <= vec_end { cand } else { w };
+                        let (y0, y1) = (h / 4, (h / 4 + 9).min(h));
+                        let mut roi = vec![0f32; (y1 - y0) * (x1 - x0) * 3];
+                        sep_filter2d_roi(
+                            &src,
+                            &mut roi,
+                            (h, w, 3),
+                            (x0, y0, x1, y1),
+                            (&kx, &ky),
+                            Border::Reflect101,
+                        )
+                        .unwrap();
+                        for y in y0..y1 {
+                            for x in x0..x1 {
+                                for c in 0..3 {
+                                    let got = roi[3 * ((y - y0) * (x1 - x0) + (x - x0)) + c];
+                                    let want = full[3 * (y * w + x) + c];
+                                    assert_eq!(got.to_bits(), want.to_bits());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }

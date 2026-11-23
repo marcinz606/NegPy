@@ -645,6 +645,41 @@ def test_apply_hair_inpaint_upsamples_detection_mask():
     assert out[40, 40, 0] < 0.7, "hair not removed via upsampled mask"
 
 
+def test_apply_hair_inpaint_transplants_grain_across_tile_boundaries():
+    """Transplants clean grain into every crossed 128-px tile and leaves unmasked pixels intact."""
+    import negpy_core
+    import pytest
+
+    rng = np.random.default_rng(7)
+    h, w = 270, 341
+    img = (0.35 + rng.normal(0.0, 0.02, (h, w, 3))).clip(0.05, 0.95).astype(np.float32)
+    core = np.zeros((h, w), dtype=np.uint8)
+    ys = np.arange(0, 250)
+    xs = (ys * 1.2).astype(int)
+    core[ys, xs] = 1
+    k = negpy_core.ellipse_kernel((7, 7))
+    dilated = negpy_core.morphology_ex(core, negpy_core.MORPH_DILATE, k)
+    img[dilated > 0] = 0.92
+
+    smooth = negpy_core.hair_fill(img, dilated, (3.0, 3, 16, 1024, 32, 1 << 20, 2.2))
+    out = apply_hair_inpaint(img, [core], dilate_px=3)
+    mb = dilated.astype(bool)
+    assert np.array_equal(out[~mb], img[~mb])
+    for ty0, tx0 in ((0, 0), (128, 128), (128, 256)):
+        tile_mask = mb[ty0 : min(h, ty0 + 128), tx0 : min(w, tx0 + 128)]
+        assert tile_mask.any()
+        grain_added = (
+            out[ty0 : min(h, ty0 + 128), tx0 : min(w, tx0 + 128)][tile_mask]
+            - (smooth[ty0 : min(h, ty0 + 128), tx0 : min(w, tx0 + 128)][tile_mask])
+        )
+        assert float(grain_added.std()) > 0.01
+
+    clean = dilated == 0
+    for bad_sigma in (0.0, -1.0, float("nan"), float("inf"), 1e18):
+        with pytest.raises(ValueError):
+            negpy_core.add_clean_grain(out.copy(), img, clean, bad_sigma)
+
+
 def test_hair_bake_token_tracks_detection_params():
     a = RetouchConfig(dust_remove=True, dust_threshold=0.5, dust_size=4)
     assert hair_bake_token(a) != hair_bake_token(RetouchConfig(dust_remove=True, dust_threshold=0.6, dust_size=4))
