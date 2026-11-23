@@ -42,16 +42,6 @@ def _toggle_if_live(button) -> None:
         button.toggle()
 
 
-def _context_undo(controller) -> None:
-    """Undo the active retouch tool's last stroke, else the last edit."""
-    if controller.session.state.active_tool == ToolMode.CLONE:
-        controller.undo_last_clone()
-    elif controller.session.state.active_tool in (ToolMode.DUST_PICK, ToolMode.SCRATCH_PICK, ToolMode.SCRATCH_LINE):
-        controller.undo_last_retouch()
-    else:
-        controller.session.undo()
-
-
 def _fire_tab_header(right, action: str) -> None:
     """The tab in front answers for its own cards; a tab that owns no settings has no
     header and nothing happens."""
@@ -731,7 +721,7 @@ class ShortcutManager:
             "open_preferences": lambda: _open_preferences(self.window, controller),
             "save_work_print": self.window.right_panel.history_panel.save_work_print,
             "apply_work_print_metadata": lambda: self.window.right_panel.history_panel.apply_metadata_btn.click(),
-            "undo": lambda: _context_undo(controller),
+            "undo": controller.session.undo,
             "redo": controller.session.redo,
             "show_shortcuts": lambda: _show_shortcuts(self.window),
             "show_tour": self.window.show_tutorial,

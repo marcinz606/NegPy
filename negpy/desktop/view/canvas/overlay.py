@@ -1253,7 +1253,10 @@ class CanvasOverlay(QWidget):
         # question "what is the detector doing here" is being asked; a drag always shows.
         if self._exclude_drag_pts or (
             self.state.config.retouch.dust_exclusion_strokes
-            and (self.state.dust_overlay_mode != "off" or self._tool_mode in (ToolMode.DUST_PICK, ToolMode.SCRATCH_PICK))
+            and (
+                self.state.dust_overlay_mode != "off"
+                or self._tool_mode in (ToolMode.DUST_PICK, ToolMode.SCRATCH_PICK, ToolMode.SCRATCH_LINE)
+            )
         ):
             self._draw_dust_exclusions(painter)
         if self._tool_mode == ToolMode.STRAIGHTEN:
@@ -3860,7 +3863,12 @@ class CanvasOverlay(QWidget):
     def _right_click_excludes(self) -> bool:
         """Whether a plain right-click excludes instead of opening the menu. The heal and
         scratch tools keep theirs: right-click is how a heal is deleted while one is live."""
-        return self.state.right_click_excludes and self._tool_mode not in (ToolMode.DUST_PICK, ToolMode.SCRATCH_PICK, ToolMode.CLONE)
+        return self.state.right_click_excludes and self._tool_mode not in (
+            ToolMode.DUST_PICK,
+            ToolMode.SCRATCH_PICK,
+            ToolMode.SCRATCH_LINE,
+            ToolMode.CLONE,
+        )
 
     def contextMenuEvent(self, event) -> None:
         # An armed right press may still become an exclusion drag, so the menu waits for the

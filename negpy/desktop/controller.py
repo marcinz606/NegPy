@@ -5404,7 +5404,6 @@ class AppController(QObject):
         count = len(conf.manual_dust_spots) + len(conf.manual_heal_strokes) + len(conf.scratch_lines)
         if count == 0:
             return
-        # Wiping every heal is not step-recoverable like single-heal undo, so confirm.
         if not confirm_clear_heals(None, count):
             return
         self.session.update_config(
@@ -5439,28 +5438,54 @@ class AppController(QObject):
         )
         self.request_render()
 
-    def undo_last_retouch(self) -> None:
-        """
-        Removes the most recently added heal (strokes first, then legacy spots).
-        """
-        strokes = list(self.state.config.retouch.manual_heal_strokes)
-        spots = list(self.state.config.retouch.manual_dust_spots)
-        lines = list(self.state.config.retouch.scratch_lines)
-        if lines:
-            lines.pop()
-        elif strokes:
-            strokes.pop()
-        elif spots:
-            spots.pop()
-        else:
-            return
-        self.session.update_config(
-            replace(
-                self.state.config,
-                retouch=replace(self.state.config.retouch, manual_dust_spots=spots, manual_heal_strokes=strokes, scratch_lines=lines),
-            ),
-            persist=True,
+    def _undo_if_previous_step_matches(self, *targets: RetouchConfig) -> bool:
+        """Step history back when the previous step holds one of *targets*, so
+        sidebar and context-menu Undo leave Redo available."""
+        import json
+
+        if not targets or self.state.undo_index <= 0 or not self.state.current_file_hash:
+            return False
+        self.session._commit_preview()
+        if self.state.undo_index <= 0:
+            return False
+        prev = self.session.repo.load_history_step(self.state.current_file_hash, self.state.undo_index - 1)
+        if not isinstance(prev, WorkspaceConfig):
+            return False
+        prev_json = json.dumps(prev.to_dict(), sort_keys=True, default=str)
+        base_process = replace(
+            self.state.config.process,
+            local_floors=prev.process.local_floors,
+            local_ceils=prev.process.local_ceils,
+            meter_rect=prev.process.meter_rect,
+            meter_key=prev.process.meter_key,
+            source_color=prev.process.source_color,
+            fade_white_r=prev.process.fade_white_r,
+            fade_white_g=prev.process.fade_white_g,
+            fade_white_b=prev.process.fade_white_b,
+            fade_white_space=prev.process.fade_white_space,
+            fade_crossover_table=prev.process.fade_crossover_table,
+            fade_crossover_space=prev.process.fade_crossover_space,
         )
+        for target in targets:
+            expected = replace(self.state.config, retouch=target, process=base_process)
+            if json.dumps(expected.to_dict(), sort_keys=True, default=str) == prev_json:
+                self.session.undo()
+                return True
+        return False
+
+    def undo_last_retouch(self) -> None:
+        """Remove the most recent manual repair, stepping history back when it was the last edit."""
+        conf = self.state.config.retouch
+        by_stroke = replace(conf, manual_heal_strokes=list(conf.manual_heal_strokes[:-1])) if conf.manual_heal_strokes else None
+        by_line = replace(conf, scratch_lines=list(conf.scratch_lines[:-1])) if conf.scratch_lines else None
+        by_spot = replace(conf, manual_dust_spots=list(conf.manual_dust_spots[:-1])) if conf.manual_dust_spots else None
+        ordered = (by_line, by_stroke, by_spot) if self.state.active_tool == ToolMode.SCRATCH_LINE else (by_stroke, by_line, by_spot)
+        candidates = [c for c in ordered if c is not None]
+        if not candidates:
+            return
+        if self._undo_if_previous_step_matches(*candidates):
+            return
+        self.session.update_config(replace(self.state.config, retouch=candidates[0]), persist=True)
         self.request_render()
 
     def _handle_dust_pick(self, nx: float, ny: float) -> None:
@@ -5556,8 +5581,12 @@ class AppController(QObject):
 
     def undo_last_clone(self) -> None:
         strokes = list(self.state.config.retouch.clone_strokes)
-        if strokes:
-            self._set_clone_strokes(strokes[:-1])
+        if not strokes:
+            return
+        target = replace(self.state.config.retouch, clone_strokes=strokes[:-1])
+        if self._undo_if_previous_step_matches(target):
+            return
+        self._set_clone_strokes(strokes[:-1])
 
     def delete_clone(self, index: int) -> None:
         strokes = list(self.state.config.retouch.clone_strokes)
