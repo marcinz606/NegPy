@@ -143,7 +143,7 @@ The Lightroom set leaves NegPy's letter keys for density, grade, magenta, yellow
 ## Actions
 | Key | Action |
 |-----|--------|
-| `Ctrl + E` | Export the frame, the selection or the roll, as the Export button is set |
+| `Ctrl + E` | Export |
 | `Ctrl + Shift + E` | Open Export Preferences |
 | `Ctrl + C` | Copy settings |
 | `Ctrl + Shift + C` | Copy settings (with bounds) |

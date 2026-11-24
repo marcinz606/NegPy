@@ -313,7 +313,7 @@ REGISTRY: dict[str, ShortcutEntry] = {
     "fit_view": ShortcutEntry("0", tr("Fit to window"), tr("View")),
     "zoom_100": ShortcutEntry("1", tr("Zoom 100%"), tr("View")),
     "zoom_200": ShortcutEntry("2", tr("Zoom 200%"), tr("View")),
-    "export": ShortcutEntry("Ctrl+E", tr("Export the frame, the selection or the roll, as the Export button is set"), tr("Actions")),
+    "export": ShortcutEntry("Ctrl+E", tr("Export"), tr("Actions")),
     "export_linear_output": ShortcutEntry("", tr("Export Linear Output"), tr("Actions")),
     "export_selected": ShortcutEntry("", tr("Export the selected frames"), tr("Actions")),
     "export_roll": ShortcutEntry("", tr("Export every visible frame of the roll"), tr("Actions")),
