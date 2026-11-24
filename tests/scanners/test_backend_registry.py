@@ -80,3 +80,7 @@ def test_create_plustek_unavailable_without_pyusb(monkeypatch):
     )
     with pytest.raises(ScannerUnavailable, match="PyUSB"):
         registry.create_backend("plustek")
+
+
+def test_backend_choices_include_minscan():
+    assert ("minscan", "Minolta DiMAGE (minscan)") in registry.backend_choices()

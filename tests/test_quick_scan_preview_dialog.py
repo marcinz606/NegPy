@@ -84,6 +84,16 @@ def test_preview_uses_lowest_supported_dpi():
     assert controller.preview_reqs[0].dpi == 1200
 
 
+def test_preview_carries_the_selected_format_and_film_type():
+    controller = _FakeController()
+    dialog = QuickScanPreviewDialog(controller, _device(), film_format="66", film_type="positive")
+
+    dialog._on_preview()
+
+    assert controller.preview_reqs[0].film_format == "66"
+    assert controller.preview_reqs[0].film_type == "positive"
+
+
 def test_preview_result_shows_the_frame_and_clears_busy_state():
     controller = _FakeController()
     dialog = QuickScanPreviewDialog(controller, _device())

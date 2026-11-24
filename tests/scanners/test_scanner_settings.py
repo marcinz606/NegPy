@@ -35,6 +35,13 @@ def test_channel_gain_json_roundtrip_yields_tuple():
     assert restored == original
 
 
+def test_glassless_json_roundtrip():
+    original = ScannerSettings(glassless=True)
+    restored = ScannerSettings.from_dict(json.loads(json.dumps(asdict(original))))
+    assert restored.glassless is True
+    assert restored == original
+
+
 def test_backend_survives_json_roundtrip():
     from dataclasses import replace
 

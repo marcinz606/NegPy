@@ -30,12 +30,21 @@ class QuickScanPreviewDialog(RollPreviewSignalsMixin, QDialog):
     """Preview the current holder position at low res; set a crop window for the real scan."""
 
     def __init__(
-        self, controller, device: ScannerDevice, initial_window=None, film_type: str = "negative", parent=None, *, repo=None
+        self,
+        controller,
+        device: ScannerDevice,
+        initial_window=None,
+        film_type: str = "negative",
+        film_format: str | None = None,
+        parent=None,
+        *,
+        repo=None,
     ) -> None:
         super().__init__(parent)
         self._controller = controller
         self._device = device
         self._film_type = film_type
+        self._film_format = film_format
         self._caps = device.capabilities
         self._previewing = False
         self._scan_now = False  # set when the user chooses Scan Frame over Apply Window
@@ -137,6 +146,8 @@ class QuickScanPreviewDialog(RollPreviewSignalsMixin, QDialog):
             slots=(_PREVIEW_SLOT,),
             dpi=self._preview_dpi(),
             offsets={},
+            film_format=self._film_format,
+            film_type=self._film_type,
         )
         try:
             self._controller.start_roll_preview(req)

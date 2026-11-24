@@ -82,6 +82,8 @@ class ScanParams:
     # and blue on top. Only a backend with ScannerCapabilities.analog_gain reads it.
     analog_gain_ev: float = 0.0
     channel_gain_ev: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    #: 120 carriers only: the HA-P2 glassless insert, not the HA-P1 glass one.
+    glassless: bool = False
 
     @property
     def has_analog_gain(self) -> bool:
