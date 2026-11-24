@@ -28,7 +28,7 @@ from negpy.desktop.view.canvas.hud import INFO_BASIC, INFO_FULL, frame_info
 from negpy.desktop.view.canvas.reference_pane import ReferencePane
 from negpy.desktop.view.canvas.toolbar import ActionToolbar, frame_position
 from negpy.desktop.view.canvas.widget import ImageCanvas
-from negpy.desktop.view.keyboard_shortcuts import SpacePanKeyFilter, setup_keyboard_shortcuts
+from negpy.desktop.view.keyboard_shortcuts import RetouchDeleteKeyFilter, SpacePanKeyFilter, setup_keyboard_shortcuts
 from negpy.desktop.view.mac_menu_bar import install_mac_menus
 from negpy.desktop.view.shortcut_hints import HINT_MS, ShortcutHints
 from negpy.desktop.view.shortcut_registry import tooltip_with_shortcut
@@ -175,6 +175,7 @@ class MainWindow(QMainWindow):
         self.shortcut_manager = setup_keyboard_shortcuts(self)
         self.space_pan_filter = SpacePanKeyFilter(self)
         self.space_pan_filter.space_held_changed.connect(self.canvas.set_space_pan_held)
+        self.retouch_delete_filter = RetouchDeleteKeyFilter(self)
         # macOS only: the global menu bar costs no window space, and elsewhere this is a
         # no-op. After the shortcut manager, whose actions the menu items dispatch through.
         self.mac_menus = install_mac_menus(self)
@@ -209,6 +210,9 @@ class MainWindow(QMainWindow):
         space_pan_filter = getattr(self, "space_pan_filter", None)
         if space_pan_filter is not None:
             space_pan_filter.uninstall()
+        retouch_delete_filter = getattr(self, "retouch_delete_filter", None)
+        if retouch_delete_filter is not None:
+            retouch_delete_filter.uninstall()
         try:
             geo = self.normalGeometry() if self.isMaximized() or self.isFullScreen() else self.geometry()
             self.controller.session.repo.save_global_settings(
@@ -437,6 +441,8 @@ class MainWindow(QMainWindow):
         ToolMode.WB_PICK: tr("WB Picker"),
         ToolMode.CROP_MANUAL: tr("Crop"),
         ToolMode.DUST_PICK: tr("Heal"),
+        ToolMode.SCRATCH_PICK: tr("Scratch"),
+        ToolMode.SCRATCH_LINE: tr("Line"),
         ToolMode.CLONE: tr("Clone"),
     }
 

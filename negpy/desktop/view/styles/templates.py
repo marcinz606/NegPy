@@ -8,11 +8,16 @@ import qtawesome as qta
 from PyQt6.QtCore import QEvent, QObject, QPoint, QRect, QSize, Qt
 from PyQt6.QtGui import QColor, QIcon, QIconEngine, QImage, QLinearGradient, QPainter, QPalette, QPixmap
 from PyQt6.QtWidgets import (
+    QAbstractSpinBox,
+    QApplication,
     QCheckBox,
     QComboBox,
     QDialogButtonBox,
     QHBoxLayout,
+    QKeySequenceEdit,
     QLabel,
+    QLineEdit,
+    QPlainTextEdit,
     QProgressBar,
     QPushButton,
     QSizePolicy,
@@ -20,6 +25,7 @@ from PyQt6.QtWidgets import (
     QStyle,
     QStyleOptionButton,
     QStylePainter,
+    QTextEdit,
     QWidget,
 )
 
@@ -733,3 +739,10 @@ def slider_value_qss(color: str = THEME.text_primary) -> str:
 def slider_handle_qss(color: str) -> str:
     """Recolors the handle only; geometry cascades from the app-wide QSlider style."""
     return f"QSlider::handle:horizontal {{background: {color};}}"
+
+
+def is_text_input_focused() -> bool:
+    fw = QApplication.focusWidget()
+    return isinstance(fw, (QLineEdit, QTextEdit, QPlainTextEdit, QAbstractSpinBox, QKeySequenceEdit)) or (
+        isinstance(fw, QComboBox) and fw.isEditable()
+    )

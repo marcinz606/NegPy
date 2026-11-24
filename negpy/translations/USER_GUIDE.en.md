@@ -446,7 +446,7 @@ Removes dust, hairs and scratches. Each repair is rebuilt from the clean film ar
 *   **Line**: click once on a long straight scratch, and NegPy finds and repairs the whole line. **Line Sensitivity**: lower finds fainter lines.
 *   **Brush Size**: also `Alt`+scroll on the picture.
 *   **Clone**: copies film from another area over a defect Heal cannot fix. The first click (or `Alt`-click) picks the source; then paint. **Set Source** picks a new one. **Match Tone** takes the brightness and color around the defect. **Strength** sets how much it covers, **Feather** how soft its edge is.
-*   **Undo Last** and **Clear All** remove manual repairs; right-click one on the picture to delete it.
+*   **Undo Last** and **Clear All** remove manual repairs. With a retouch tool on, point at one and press `Delete` or `Backspace`, or right-click it, to delete it.
 
 <!-- panel:finish -->
 ### 7.2 Finishing: vignette, carrier, border

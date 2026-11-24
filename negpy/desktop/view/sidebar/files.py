@@ -59,7 +59,7 @@ from PyQt6.QtWidgets import (
 
 from negpy.kernel.system.text import count_of
 from negpy.desktop.controller import SCENES_NEED_A_ROLL, AppController
-from negpy.desktop.session import AppState, can_edit_triplet, composite_kind, is_plain_triplet, trichrome_merge_indices
+from negpy.desktop.session import AppState, RETOUCH_TOOLS, can_edit_triplet, composite_kind, is_plain_triplet, trichrome_merge_indices
 from negpy.desktop.view.canvas.toolbar import CANVAS_COLORS
 from negpy.desktop.view.confirm import (
     prompt_delete_scene,
@@ -2804,8 +2804,8 @@ class FileBrowser(QWidget):
                 self.session.remove_current_file()
 
     def _on_delete_key(self) -> None:
-        """Delete key in the thumbnail list unloads the selected frame(s)."""
+        """Delete key in the thumbnail list unloads the selected frame(s), outside retouch tools."""
         state = self.session.state
-        if not state.uploaded_files or state.selected_file_idx < 0:
+        if state.active_tool in RETOUCH_TOOLS or not state.uploaded_files or state.selected_file_idx < 0:
             return
         self._on_remove_from_menu()
