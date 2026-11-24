@@ -210,6 +210,40 @@ def test_no_device_disables_controls() -> None:
     assert sidebar.scan_window_widget.isVisibleTo(sidebar) is False
 
 
+def _glassless_device(*, formats: tuple[str, ...], capacity: int | None, option: bool) -> ScannerDevice:
+    caps = ScannerCapabilities(
+        ir_channel=True,
+        supported_dpi=(3200, 1600),
+        supported_depths=(16,),
+        sources=(ScanMode.NEGATIVE,),
+        max_area_mm=(56.0, 84.0) if capacity is None else (24.0, 36.0),
+        adapter_frame_capacity=capacity,
+        film_formats=formats,
+        glassless_option=option,
+    )
+    return ScannerDevice(id="minscan:/dev/sg1", vendor="Minolta", model="DiMAGE", capabilities=caps)
+
+
+def test_glassless_toggle_only_appears_for_the_120_carrier() -> None:
+    sidebar_35, _ = _sidebar(_glassless_device(formats=("135",), capacity=6, option=False))
+    assert sidebar_35.glassless_btn.isVisibleTo(sidebar_35) is False
+
+    sidebar_120, _ = _sidebar(_glassless_device(formats=("645", "66", "67", "68", "69"), capacity=None, option=True))
+    assert sidebar_120.glassless_btn.isVisibleTo(sidebar_120) is True
+
+
+def test_glassless_toggle_hides_when_the_format_is_35mm() -> None:
+    sidebar, _ = _sidebar(
+        _glassless_device(formats=("135", "645", "66", "67", "68", "69"), capacity=None, option=True)
+    )
+    index = sidebar.format_combo.findData("135")
+    assert index >= 0
+
+    sidebar.format_combo.setCurrentIndex(index)
+
+    assert sidebar.glassless_btn.isVisibleTo(sidebar) is False
+
+
 def test_full_capability_device_enables_coolscan_controls() -> None:
     sidebar, _ = _sidebar(FULL_DEVICE)
     assert sidebar.ir_btn.isEnabled() is True
@@ -458,8 +492,10 @@ def test_sane_backend_scan_window_opens_the_quick_preview_dialog(monkeypatch) ->
     rect = (0.2, 0.2, 0.8, 0.8)
 
     class _FakeDialog:
-        def __init__(self, controller, device, initial_window=None, film_type="negative", parent=None, *, repo=None) -> None:
-            self.seen = (controller, device, initial_window, film_type)
+        def __init__(
+            self, controller, device, initial_window=None, film_type="negative", film_format=None, parent=None, *, repo=None
+        ) -> None:
+            self.seen = (controller, device, initial_window, film_type, film_format)
 
         def exec(self) -> bool:
             return True

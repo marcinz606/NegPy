@@ -194,6 +194,7 @@ class ScanSidebar(QWidget):
         self._caps_auto_exposure = False
         self._caps_clean = False
         self._caps_superfine = False
+        self._caps_glassless = False
         self._caps_max_samples = 1
         self._caps_film_formats: tuple[str, ...] = ()
         self._caps_film_types: tuple[str, ...] = ()
@@ -384,6 +385,15 @@ class ScanSidebar(QWidget):
                 row.addWidget(btn, 1)
             quality.addLayout(row)
 
+        # 120 insert choice: the carrier is keyed, the insert is not.
+        self.glassless_btn = tool_toggle(
+            "fa5s.glasses", tr("Glassless"), tr("HA-P2 glassless insert instead of HA-P1 glass (120 only)")
+        )
+        glass_row = QHBoxLayout()
+        self.glassless_btn.setVisible(False)
+        glass_row.addWidget(self.glassless_btn, 1)
+        quality.addLayout(glass_row)
+
         # Scan exposure time (SANE `scan-exposure-time`), shown only when the device reports a
         # usable range.
         self.exposure_slider = CompactSlider(tr("Exposure"), 0, 1, 0, step=1, precision=1, unit=" µs")
@@ -492,6 +502,7 @@ class ScanSidebar(QWidget):
         self.fmt_btn.setCurrentIndex(max(self.fmt_btn.findData(self._settings.output_format), 0))
         self.pattern_edit.setText(self._settings.filename_pattern)
         self.autofocus_btn.setChecked(self._settings.autofocus)
+        self.glassless_btn.setChecked(self._settings.glassless)
         self.ae_btn.setChecked(self._settings.auto_exposure)
         self.exposure_slider.setEnabled(not self._settings.auto_exposure)
 
@@ -512,12 +523,13 @@ class ScanSidebar(QWidget):
         self.mode_btn.currentIndexChanged.connect(self._on_mode_changed)
         self.passes_slider.valueChanged.connect(lambda _v: self._update_settings_from_ui())
         self.autofocus_btn.toggled.connect(lambda: self._update_settings_from_ui())
+        self.glassless_btn.toggled.connect(lambda: self._update_settings_from_ui())
         self.eject_after_act.toggled.connect(lambda: self._update_settings_from_ui())
         self.ae_btn.toggled.connect(lambda: self._on_ae_toggled())
         self.dust_btn.currentChanged.connect(lambda _i: self._on_ir_toggled(self.dust_btn.currentData() == "ir"))
         self.superfine_btn.toggled.connect(lambda: self._update_settings_from_ui())
         self.samples_btn.currentIndexChanged.connect(lambda: self._update_settings_from_ui())
-        self.format_combo.currentIndexChanged.connect(lambda: self._update_settings_from_ui())
+        self.format_combo.currentIndexChanged.connect(lambda _i: self._on_format_changed())
         self.film_type_btn.currentIndexChanged.connect(lambda: self._on_film_type_changed())
         self.exposure_slider.valueChanged.connect(lambda _v: self._update_settings_from_ui())
         for gain_slider in (self.analog_gain_slider, *self.channel_gain_sliders):
@@ -709,6 +721,7 @@ class ScanSidebar(QWidget):
             self.exposure_slider.setVisible(False)
             self.autofocus_btn.setVisible(False)
             self.ae_btn.setVisible(False)
+            self.glassless_btn.setVisible(False)
             self.prescan_widget.setVisible(False)
             self.crop_label.setVisible(False)
             self.dust_widget.setVisible(False)
@@ -720,6 +733,7 @@ class ScanSidebar(QWidget):
             self._caps_auto_exposure = False
             self._caps_clean = False
             self._caps_superfine = False
+            self._caps_glassless = False
             self._caps_max_samples = 1
             self._caps_film_formats = ()
             self._caps_film_types = ()
@@ -844,6 +858,11 @@ class ScanSidebar(QWidget):
             self.autofocus_btn.setChecked(False)
         self.autofocus_btn.blockSignals(False)
 
+        self._caps_glassless = bool(caps.glassless_option)
+        self.glassless_btn.blockSignals(True)
+        self.glassless_btn.setChecked(self._settings.glassless)
+        self.glassless_btn.blockSignals(False)
+
         self.ae_btn.setVisible(self._caps_auto_exposure)
         if self._caps_auto_exposure:
             self.ae_btn.setChecked(self._settings.auto_exposure)
@@ -897,6 +916,7 @@ class ScanSidebar(QWidget):
             self.format_combo.setCurrentIndex(max(idx, 0))
         self.film_format_widget.setVisible(show_formats)
         self.format_combo.blockSignals(False)
+        self._sync_glassless_visibility()
 
         # Scan exposure time, shown only when the device reports a usable range.
         self.exposure_slider.blockSignals(True)
@@ -1085,6 +1105,16 @@ class ScanSidebar(QWidget):
     def _film_format(self) -> str | None:
         return self.format_combo.currentData() if self._caps_film_formats else None
 
+    def _is_35mm_format(self) -> bool:
+        return self._film_format() in ("135", "35", "35mm")
+
+    def _sync_glassless_visibility(self) -> None:
+        self.glassless_btn.setVisible(self._caps_glassless and not self._is_35mm_format())
+
+    def _on_format_changed(self) -> None:
+        self._sync_glassless_visibility()
+        self._update_settings_from_ui()
+
     def _on_ae_toggled(self) -> None:
         self.exposure_slider.setEnabled(not self.ae_btn.isChecked())
         self._update_settings_from_ui()
@@ -1169,6 +1199,7 @@ class ScanSidebar(QWidget):
             device,
             initial_window=self._settings.scan_window,
             film_type=self._film_type(),
+            film_format=self._film_format(),
             parent=self,
             repo=self.controller.session.repo,
         )
@@ -1292,6 +1323,7 @@ class ScanSidebar(QWidget):
             frame_offset_mm=self._settings.frame_offset_mm,
             film_format=self._film_format(),
             film_type=self._film_type(),
+            glassless=self._settings.glassless,
         )
         try:
             self.controller.start_meter(
@@ -1518,6 +1550,7 @@ class ScanSidebar(QWidget):
             superfine=self._caps_superfine and self.superfine_btn.isChecked(),
             film_format=self._film_format(),
             film_type=self._film_type(),
+            glassless=self._settings.glassless,
             exposures=self._locked_exposures(device),
             analog_gain_ev=self._settings.analog_gain_ev if device.capabilities.analog_gain else 0.0,
             channel_gain_ev=self._settings.channel_gain_ev if device.capabilities.analog_gain else (0.0, 0.0, 0.0),
@@ -1698,6 +1731,7 @@ class ScanSidebar(QWidget):
             n_passes=n_passes,
             autofocus=self._caps_autofocus and self.autofocus_btn.isChecked(),
             auto_exposure=self._caps_auto_exposure and self.ae_btn.isChecked(),
+            glassless=self._caps_glassless and not self._is_35mm_format() and self.glassless_btn.isChecked(),
             exposure_time_us=(int(self.exposure_slider.value()) if not self.exposure_slider.isHidden() else None),
             clean=self._ice_on(),
             samples=self._samples(),

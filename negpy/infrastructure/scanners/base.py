@@ -90,6 +90,8 @@ class ScannerCapabilities:
     exposure_lock: bool = False
     #: The metered exposure can be scaled per channel before the pass (`ScanParams.analog_gain_ev`).
     analog_gain: bool = False
+    #: The 120 carrier has a glass/glassless insert choice (`ScanParams.glassless`).
+    glassless_option: bool = False
 
     def multi_exposure_at(self, dpi: int) -> bool:
         return self.multi_exposure and (not self.multi_exposure_dpi or int(dpi) in self.multi_exposure_dpi)

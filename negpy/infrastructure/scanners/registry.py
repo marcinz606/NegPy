@@ -29,6 +29,18 @@ def _make_plustek() -> ScannerBackend:
     return PlustekBackend(calib_cache=calib_cache)
 
 
+def _make_minscan() -> ScannerBackend:
+    try:
+        from negpy.infrastructure.scanners.minscan_backend import MinscanBackend
+    except ImportError as exc:
+        raise ScannerUnavailable(
+            "minscan backend needs the minscan Python package. Install it with "
+            "`uv sync --group minscan`, or `uv pip install -e ~/source/minscan`."
+        ) from exc
+
+    return MinscanBackend()
+
+
 def _make_nkscan() -> ScannerBackend:
     from negpy.infrastructure.scanners.nkscan_backend import NkscanBackend
 
@@ -52,6 +64,7 @@ DEFAULT_BACKEND_ID = "plustek" if sys.platform == "win32" else "sane"
 # id -> (display label, factory). Insertion order drives the sidebar dropdown. SANE is
 # Unix-only (python-sane); Windows ships Plustek USB and PIEUSB.
 BACKENDS: dict[str, tuple[str, Callable[[], ScannerBackend]]] = {
+    "minscan": ("Minolta DiMAGE (minscan)", _make_minscan),
     "nkscan": ("Nikon Coolscan (nkscan)", _make_nkscan),
     "plustek": ("pyOpticfilm (Plustek)", _make_plustek),
     "pieusb": ("PIEUSB", _make_pieusb),
