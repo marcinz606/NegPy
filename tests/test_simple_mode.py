@@ -183,13 +183,20 @@ def test_a_popup_action_runs_then_closes_and_gives_the_card_back():
     assert [layout.itemAt(i).widget() for i in range(layout.count())] == [a, b, c]
 
 
-def test_a_popup_without_an_action_has_no_enter_target():
+def test_enter_closes_a_popup_without_an_action():
+    """A Roll card pop-up: Enter (the default Close button) closes it and gives the card back."""
     from PyQt6.QtWidgets import QPushButton
 
     from negpy.desktop.view.simple_mode import CardPopup
 
     host = QWidget()
-    _page, _layout, (_a, b, _c) = _column("a", "b", "c")
+    page, layout, (a, b, c) = _column("a", "b", "c")
     popup = CardPopup("Test", b, host)
-    assert not any(btn.isDefault() for btn in popup.findChildren(QPushButton))
-    popup.close()
+    popup.show()
+    default = next(btn for btn in popup.findChildren(QPushButton) if btn.isDefault())
+    assert default.text() == "Close"
+
+    default.click()
+    assert not popup.isVisible()
+    assert b.parentWidget() is page
+    assert [layout.itemAt(i).widget() for i in range(layout.count())] == [a, b, c]

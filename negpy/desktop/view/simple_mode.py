@@ -126,9 +126,8 @@ class CardPopup(QDialog):
         layout.addLayout(buttons)
         buttons.setContentsMargins(THEME.space_lg, 0, THEME.space_lg, 0)
 
-        # Enter runs the pop-up's action and closes it. Without an action Enter does nothing, so
-        # Enter in a card's field never closes the pop-up around it.
-        pin_dialog_default(action_btn, close_btn, scope=self)
+        # Enter runs the pop-up's action, if it has one, and closes the pop-up.
+        pin_dialog_default(action_btn or close_btn, close_btn, scope=self)
 
         self.finished.connect(self._give_back)
         remember_dialog_geometry(self, repo, "card_popup")
