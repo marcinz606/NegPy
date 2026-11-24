@@ -245,7 +245,7 @@ _DNG_STREAM_PREVIEW_MAX_BYTES = 64 * 1024 * 1024
 _TIFF_STREAM_PREVIEW_MAX_BYTES = 64 * 1024 * 1024
 _TIFF_STREAM_BAND_BYTES = 8 * 1024 * 1024
 # Strips a preview inflates at once, and how many it reads ahead of them; a background task keeps to a few cores.
-_PREVIEW_DECODE_WORKERS = 4
+_PREVIEW_DECODE_WORKERS = max(4, APP_CONFIG.max_workers)
 _PREVIEW_DECODE_BATCH = 16
 _DNG_LINEAR_RAW = 34892
 _DNG_CFA = 32803

@@ -14,7 +14,7 @@ logger = get_logger(__name__)
 
 # Seek-bound, like AssetDiscoveryWorker's own hashing pass: more concurrent readers
 # than this just thrashes a spinning disk instead of finishing faster.
-_HASH_WORKERS = min(8, APP_CONFIG.max_workers)
+_HASH_WORKERS = max(1, APP_CONFIG.max_workers)
 
 
 @dataclass(frozen=True)

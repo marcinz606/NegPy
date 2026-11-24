@@ -354,3 +354,65 @@ def test_batch_analysis_meters_the_flat_fielded_frame(qapp, monkeypatch):
         ff.set_gain_provider(None)
 
     assert seen and np.allclose(seen[0], 1.0)
+
+
+def test_background_normalization_runs_concurrently_when_ram_allows(monkeypatch) -> None:
+    import threading
+    from dataclasses import replace as dc_replace
+
+    import negpy.desktop.workers.render as render_workers
+
+    barrier = threading.Barrier(2, timeout=5)
+
+    class _BarrierPreview(_FakePreviewService):
+        def load_linear_preview(self, *args, **kwargs):
+            barrier.wait()
+            return super().load_linear_preview(*args, **kwargs)
+
+    monkeypatch.setattr(render_workers, "APP_CONFIG", dc_replace(render_workers.APP_CONFIG, max_workers=6))
+    monkeypatch.setattr(render_workers, "available_system_memory_bytes", lambda: 4 * 1024 * 1024 * 1024)
+    finished: list = []
+    worker = NormalizationWorker(_BarrierPreview())
+    worker.finished.connect(lambda *a: finished.append(a))
+    base = WorkspaceConfig()
+    task = NormalizationTask(
+        frames=_frames({"h1": base, "h2": base}),
+        workspace_color_space="sRGB",
+        background=True,
+    )
+    worker.process(task)
+    assert len(finished) == 1
+
+
+def test_background_normalization_peeks_warm_cache_and_avoids_navigation_lru_churn(monkeypatch) -> None:
+    import negpy.desktop.workers.render as render_workers
+
+    monkeypatch.setattr(render_workers, "available_system_memory_bytes", lambda: None)
+
+    class _PeekAndDecodeService(_FakePreviewService):
+        def __init__(self) -> None:
+            super().__init__()
+            self.peeked: list[str] = []
+            self.decoded_hashes: list = []
+
+        def peek_linear_preview(self, path, color_space, *, file_hash=None, **_kwargs):
+            self.peeked.append(file_hash)
+            if file_hash == "h_warm":
+                return np.full((8, 8, 3), 0.5, dtype=np.float32), (8, 8), {}
+            return None
+
+        def load_linear_preview(self, path, color_space, use_camera_wb, full_resolution, file_hash, *args, **kwargs):
+            self.decoded_hashes.append((path, file_hash))
+            return super().load_linear_preview(path, color_space, use_camera_wb, full_resolution, file_hash, *args, **kwargs)
+
+    svc = _PeekAndDecodeService()
+    worker = NormalizationWorker(svc)
+    base = WorkspaceConfig()
+    task = NormalizationTask(
+        frames=_frames({"h_warm": base, "h_cold": base}),
+        workspace_color_space="sRGB",
+        background=True,
+    )
+    worker.process(task)
+    assert set(svc.peeked) == {"h_warm", "h_cold"}
+    assert svc.decoded_hashes == [("/h_cold.dng", None)]

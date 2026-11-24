@@ -527,13 +527,16 @@ class TestThumbnailRefreshController:
         assert lines == ["Thumbnails 1/2", "Thumbnails 1/2", "Thumbnails 2/2", "Thumbnails 2/2", ""]
 
     def test_frame_started_counts_the_frame_in_flight_as_left(self) -> None:
+        import negpy.desktop.workers.render as render_workers
+
         lines = []
         self.controller.thumbnail_refresh_progress.connect(lines.append)
-        self.controller.refresh_thumbnails_for(["other", "third"])
-        self.controller._thumbnail_render_timing = [4.0, 6.0, 2]
-        self.controller._on_thumbnail_render_frame_started(3, 5, "c.dng")
-        # Frames 3, 4 and 5 are left at 5 s each, two at a time.
-        assert lines[-1] == "Thumbnails 3/5 · ~8 s left"
+        with patch.object(render_workers, "_THUMBNAIL_WORKERS", 2):
+            self.controller.refresh_thumbnails_for(["other", "third"])
+            self.controller._thumbnail_render_timing = [4.0, 6.0, 2]
+            self.controller._on_thumbnail_render_frame_started(3, 5, "c.dng")
+            # Frames 3, 4 and 5 are left at 5 s each, two at a time.
+            assert lines[-1] == "Thumbnails 3/5 · ~8 s left"
         self.controller._on_thumbnail_render_cancelled()
 
     def test_a_cancelled_refresh_clears_its_progress(self) -> None:
