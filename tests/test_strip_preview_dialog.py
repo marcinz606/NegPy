@@ -1460,3 +1460,11 @@ def test_a_measured_strip_is_asked_for_a_half_frame_rolls_worth() -> None:
     dialog = StripPreviewDialog(controller, _discovery_device())
     dialog._on_preview_all()
     assert set(range(1, 81)) <= set(controller.preview_reqs[0].slots)
+
+
+def test_a_holder_with_fixed_frames_hides_every_offset_control() -> None:
+    device = _device(5)
+    device = dataclasses.replace(device, capabilities=dataclasses.replace(device.capabilities, fixed_frames=True))
+    dialog = StripPreviewDialog(_FakeController(), device, initial_frame_offsets={2: 1.5})
+    assert dialog.offset_slider.isHidden() and dialog.drift_slider.isHidden()
+    assert all(t.offset_slider.isHidden() and t.offset_value.isHidden() for t in dialog._tiles.values())

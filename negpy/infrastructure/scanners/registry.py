@@ -47,6 +47,13 @@ def _make_sim() -> ScannerBackend:
     return SimulatedBackend()
 
 
+def _make_sim_nkscan() -> ScannerBackend:
+    from negpy.infrastructure.scanners.nkscan_backend import NkscanBackend
+    from negpy.infrastructure.simulated.nkscan import Module
+
+    return NkscanBackend(Module())
+
+
 DEFAULT_BACKEND_ID = "plustek" if sys.platform == "win32" else "sane"
 
 # id -> (display label, factory). Insertion order drives the sidebar dropdown. SANE is
@@ -63,7 +70,7 @@ if sys.platform != "win32":
     }
 if simulated.enabled():
     DEFAULT_BACKEND_ID = "sim"
-    BACKENDS = {"sim": ("Simulated", _make_sim), **BACKENDS}
+    BACKENDS = {"sim": ("Simulated", _make_sim), "sim-nkscan": ("Simulated (nkscan)", _make_sim_nkscan), **BACKENDS}
 
 
 def backend_choices() -> list[tuple[str, str]]:

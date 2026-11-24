@@ -16,6 +16,8 @@ from negpy.infrastructure.scanners import registry
 from negpy.infrastructure.scanners.params import ScanParams
 from negpy.infrastructure.simulated import scanlight
 from negpy.infrastructure.simulated.gphoto import MODEL, SimGphoto
+from negpy.infrastructure.scanners.nkscan_backend import NkscanBackend
+from negpy.infrastructure.simulated.nkscan import Module
 from negpy.infrastructure.simulated.scanner import SimulatedBackend
 from negpy.services.capture.calibration import CalibrationService, Roi, meter_base
 from negpy.services.capture.service import CaptureService
@@ -197,6 +199,32 @@ def test_roll_previews_every_slot_and_asks_to_confirm_the_last():
     assert not next(roll.preview([6], cancel=threading.Event())).needs_approval
 
 
+def test_nkscan_holder_publishes_every_slide_without_a_strip_pass():
+    backend = NkscanBackend(Module())
+    caps = {d.id: d.capabilities for d in backend.list_devices()}
+    assert not caps["sim:ls9000"].strip_pass and caps["sim:ls9000"].film_formats == ()
+    assert backend.detect_frames("sim:ls9000") == 5
+    roll = backend.open_roll(backend.list_devices()[0], dpi=500)
+    previews = list(roll.preview(range(1, 6), cancel=threading.Event()))
+    assert [p.slot for p in previews] == [1, 2, 3, 4, 5]
+    assert all(p.rgb is not None and p.error is None for p in previews)
+
+
+def test_nkscan_slide_feeder_loads_the_next_slide_after_an_eject():
+    backend = NkscanBackend(Module())
+    params = ScanParams(dpi=1000, depth=16, capture_ir=True)
+    scan = lambda: backend.scan("sim:sf210", params, lambda *_: None, threading.Event())  # noqa: E731
+    assert backend.detect_frames("sim:sf210") == 1
+    first = scan()
+    assert first.ir is not None
+    for _ in range(5):
+        assert backend.eject("sim:sf210")
+        assert not np.array_equal(scan().rgb, first.rgb)
+    assert backend.eject("sim:sf210")
+    with pytest.raises(RuntimeError, match="no medium"):
+        scan()
+
+
 def test_flag_registers_the_simulated_backend_as_default(monkeypatch):
     monkeypatch.setenv("NEGPY_SIMULATE_HARDWARE", "1")
     try:
@@ -204,6 +232,7 @@ def test_flag_registers_the_simulated_backend_as_default(monkeypatch):
         assert registry.backend_choices()[0] == ("sim", "Simulated")
         assert registry.DEFAULT_BACKEND_ID == "sim"
         assert isinstance(registry.create_backend("sim"), SimulatedBackend)
+        assert isinstance(registry.create_backend("sim-nkscan"), NkscanBackend)
     finally:
         monkeypatch.delenv("NEGPY_SIMULATE_HARDWARE")
         importlib.reload(registry)

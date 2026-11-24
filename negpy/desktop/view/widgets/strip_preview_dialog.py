@@ -289,7 +289,8 @@ class StripPreviewDialog(RollPreviewSignalsMixin, QDialog):
             block.setSpacing(0)
             head = QHBoxLayout()
             head.setSpacing(THEME.space_md)
-            head.addWidget(QLabel(tr(name)))
+            title = QLabel(tr(name))
+            head.addWidget(title)
             self._name_dots[name] = EditedDot()
             head.addWidget(self._name_dots[name])
             head.addStretch()
@@ -298,6 +299,8 @@ class StripPreviewDialog(RollPreviewSignalsMixin, QDialog):
             block.addLayout(head)
             block.addWidget(slider)
             top.addLayout(block, 1)
+            for widget in (title, self._name_dots[name], value, slider):
+                widget.setVisible(not self._caps.fixed_frames)
 
         # A measured strip previews out of its own pass, whose resolution nothing chooses.
         self.preview_dpi_combo = StepCombo()
@@ -455,6 +458,7 @@ class StripPreviewDialog(RollPreviewSignalsMixin, QDialog):
         # Set before connecting, so building a tile does not refresh a half-built dialog.
         offset_slider.setValue(int(round(self._initial_frame_offsets.get(frame, 0.0) * 10)))
         offset_slider.valueChanged.connect(lambda _v, f=frame: self._on_tile_offset_changed(f))
+        offset_slider.setVisible(not self._caps.fixed_frames)
         grid.addWidget(offset_slider, 1, 0)
 
         tile = _Tile(frame, label, toggle, preview_btn, offset_slider, widget, offset_value)
@@ -648,7 +652,7 @@ class StripPreviewDialog(RollPreviewSignalsMixin, QDialog):
             )
         )
         tile.offset_value.setText(tr("{value:+.1f} mm", value=value))
-        tile.offset_value.setVisible(bool(value))
+        tile.offset_value.setVisible(bool(value) and not self._caps.fixed_frames)
 
     def _on_tile_offset_changed(self, frame: int) -> None:
         tile = self._tiles.get(frame)
