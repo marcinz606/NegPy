@@ -21,7 +21,7 @@ def clone_token(retouch) -> str:
 
 def _path(points, x0: int, y0: int, w: int, h: int) -> np.ndarray:
     """The stroke's path, smoothed past two points, in crop pixels."""
-    chain = [(float(p[0]) * w, float(p[1]) * h) for p in points]
+    chain = [(float(p[0]) * max(w - 1, 1), float(p[1]) * max(h - 1, 1)) for p in points]
     if len(chain) >= 3:
         chain = smooth_polyline(chain, closed=False)
     return np.ascontiguousarray(np.round(np.array(chain, dtype=np.float32) - (x0, y0)).astype(np.int32))
@@ -37,13 +37,13 @@ def apply_clone_stroke(out: np.ndarray, stroke) -> None:
         return
     h, w = out.shape[:2]
     radius = max(1.0, float(size) * max(w, h) / HEAL_SIZE_REF * 0.5)
-    sx, sy = int(round(float(dx) * w)), int(round(float(dy) * h))
+    sx, sy = int(round(float(dx) * max(w - 1, 1))), int(round(float(dy) * max(h - 1, 1)))
     if sx == 0 and sy == 0:
         return
     sigma = max(2.0, radius)
     pad = int(radius + 3.0 * sigma) + 2
-    xs = [float(p[0]) * w for p in points]
-    ys = [float(p[1]) * h for p in points]
+    xs = [float(p[0]) * max(w - 1, 1) for p in points]
+    ys = [float(p[1]) * max(h - 1, 1) for p in points]
     x0, y0 = max(0, int(min(xs)) - pad), max(0, int(min(ys)) - pad)
     x1, y1 = min(w, int(max(xs)) + pad + 1), min(h, int(max(ys)) + pad + 1)
     if x1 <= x0 or y1 <= y0:

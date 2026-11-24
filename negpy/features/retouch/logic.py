@@ -321,7 +321,7 @@ def exclusion_cover(strokes: List[Tuple], shape: Tuple[int, int]) -> np.ndarray:
     bands = []
     for points, size in strokes:
         radius = max(1, int(round(float(size) * scale * 0.5)))
-        chain = [(float(p[0]) * w, float(p[1]) * h) for p in points]
+        chain = [(float(p[0]) * max(w - 1, 1), float(p[1]) * max(h - 1, 1)) for p in points]
         if len(chain) >= 3:
             chain = smooth_polyline(chain, closed=False)
         pts = np.ascontiguousarray(np.round(np.array(chain, dtype=np.float32)).astype(np.int32))
@@ -390,7 +390,7 @@ def paint_to_score(
 
     for points, size in entries:
         radius = max(1.0, size * scale * 0.5)
-        chain = [(float(p[0]) * w, float(p[1]) * h) for p in points]
+        chain = [(float(p[0]) * max(w - 1, 1), float(p[1]) * max(h - 1, 1)) for p in points]
         if len(chain) >= 3:
             chain = smooth_polyline(chain, closed=False)
         pts = np.array(chain, dtype=np.float32)
@@ -503,7 +503,8 @@ def trace_scratch(img: ImageBuffer, nx: float, ny: float, threshold: float = 0.5
     on. ``width`` is for the on-screen guide; the repair re-grows the band itself.
     """
     h, w = img.shape[:2]
-    cx, cy = float(nx) * w, float(ny) * h
+    w1, h1 = max(w - 1, 1), max(h - 1, 1)
+    cx, cy = float(nx) * w1, float(ny) * h1
     bar = scratch_detect_bar(threshold)
     y0 = max(0, int(cy) - _SCRATCH_SEARCH_ROWS)
     y1 = min(h, int(cy) + _SCRATCH_SEARCH_ROWS)
@@ -539,7 +540,7 @@ def trace_scratch(img: ImageBuffer, nx: float, ny: float, threshold: float = 0.5
     # For the guide only: the repair grows its own band per column.
     grown = _grow_band(_shear_rows(z, slope, cx, w), row - z0, cols, max_half, float(np.sign(along.mean()) or 1.0), bar)
     width = float(np.clip(2.0 * float(np.median(grown.sum(axis=0))) / max(scale, 1e-6), _SCRATCH_WIDTH_MIN, _SCRATCH_WIDTH_MAX))
-    return (x0 / w, (row + slope * (x0 - cx)) / h, x1 / w, (row + slope * (x1 - cx)) / h, width)
+    return (x0 / w1, (row + slope * (x0 - cx)) / h1, x1 / w1, (row + slope * (x1 - cx)) / h1, width)
 
 
 def _grow_band(sheared: np.ndarray, row: int, xs: np.ndarray, max_half: int, sign: float, bar: float) -> np.ndarray:
@@ -575,14 +576,15 @@ def lines_to_score(img: ImageBuffer, lines: List[Tuple], threshold: float = 0.5)
     if not lines:
         return None
     h, w = img.shape[:2]
+    w1, h1 = max(w - 1, 1), max(h - 1, 1)
     bar = scratch_detect_bar(threshold)
     scale = film_scale((h, w))
     mask = np.zeros((h, w), dtype=np.uint8)
     touched = False
 
     for nx0, ny0, nx1, ny1, width in lines:
-        x0, x1 = float(nx0) * w, float(nx1) * w
-        y0, y1 = float(ny0) * h, float(ny1) * h
+        x0, x1 = float(nx0) * w1, float(nx1) * w1
+        y0, y1 = float(ny0) * h1, float(ny1) * h1
         if abs(x1 - x0) < 1.0:
             continue
         slope = (y1 - y0) / (x1 - x0)

@@ -1,6 +1,8 @@
+import math
+from typing import Optional, Tuple
+
 import negpy_core
 import numpy as np
-from typing import Tuple, Optional
 
 from negpy.kernel.image.logic import apply_geometry_orientation
 
@@ -78,17 +80,18 @@ class CoordinateMapping:
         Four interior samples, exact for every projective op (rotation, flips, fine
         rotation, crop, keystone); only distortion stays approximate, and this is used
         only off the frame. Samples come from the middle, since a fine rotation fills
-        the border with zeros and those are not coordinates.
+        the border with zeros and those are not coordinates. Each grid entry (y, x) is
+        the sample at pixel center ((x + 0.5) / w_uv, (y + 0.5) / h_uv).
         """
         h_uv, w_uv = uv_grid.shape[:2]
         x0, x1 = w_uv // 4, w_uv - 1 - w_uv // 4
         y0, y1 = h_uv // 4, h_uv - 1 - h_uv // 4
         src = np.float32(
             [
-                [x0 / (w_uv - 1), y0 / (h_uv - 1)],
-                [x1 / (w_uv - 1), y0 / (h_uv - 1)],
-                [x1 / (w_uv - 1), y1 / (h_uv - 1)],
-                [x0 / (w_uv - 1), y1 / (h_uv - 1)],
+                [(x0 + 0.5) / w_uv, (y0 + 0.5) / h_uv],
+                [(x1 + 0.5) / w_uv, (y0 + 0.5) / h_uv],
+                [(x1 + 0.5) / w_uv, (y1 + 0.5) / h_uv],
+                [(x0 + 0.5) / w_uv, (y1 + 0.5) / h_uv],
             ]
         )
         dst = np.float32([uv_grid[y0, x0], uv_grid[y0, x1], uv_grid[y1, x1], uv_grid[y1, x0]])
@@ -105,54 +108,105 @@ class CoordinateMapping:
         )
 
     @staticmethod
-    def map_click_to_raw(nx: float, ny: float, uv_grid: np.ndarray) -> Tuple[float, float]:
-        """
-        Viewport (0-1) -> Raw (0-1).
+    def _sample_bilinear(uv_grid: np.ndarray, gx: float, gy: float) -> Tuple[Tuple[float, float], Tuple[float, float], Tuple[float, float]]:
+        """Evaluate piecewise-bilinear `uv_grid` and its `(df/dgx, df/dgy)` Jacobian at `(gx, gy)`.
 
-        A point off the frame has no grid sample, so the projective model of the grid
-        gives it. Dodge/burn masks use this, because a card edge must start outside the
-        picture to cover a corner when you tilt it.
+        Allows `gx` in `[-0.5, w_uv - 0.5]` and `gy` in `[-0.5, h_uv - 0.5]` by linear
+        extrapolation on the outer half-pixel rim so viewport `[0, 1]` stays continuous to
+        the frame edge.
         """
         h_uv, w_uv = uv_grid.shape[:2]
-        if 0.0 <= nx <= 1.0 and 0.0 <= ny <= 1.0:
-            raw_uv = uv_grid[int(ny * (h_uv - 1)), int(nx * (w_uv - 1))]
+        cx = min(max(math.floor(gx), 0), w_uv - 2)
+        cy = min(max(math.floor(gy), 0), h_uv - 2)
+        tx = gx - cx
+        ty = gy - cy
+        ((u00, v00), (u10, v10)), ((u01, v01), (u11, v11)) = uv_grid[cy : cy + 2, cx : cx + 2].tolist()
+        omx, omy = 1.0 - tx, 1.0 - ty
+        u = omy * (omx * u00 + tx * u10) + ty * (omx * u01 + tx * u11)
+        v = omy * (omx * v00 + tx * v10) + ty * (omx * v01 + tx * v11)
+        du_dx = omy * (u10 - u00) + ty * (u11 - u01)
+        dv_dx = omy * (v10 - v00) + ty * (v11 - v01)
+        du_dy = omx * (u01 - u00) + tx * (u11 - u10)
+        dv_dy = omx * (v01 - v00) + tx * (v11 - v10)
+        return (u, v), (du_dx, dv_dx), (du_dy, dv_dy)
+
+    @staticmethod
+    def map_click_to_raw(nx: float, ny: float, uv_grid: np.ndarray) -> Tuple[float, float]:
+        """
+        Viewport (0-1) -> Raw (0-1), sub-pixel interpolated around pixel centers.
+
+        Each grid cell `(y, x)` sits at viewport center `((x + 0.5) / w_uv, (y + 0.5) / h_uv)`.
+        Bilinear interpolation removes the top-left floor snap that integer grid indexing
+        caused at high zoom. Points off the frame use the projective model of the grid so
+        dodge/burn handles outside the picture continue smoothly.
+        """
+        h_uv, w_uv = uv_grid.shape[:2]
+        if h_uv < 2 or w_uv < 2:
+            raw_uv = uv_grid[0, 0]
             return float(raw_uv[0]), float(raw_uv[1])
-        return CoordinateMapping._apply_homography(CoordinateMapping._grid_homography(uv_grid), nx, ny)
+        if 0.0 <= nx <= 1.0 and 0.0 <= ny <= 1.0:
+            gx = nx * w_uv - 0.5
+            gy = ny * h_uv - 0.5
+            (u, v), _, _ = CoordinateMapping._sample_bilinear(uv_grid, gx, gy)
+            return u, v
+        try:
+            return CoordinateMapping._apply_homography(CoordinateMapping._grid_homography(uv_grid), nx, ny)
+        except ValueError:
+            gx = min(max(nx * w_uv - 0.5, -0.5), w_uv - 0.5)
+            gy = min(max(ny * h_uv - 0.5, -0.5), h_uv - 0.5)
+            (u, v), _, _ = CoordinateMapping._sample_bilinear(uv_grid, gx, gy)
+            return u, v
 
     @staticmethod
     def map_raw_to_viewport(rx: float, ry: float, uv_grid: np.ndarray, buckets: int = 100) -> Tuple[float, float]:
         """
-        Raw (0-1) -> Viewport (0-1): the inverse of map_click_to_raw.
+        Raw (0-1) -> Viewport (0-1): continuous sub-pixel inverse of `map_click_to_raw`.
 
-        Two-stage nearest-neighbour: a coarse pass over a `buckets`-decimated grid
-        locates the neighbourhood cheaply, then a full-resolution pass over that
-        bucket's window pins the exact pixel. The coarse pass alone snapped results
-        to bucket centres (± step/2 grid pixels ≈ 3-20px depending on preview size,
-        magnified by zoom) — enough to draw a heal outline entirely off the healed
-        spot even though the heal itself landed exactly where clicked.
+        Locates the nearest grid sample via a two-stage coarse-to-fine search, then refines
+        continuous `(gx, gy)` with unclamped Newton steps on the bilinear cell. Points whose
+        solution lies outside the viewport grid domain project through the inverse homography.
         """
         h_uv, w_uv = uv_grid.shape[:2]
-        step = max(1, h_uv // buckets)
-        small = uv_grid[::step, ::step]
+        if h_uv < 2 or w_uv < 2:
+            return 0.5, 0.5
+        step_y = max(1, h_uv // buckets)
+        step_x = max(1, w_uv // buckets)
+        small = uv_grid[::step_y, ::step_x]
         dist = (small[..., 0] - rx) ** 2 + (small[..., 1] - ry) ** 2
         idx = int(np.argmin(dist))
         vy, vx = divmod(idx, small.shape[1])
 
         # Refine: exact search across the coarse cell and its neighbours.
-        py, px = vy * step, vx * step
-        y0, y1 = max(0, py - step), min(h_uv, py + step + 1)
-        x0, x1 = max(0, px - step), min(w_uv, px + step + 1)
+        py, px = vy * step_y, vx * step_x
+        y0, y1 = max(0, py - step_y), min(h_uv, py + step_y + 1)
+        x0, x1 = max(0, px - step_x), min(w_uv, px + step_x + 1)
         window = uv_grid[y0:y1, x0:x1]
         wdist = (window[..., 0] - rx) ** 2 + (window[..., 1] - ry) ** 2
         widx = int(np.argmin(wdist))
         wy, wx = divmod(widx, window.shape[1])
 
-        nx, ny = min((x0 + wx + 0.5) / w_uv, 1.0), min((y0 + wy + 0.5) / h_uv, 1.0)
+        gx = float(x0 + wx)
+        gy = float(y0 + wy)
+        degenerate = False
+        for _ in range(4):
+            (u, v), (du_dx, dv_dx), (du_dy, dv_dy) = CoordinateMapping._sample_bilinear(uv_grid, gx, gy)
+            ru = rx - u
+            rv = ry - v
+            det = du_dx * dv_dy - dv_dx * du_dy
+            if abs(det) < 1e-18:
+                degenerate = ru * ru + rv * rv > 1e-12
+                break
+            gx += (ru * dv_dy - rv * du_dy) / det
+            gy += (du_dx * rv - dv_dx * ru) / det
+            if gx < -2.0 or gx > w_uv + 1.0 or gy < -2.0 or gy > h_uv + 1.0:
+                break
 
-        # The nearest sample is more than one grid step away only if the raw point is off the
-        # frame. The projective model then gives the answer, the inverse of what
-        # map_click_to_raw does there.
-        if float(wdist.flat[widx]) > (2.0 / max(h_uv, w_uv)) ** 2:
-            inv = np.linalg.inv(CoordinateMapping._grid_homography(uv_grid))
+        eps = 1e-3
+        if degenerate or not (-0.5 - eps <= gx <= w_uv - 0.5 + eps and -0.5 - eps <= gy <= h_uv - 0.5 + eps):
+            try:
+                inv = np.linalg.inv(CoordinateMapping._grid_homography(uv_grid))
+            except (ValueError, np.linalg.LinAlgError):
+                return min(max((gx + 0.5) / w_uv, 0.0), 1.0), min(max((gy + 0.5) / h_uv, 0.0), 1.0)
             return CoordinateMapping._apply_homography(inv, rx, ry)
-        return nx, ny
+
+        return min(max((gx + 0.5) / w_uv, 0.0), 1.0), min(max((gy + 0.5) / h_uv, 0.0), 1.0)
