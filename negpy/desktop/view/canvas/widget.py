@@ -270,11 +270,15 @@ class ImageCanvas(QWidget):
             return None
         import numpy as np
 
+        dims: Optional[Tuple[int, int]] = None
         if isinstance(buf, np.ndarray):
-            return int(buf.shape[1]), int(buf.shape[0])
-        if isinstance(buf, GPUTexture):
-            return int(buf.width), int(buf.height)
-        return None
+            dims = int(buf.shape[1]), int(buf.shape[0])
+        elif isinstance(buf, GPUTexture):
+            dims = int(buf.width), int(buf.height)
+        if dims is None:
+            return None
+        turns = getattr(self.overlay, "_display_rotation", 0) % 4
+        return (dims[1], dims[0]) if turns % 2 == 1 else dims
 
     def _fit_scale(self) -> Optional[float]:
         """Device-pixel scale the shader applies at zoom_level 1.0 — its fit ratio
@@ -449,7 +453,9 @@ class ImageCanvas(QWidget):
 
         buf = self._last_buffer
         if isinstance(buf, GPUTexture):
-            return (buf.width, buf.height)
+            use_gpu = self.state.gpu_enabled and not self.state.gpu_viewport_failed
+            rot = (getattr(self.gpu_widget, "display_rotation", 0) if use_gpu else getattr(self.overlay, "_display_rotation", 0)) % 4
+            return (buf.height, buf.width) if rot % 2 == 1 else (buf.width, buf.height)
         if isinstance(buf, np.ndarray):
             return (buf.shape[1], buf.shape[0])
         return None
@@ -472,7 +478,17 @@ class ImageCanvas(QWidget):
             return int(max(0, min(w - 1, fx))), int(max(0, min(h - 1, fy)))
 
         if isinstance(buf, GPUTexture):
-            x, y = _xy(buf.width, buf.height)
+            use_gpu = self.state.gpu_enabled and not self.state.gpu_viewport_failed
+            rot = (getattr(self.gpu_widget, "display_rotation", 0) if use_gpu else getattr(self.overlay, "_gpu_display_rotation", 0)) % 4
+            flip_h = bool(
+                getattr(self.gpu_widget, "display_flip_h", False) if use_gpu else getattr(self.overlay, "_gpu_display_flip_h", False)
+            )
+            dw, dh = (buf.height, buf.width) if rot % 2 == 1 else (buf.width, buf.height)
+            x, y = _xy(dw, dh)
+            if flip_h:
+                x = dw - 1 - x
+            for _ in range((-rot) % 4):
+                x, y, dw, dh = y, dw - 1 - x, dh, dw
             try:
                 arr = buf.readback_region(x, y, 1, 1)
             except Exception:
@@ -756,6 +772,7 @@ class ImageCanvas(QWidget):
                 except Exception:
                     logger.exception("Failed to read back GPU preview for canvas display")
                     return
+            self._last_buffer = buffer
             self.overlay.update_buffer(buffer, color_space, content_rect, monitor_icc_bytes=monitor_icc_bytes, proof=proof)
             self.overlay.show()
             self.overlay.raise_()
@@ -764,6 +781,36 @@ class ImageCanvas(QWidget):
         # The image resolution can change between renders, for example on toggling HQ, which
         # shifts the fit scale. Refresh the true-zoom readout for the new buffer.
         self.zoom_changed.emit(self.zoom_level)
+
+    def rotate_display(self, direction: int) -> None:
+        """Turn the live viewport buffer immediately while the settle render runs."""
+        import numpy as np
+
+        turns = direction % 4
+        buf = getattr(self, "_last_buffer", None)
+        if not turns or buf is None:
+            return
+        if self.state.gpu_enabled and not self.state.gpu_viewport_failed and isinstance(buf, GPUTexture):
+            self.gpu_widget.rotate_display(turns)
+        elif isinstance(buf, np.ndarray):
+            self._last_buffer = np.rot90(buf, k=turns)
+        self.overlay.rotate_display(direction)
+        self._sync_navigator()
+        self.zoom_changed.emit(self.zoom_level)
+
+    def flip_display(self, horizontal: bool) -> None:
+        """Mirror the live viewport buffer immediately while the settle render runs."""
+        import numpy as np
+
+        buf = getattr(self, "_last_buffer", None)
+        if buf is None:
+            return
+        if self.state.gpu_enabled and not self.state.gpu_viewport_failed and isinstance(buf, GPUTexture):
+            self.gpu_widget.flip_display(horizontal)
+        elif isinstance(buf, np.ndarray):
+            self._last_buffer = np.fliplr(buf) if horizontal else np.flipud(buf)
+        self.overlay.flip_display(horizontal)
+        self._sync_navigator()
 
     def refresh_compare(self) -> None:
         """Repaint the before/after split (its baseline frame landed or was dropped)."""

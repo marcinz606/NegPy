@@ -978,6 +978,7 @@ class AppController(QObject):
         self._export_view_worker: Optional[ExportViewWorker] = None
         self._export_view_busy = False
         self._dispatched_render_state: Optional[tuple] = None  # _render_state() of the last plain render
+        self._geometry_turn_gen: int = 0
 
         self._crop_bounds_dirty = False
         # (tool, file hash, config) when Crop or Draw Region opened: what Esc puts back.
@@ -3274,6 +3275,8 @@ class AppController(QObject):
         # The left frame's geometry: a click before the new render maps nowhere, not into it.
         self.state.last_metrics.pop("uv_grid", None)
         self.state.last_metrics.pop("active_roi", None)
+        self.state.last_metrics.pop("display_turns", None)
+        self.state.last_metrics.pop("display_orient", None)
 
         if memo is not None:
             with self.state.metrics_lock:
@@ -3428,6 +3431,8 @@ class AppController(QObject):
             self.state.last_metrics["base_positive"] = raw
             self.state.last_metrics["render_long_edge"] = int(max(raw.shape[:2])) if isinstance(raw, np.ndarray) else 0
             self.state.last_metrics["splash"] = True
+            self.state.last_metrics.pop("display_turns", None)
+            self.state.last_metrics.pop("display_orient", None)
             # Every base_positive writer stamps this; the border gate reads it, not the live tool.
             self.state.last_metrics["crop_preview_full"] = self.state.active_tool in UNCROPPED_PREVIEW_TOOLS
         self.image_updated.emit()
@@ -5775,6 +5780,9 @@ class AppController(QObject):
         """
         with self.state.metrics_lock:
             metrics = dict(self.state.last_metrics)
+
+        if metrics.get("display_orient") or metrics.get("display_turns"):
+            return
 
         img = metrics.get("normalized_log")
         is_log = True
@@ -8759,6 +8767,7 @@ class AppController(QObject):
             gain_slices=self._preview_gain_slices(dip),
             source_orientation=self.state.preview_orientation,
             film_base=self.film_base(),
+            turn_gen=self._geometry_turn_gen,
         )
 
         self._cancel_neighbor_prefetch()
@@ -8931,6 +8940,91 @@ class AppController(QObject):
             self.compare_changed.emit(True)
             # The edit is already on screen; only the baseline half has to be rendered.
             self._request_compare_baseline()
+
+    def _transform_active_thumbnail(self, xform: QTransform) -> None:
+        st = self.state
+        idx = st.selected_file_idx
+        if 0 <= idx < len(st.uploaded_files):
+            key = asset_thumbnail_key(st.uploaded_files[idx])
+            icon = st.thumbnails.get(key)
+            sizes = icon.availableSizes() if icon is not None else []
+            if sizes and icon is not None:
+                st.thumbnails[key] = QIcon(icon.pixmap(sizes[0]).transformed(xform))
+                self.session.asset_model.refresh_thumbnails([key])
+
+    def rotate_active_display(self, direction: int) -> None:
+        """Turn the active frame's displayed pixels, UV grid and filmstrip icon immediately
+        while the authoritative settle render runs in the background."""
+        turns = direction % 4
+        if not turns:
+            return
+        self._geometry_turn_gen += 1
+        self._transform_active_thumbnail(QTransform().rotate(-90 * direction))
+        st = self.state
+        if st.test_strip or st.negative_peek or st.embedded_peek or st.flatfield_peek or st.export_size_view:
+            return
+        st.export_view = None
+        with st.metrics_lock:
+            uv = st.last_metrics.get("uv_grid")
+            if isinstance(uv, np.ndarray) and uv.ndim == 3:
+                st.last_metrics["uv_grid"] = np.ascontiguousarray(np.rot90(uv, k=turns))
+            st.last_metrics.pop("normalized_log", None)
+            cur_turns, fh = st.last_metrics.get("display_orient", (int(st.last_metrics.get("display_turns", 0)) % 4, False))
+            new_turns = (cur_turns - turns) % 4 if fh else (cur_turns + turns) % 4
+            if (new_turns, fh) == (0, False):
+                st.last_metrics.pop("display_orient", None)
+                st.last_metrics.pop("display_turns", None)
+            else:
+                st.last_metrics["display_orient"] = (new_turns, fh)
+                st.last_metrics["display_turns"] = new_turns
+        before = getattr(st, "compare_before", None)
+        if isinstance(before, np.ndarray) and before.ndim >= 2:
+            rect = getattr(st, "compare_before_rect", None)
+            if rect is not None:
+                x, y, rw, rh = rect
+                w, h = before.shape[1], before.shape[0]
+                for _ in range(turns):
+                    x, y, rw, rh, w, h = y, w - (x + rw), rh, rw, h, w
+                st.compare_before_rect = (x, y, rw, rh)
+            st.compare_before = np.ascontiguousarray(np.rot90(before, k=turns))
+        canvas = getattr(self, "canvas", None)
+        if canvas is not None:
+            canvas.rotate_display(direction)
+
+    def flip_active_display(self, horizontal: bool) -> None:
+        """Mirror the active frame's displayed pixels, UV grid and filmstrip icon immediately
+        while the authoritative settle render runs in the background."""
+        self._geometry_turn_gen += 1
+        self._transform_active_thumbnail(QTransform().scale(-1.0, 1.0) if horizontal else QTransform().scale(1.0, -1.0))
+        st = self.state
+        if st.test_strip or st.negative_peek or st.embedded_peek or st.flatfield_peek or st.export_size_view:
+            return
+        st.export_view = None
+        with st.metrics_lock:
+            uv = st.last_metrics.get("uv_grid")
+            if isinstance(uv, np.ndarray) and uv.ndim == 3:
+                st.last_metrics["uv_grid"] = np.ascontiguousarray(np.fliplr(uv) if horizontal else np.flipud(uv))
+            st.last_metrics.pop("normalized_log", None)
+            cur_turns, fh = st.last_metrics.get("display_orient", (int(st.last_metrics.get("display_turns", 0)) % 4, False))
+            new_turns = cur_turns if horizontal else (cur_turns + 2) % 4
+            new_fh = not fh
+            if (new_turns, new_fh) == (0, False):
+                st.last_metrics.pop("display_orient", None)
+                st.last_metrics.pop("display_turns", None)
+            else:
+                st.last_metrics["display_orient"] = (new_turns, new_fh)
+                st.last_metrics["display_turns"] = new_turns
+        before = getattr(st, "compare_before", None)
+        if isinstance(before, np.ndarray) and before.ndim >= 2:
+            rect = getattr(st, "compare_before_rect", None)
+            if rect is not None:
+                x, y, rw, rh = rect
+                w, h = before.shape[1], before.shape[0]
+                st.compare_before_rect = (w - (x + rw), y, rw, rh) if horizontal else (x, h - (y + rh), rw, rh)
+            st.compare_before = np.ascontiguousarray(np.fliplr(before) if horizontal else np.flipud(before))
+        canvas = getattr(self, "canvas", None)
+        if canvas is not None:
+            canvas.flip_display(horizontal)
 
     def rerender_active_view(self) -> None:
         """Re-render after a rotate or flip. Keeps the flat peek, which a plain request_render()
@@ -10438,8 +10532,12 @@ class AppController(QObject):
         """Reject pixels and measurements for a different file or superseded edit."""
         src = metrics.get("source_hash")
         key = metrics.get("memo_key")
-        return (src is not None and src != (self.state.current_file_hash or "preview")) or bool(
-            key and self._expected_render_key and key != self._expected_render_key
+        turn_gen = metrics.get("turn_gen")
+        expected_turn = getattr(self, "_geometry_turn_gen", 0)
+        return (
+            (src is not None and src != (self.state.current_file_hash or "preview"))
+            or (isinstance(turn_gen, int) and isinstance(expected_turn, int) and turn_gen != expected_turn)
+            or bool(key and self._expected_render_key and key != self._expected_render_key)
         )
 
     def _on_render_finished(self, _result: Any, metrics: Dict[str, Any]) -> None:
@@ -10486,6 +10584,8 @@ class AppController(QObject):
         )
 
         with self.state.metrics_lock:
+            self.state.last_metrics.pop("display_turns", None)
+            self.state.last_metrics.pop("display_orient", None)
             self.state.last_metrics.update(metrics)
             _stamp_render_serial(self.state.last_metrics, metrics)
             self.state.last_metrics["splash"] = False

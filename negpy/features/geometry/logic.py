@@ -14,6 +14,7 @@ from negpy.features.geometry.models import (
     AspectRatio,
     AutocropMode,
     GeometryConfig,
+    squares_on_arm,
 )
 from negpy.kernel.image.logic import apply_geometry_orientation, get_luminance
 from negpy.kernel.image.validation import ensure_image
@@ -1172,6 +1173,9 @@ def rotate_geometry_and_analysis(
     WorkspaceConfig import here would be the only one under features/, and the
     reverse import already runs domain.models -> geometry.models.
     """
+    keep_auto_key = (
+        geo.crop_from_auto and geo.crop_rect is not None and geo.crop_detect_key == autocrop_detection_key(geo) and not squares_on_arm(geo)
+    )
     pipeline_direction = -direction if geo.flip_horizontal != geo.flip_vertical else direction
     new_geo = replace(geo, rotation=(geo.rotation + pipeline_direction) % 4)
     if geo.converge_v != 0.0 or geo.converge_h != 0.0:
@@ -1181,6 +1185,8 @@ def rotate_geometry_and_analysis(
         new_geo = replace(new_geo, converge_v=converge_v, converge_h=converge_h)
     if geo.crop_rect is not None:
         new_geo = replace(new_geo, crop_rect=rotate_normalized_rect(geo.crop_rect, direction))
+    if keep_auto_key:
+        new_geo = replace(new_geo, crop_detect_key=autocrop_detection_key(new_geo))
     new_rect = rotate_normalized_rect(analysis_rect, direction) if analysis_rect is not None else None
     return new_geo, new_rect
 
@@ -1195,6 +1201,9 @@ def toggle_flip(geo: GeometryConfig, horizontal: bool) -> GeometryConfig:
     rect lives in transformed space and mirrors along with the content
     it frames.
     """
+    keep_auto_key = (
+        geo.crop_from_auto and geo.crop_rect is not None and geo.crop_detect_key == autocrop_detection_key(geo) and not squares_on_arm(geo)
+    )
     if horizontal:
         new_geo = replace(geo, flip_horizontal=not geo.flip_horizontal, converge_h=0.0 - geo.converge_h)
     else:
@@ -1203,7 +1212,39 @@ def toggle_flip(geo: GeometryConfig, horizontal: bool) -> GeometryConfig:
         new_geo = replace(new_geo, fine_rotation=-geo.fine_rotation)
     if geo.crop_rect is not None:
         new_geo = replace(new_geo, crop_rect=mirror_normalized_rect(geo.crop_rect, horizontal))
+    if keep_auto_key:
+        new_geo = replace(new_geo, crop_detect_key=autocrop_detection_key(new_geo))
     return new_geo
+
+
+def rotate_meter_rect_and_key(
+    meter_rect: Optional[Tuple[float, float, float, float]],
+    meter_key: str,
+    old_geo: GeometryConfig,
+    new_geo: GeometryConfig,
+    direction: int,
+) -> Tuple[Optional[Tuple[float, float, float, float]], str]:
+    """Advance a resolved meter box across a visual quarter-turn without re-detecting."""
+    prefix = f"{autocrop_detection_key(old_geo)}|"
+    if not meter_key.startswith(prefix):
+        return meter_rect, meter_key
+    turned_rect = rotate_normalized_rect(meter_rect, direction) if meter_rect is not None else None
+    return turned_rect, f"{autocrop_detection_key(new_geo)}|{meter_key[len(prefix) :]}"
+
+
+def flip_meter_rect_and_key(
+    meter_rect: Optional[Tuple[float, float, float, float]],
+    meter_key: str,
+    old_geo: GeometryConfig,
+    new_geo: GeometryConfig,
+    horizontal: bool,
+) -> Tuple[Optional[Tuple[float, float, float, float]], str]:
+    """Advance a resolved meter box across a mirror without re-detecting."""
+    prefix = f"{autocrop_detection_key(old_geo)}|"
+    if not meter_key.startswith(prefix):
+        return meter_rect, meter_key
+    mirrored_rect = mirror_normalized_rect(meter_rect, horizontal) if meter_rect is not None else None
+    return mirrored_rect, f"{autocrop_detection_key(new_geo)}|{meter_key[len(prefix) :]}"
 
 
 def flip_geometry_and_analysis(

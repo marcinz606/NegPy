@@ -57,6 +57,8 @@ class GPUCanvasWidget(QWidget):
         self.zoom: float = 1.0
         self.pan_x: float = 0.0
         self.pan_y: float = 0.0
+        self.display_rotation: int = 0
+        self.display_flip_h: bool = False
         self._bg: Tuple[float, float, float] = (0.02, 0.02, 0.02)
         # Logical px kept clear on every side of the fit area.
         self.fit_margin: float = 0.0
@@ -208,7 +210,27 @@ class GPUCanvasWidget(QWidget):
     def update_texture(self, tex_wrapper: Any) -> None:
         self.current_texture_view = tex_wrapper.view
         self.image_size = (tex_wrapper.width, tex_wrapper.height)
+        self.display_rotation = 0
+        self.display_flip_h = False
         self.canvas.request_draw(self._draw_frame)
+
+    def rotate_display(self, direction: int) -> None:
+        turns = direction % 4
+        if not turns:
+            return
+        if self.display_flip_h:
+            self.display_rotation = (self.display_rotation - turns) % 4
+        else:
+            self.display_rotation = (self.display_rotation + turns) % 4
+        if self.current_texture_view:
+            self.canvas.request_draw(self._draw_frame)
+
+    def flip_display(self, horizontal: bool) -> None:
+        if not horizontal:
+            self.display_rotation = (self.display_rotation + 2) % 4
+        self.display_flip_h = not self.display_flip_h
+        if self.current_texture_view:
+            self.canvas.request_draw(self._draw_frame)
 
     def set_background_color(self, r: float, g: float, b: float) -> None:
         self._bg = (r, g, b)
@@ -221,6 +243,8 @@ class GPUCanvasWidget(QWidget):
 
     def clear(self) -> None:
         self.current_texture_view = None
+        self.display_rotation = 0
+        self.display_flip_h = False
         self.canvas.request_draw(self._draw_frame)
 
     def resizeEvent(self, event) -> None:
@@ -303,7 +327,20 @@ class GPUCanvasWidget(QWidget):
 
             var out: VertexOutput;
             out.pos = vec4<f32>(final_pos, 0.0, 1.0);
-            out.uv = uvs[in_vertex_index];
+            var uv = uvs[in_vertex_index];
+            let orient = i32(round(params.filt.y));
+            if (orient >= 4) {
+                uv = vec2<f32>(1.0 - uv.x, uv.y);
+            }
+            let rot = orient % 4;
+            if (rot == 1) {
+                uv = vec2<f32>(1.0 - uv.y, uv.x);
+            } else if (rot == 2) {
+                uv = vec2<f32>(1.0 - uv.x, 1.0 - uv.y);
+            } else if (rot == 3) {
+                uv = vec2<f32>(uv.y, 1.0 - uv.x);
+            }
+            out.uv = uv;
             return out;
         }
 
@@ -466,7 +503,13 @@ class GPUCanvasWidget(QWidget):
 
         if self.current_texture_view:
             ww, wh = float(current_tex.width), float(current_tex.height)
-            iw, ih = float(self.image_size[0]), float(self.image_size[1])
+            rot = self.display_rotation % 4
+            orient = rot + (4 if self.display_flip_h else 0)
+            iw, ih = (
+                (float(self.image_size[1]), float(self.image_size[0]))
+                if rot % 2 == 1
+                else (float(self.image_size[0]), float(self.image_size[1]))
+            )
 
             dpr = self.devicePixelRatioF()
             margin_px = 2.0 * self.fit_margin * dpr
@@ -491,7 +534,7 @@ class GPUCanvasWidget(QWidget):
                     float(self._lut_n),
                     # Screen pixels per image pixel: r fits the image, zoom scales it.
                     r * self.zoom,
-                    0.0,
+                    float(orient),
                     0.0,
                     0.0,
                 ),
