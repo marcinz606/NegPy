@@ -1295,7 +1295,8 @@ class ActionToolbar(QWidget):
             self.btn_tool_undo.setEnabled(state.undo_index > 0)
             self.btn_tool_redo.setEnabled(state.undo_index < state.max_history_index)
         # After the texts: the bar measures them.
-        if mode != self._shown_tool:
+        swapped = mode != self._shown_tool
+        if swapped:
             self._shown_tool = mode
             self._swap_tool_slider(spec[2] if spec else "")
         # An armed tool outranks the paper strip, which outranks the Zone Overlay, which outranks
@@ -1318,6 +1319,10 @@ class ActionToolbar(QWidget):
             self._sync_rows()
         if self._tool_slider is not None:
             self._tool_slider.setEnabled(self._tool_slider_source.isEnabled())
+            if not swapped:
+                manual_dust_size = state.config.retouch.manual_dust_size
+                if isinstance(manual_dust_size, int | float) and not isinstance(manual_dust_size, bool):
+                    self._sync_brush_tool_slider(int(manual_dust_size))
 
     def _find_widget(self, path: str):
         from negpy.desktop.view.main_window import MainWindow
@@ -1352,6 +1357,10 @@ class ActionToolbar(QWidget):
         source.valueChanged.connect(mirror.setValue)
         self._tool_layout.insertWidget(self._tool_slider_index, mirror)
         self._tool_slider, self._tool_slider_source = mirror, source
+
+    def _sync_brush_tool_slider(self, size: int) -> None:
+        if self._tool_slider is not None and self._shown_tool in (ToolMode.DUST_PICK, ToolMode.SCRATCH_PICK, ToolMode.CLONE):
+            self._tool_slider.setValue(float(size))
 
     @staticmethod
     def _menu_section(menu: QMenu, text: str) -> None:
@@ -1561,10 +1570,12 @@ class ActionToolbar(QWidget):
         controller.zoom_changed.connect(self._on_zoom_changed)
 
         self.session.state_changed.connect(self._update_ui_state)
+        self.session.history_changed.connect(self._update_ui_state)
         controller.config_updated.connect(lambda: "average" in self._item_ids and self._sync_average_button())
         self.session.asset_model.layoutChanged.connect(self._update_ui_state)
         self.session.files_changed.connect(self._sync_light_table_row)
         controller.tool_sync_requested.connect(self._sync_tool_row)
+        controller.brush_size_changed.connect(self._sync_brush_tool_slider)
         controller.zones_overlay_changed.connect(lambda _on: self._sync_tool_row())
         controller.average_peek_changed.connect(lambda _on: self._sync_tool_row())
         controller.test_strip_changed.connect(lambda _up: self._sync_tool_row())

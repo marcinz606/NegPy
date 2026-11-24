@@ -1058,6 +1058,8 @@ class DesktopSessionManager(QObject):
     batch_recorded = pyqtSignal()  # a change to several frames that undo_last_batch can take back
     file_selected = pyqtSignal(str)  # Emits file path when active file changes
     session_emptied = pyqtSignal()  # Last file removed — the viewer must blank the stale frame
+    _pending_brush_before: Optional[Tuple[Optional[str], WorkspaceConfig]] = None
+    _committing_brush: bool = False
 
     @property
     def _config_dirty(self) -> bool:
@@ -1072,6 +1074,8 @@ class DesktopSessionManager(QObject):
         self.repo = repo
         self.state = AppState()
         self._preview_history: Optional[Tuple[str, WorkspaceConfig]] = None
+        self._pending_brush_before: Optional[Tuple[Optional[str], WorkspaceConfig]] = None
+        self._committing_brush: bool = False
         self._batch: Optional[FrameBatch] = None
         self.last_batch: Optional[FrameBatch] = None
         self._search_facts: Optional[Dict[str, Dict[str, Any]]] = None
@@ -1673,6 +1677,7 @@ class DesktopSessionManager(QObject):
         Changes active file and hydrates state from repository.
         """
         if 0 <= index < len(self.state.uploaded_files):
+            self.commit_brush_size()
             # Save current before switching, but only if user actually made explicit edits
             if self.state.current_file_hash:
                 self.end_frame_previews()
@@ -2175,10 +2180,44 @@ class DesktopSessionManager(QObject):
         if display_idx > 0:
             self.select_file(self.asset_model.display_to_actual(display_idx - 1))
 
+    def preview_brush_size(self, size: int) -> None:
+        """Update brush diameter in memory during a wheel/pinch gesture without touching SQLite
+        or colliding with slider `_preview_history`."""
+        if self._pending_brush_before is None:
+            self._commit_preview()
+            self._pending_brush_before = (self.state.current_file_hash, self.state.config)
+        self.state.config = replace(self.state.config, retouch=replace(self.state.config.retouch, manual_dust_size=size))
+
+    def commit_brush_size(self) -> None:
+        """Flush a debounced wheel/pinch brush-size change as a single persisted step."""
+        if self._pending_brush_before is None or self._committing_brush:
+            return
+        file_hash, before = self._pending_brush_before
+        self._pending_brush_before = None
+        after = self.state.config
+        if file_hash != self.state.current_file_hash or after == before:
+            return
+        self._committing_brush = True
+        try:
+            self.state.config = before
+            self.update_config(after, persist=True, render=False)
+        finally:
+            self._committing_brush = False
+
     def update_config(self, config: WorkspaceConfig, persist: bool = False, render: bool = True, record_history: bool = True) -> None:
         """
         Updates global config and optionally saves to disk.
         """
+        persisted_config = config
+        if not self._committing_brush and self._pending_brush_before is not None:
+            if record_history:
+                self.commit_brush_size()
+            elif self._pending_brush_before[0] != self.state.current_file_hash:
+                self._pending_brush_before = None
+            else:
+                before_size = self._pending_brush_before[1].retouch.manual_dust_size
+                persisted_config = replace(config, retouch=replace(config.retouch, manual_dust_size=before_size))
+                self._pending_brush_before = (self.state.current_file_hash, persisted_config)
         if persist and record_history and self._batch is None:
             # An edit after a batch: undoing the batch now would take this edit with it.
             self.last_batch = None
@@ -2221,9 +2260,9 @@ class DesktopSessionManager(QObject):
 
         if persist:
             self._config_dirty = True
-            self._persist_sticky_settings(config)
+            self._persist_sticky_settings(persisted_config)
             if self.state.current_file_hash:
-                self.repo.save_file_settings(self.state.current_file_hash, config, file_path=self.state.current_file_path or "")
+                self.repo.save_file_settings(self.state.current_file_hash, persisted_config, file_path=self.state.current_file_path or "")
                 self.settings_saved.emit()
                 self.refresh_average_marks({self.state.current_file_hash})
 
@@ -2237,6 +2276,7 @@ class DesktopSessionManager(QObject):
 
     def discard_preview(self) -> bool:
         """Return the active frame to its config before its unsaved preview. False when there is none."""
+        self.commit_brush_size()
         if self._preview_history is None or self._preview_history[0] != self.state.current_file_hash:
             return False
         self.state.config = self._preview_history[1]
@@ -2244,6 +2284,7 @@ class DesktopSessionManager(QObject):
         return True
 
     def _commit_preview(self) -> None:
+        self.commit_brush_size()
         if self._preview_history is not None:
             self.update_config(self.state.config, persist=True, render=False)
 
@@ -2554,6 +2595,7 @@ class DesktopSessionManager(QObject):
         """Unlock *asset*'s roll cards and return what a reset writes: what a fresh frame
         in its roll gets, less the sticky look. DEFAULT_WORKSPACE_CONFIG, the scan-setup
         preferences, the roll's defaults, then what the asset itself is."""
+        self.commit_brush_size()
         config = self._with_brush_size(self._with_scan_setup(DEFAULT_WORKSPACE_CONFIG))
         if asset.get("hash"):
             roll_id = rolls.frame_roll(self.repo, self.state.active_roll_id, asset)
@@ -2586,6 +2628,7 @@ class DesktopSessionManager(QObject):
         `update_config`, the rest are written straight to the DB with an external history
         step, the same split `_on_normalization_finished` uses for a roll-wide write.
         """
+        self.commit_brush_size()
         changed_hashes: list[str] = []
         for f_info in assets:
             old_p = self.config_for_asset(f_info)
@@ -2838,6 +2881,7 @@ class DesktopSessionManager(QObject):
 
     def save_active_edit(self) -> None:
         """Write the open frame's unsaved edit, so a batch reading the DB sees it."""
+        self.commit_brush_size()
         if self.state.current_file_hash and self._config_dirty:
             self.repo.save_file_settings(self.state.current_file_hash, self.state.config, file_path=self.state.current_file_path or "")
             self.settings_saved.emit()
@@ -2846,6 +2890,7 @@ class DesktopSessionManager(QObject):
     def replace_assets(self, replacements: Dict[int, dict]) -> None:
         """Swap Film Strip entries in place ({index: new asset}) and reopen the active frame
         when it is one of them."""
+        self.commit_brush_size()
         valid = {i: a for i, a in replacements.items() if 0 <= i < len(self.state.uploaded_files)}
         if not valid:
             return
@@ -2894,6 +2939,8 @@ class DesktopSessionManager(QObject):
         """Clears everything tied to the previously displayed image after the session
         emptied, then announces it via `session_emptied` so the viewer blanks the
         stale frame instead of keeping an image that can no longer be removed."""
+        self.commit_brush_size()
+        self._pending_brush_before = None
         self.state.selected_file_idx = -1
         self.state.selected_indices = []
         self.state.current_file_path = None
@@ -2917,6 +2964,7 @@ class DesktopSessionManager(QObject):
         """
         Purges all loaded files from the session.
         """
+        self.commit_brush_size()
         self.state.uploaded_files.clear()
         self.state.thumbnails.clear()
         self.state.rendered_thumbnails.clear()
@@ -2973,6 +3021,7 @@ class DesktopSessionManager(QObject):
         """
         Removes the currently selected file from the session.
         """
+        self.commit_brush_size()
         idx = self.state.selected_file_idx
         if 0 <= idx < len(self.state.uploaded_files):
             self._drop_thumbnail(self.state.uploaded_files.pop(idx))
@@ -2995,6 +3044,7 @@ class DesktopSessionManager(QObject):
 
     def remove_files(self, indices: List[int]) -> None:
         """Removes the files at *indices* from the session."""
+        self.commit_brush_size()
         indices = sorted(set(indices), reverse=True)
         if not indices:
             return

@@ -273,3 +273,150 @@ def test_a_trackpad_pinch_on_macos_with_the_pointer_off_the_canvas_anchors_on_it
         canvas._try_pinch_gesture(event)
     anchor = apply.call_args.args[1]
     assert (round(anchor.x()), round(anchor.y())) == (100, 50)
+
+
+def test_fractional_wheel_deltas_accumulate_and_reverse_cleanly(qapp, tmp_path):
+    """Smooth wheels and trackpads emit <0.5 notch steps per event; accumulate them instead of
+    rounding each event back to zero, persist once when the single-shot timer expires, and
+    isolate interleaved strokes or slider drags."""
+    from types import SimpleNamespace
+
+    from PyQt6.QtCore import QTimer
+    from PyQt6.QtTest import QTest
+
+    from negpy.desktop.controller import AppController
+    from negpy.desktop.session import BRUSH_SIZE_KEY, DesktopSessionManager
+    from negpy.infrastructure.storage.repository import StorageRepository
+
+    repo = StorageRepository(str(tmp_path / "edits.db"), str(tmp_path / "settings.db"))
+    repo.initialize()
+    session = DesktopSessionManager(repo)
+    state = session.state
+    state.uploaded_files = [{"name": "f0.arw", "path": "/tmp/f0.arw", "hash": "h0"}]
+    state.selected_file_idx = 0
+    state.current_file_hash = "h0"
+    state.current_file_path = "/tmp/f0.arw"
+    state.config = replace(state.config, retouch=replace(state.config.retouch, manual_dust_size=10))
+
+    timer = QTimer()
+    timer.setSingleShot(True)
+    timer.setInterval(30)
+    overlay = MagicMock()
+    stub = SimpleNamespace(
+        state=state,
+        session=session,
+        _brush_size_accum=0.0,
+        _brush_size_dir=0,
+        _brush_persist_timer=timer,
+        canvas=SimpleNamespace(overlay=overlay),
+        brush_size_changed=MagicMock(),
+        set_status=MagicMock(),
+    )
+    timer.timeout.connect(lambda: AppController._flush_brush_size(stub))
+
+    for _ in range(5):
+        AppController.adjust_brush_size(stub, 0.2)
+    assert state.config.retouch.manual_dust_size == 11
+    # In-memory only during scroll: DB has no saved row yet.
+    assert repo.load_file_settings("h0") is None
+    overlay.refresh_brush_cursor.assert_called_once_with(10)
+    stub.brush_size_changed.emit.assert_called_once_with(11)
+    assert timer.isActive()
+
+    # Reversing scroll direction drops any opposite-sign remainder immediately.
+    AppController.adjust_brush_size(stub, 0.4)
+    for _ in range(3):
+        AppController.adjust_brush_size(stub, -0.2)
+    assert state.config.retouch.manual_dust_size == 10
+
+    # Scroll up to 14 and let the real Qt single-shot timer expire (isActive() == False inside slot).
+    AppController.adjust_brush_size(stub, 4.0)
+    assert state.config.retouch.manual_dust_size == 14
+    QTest.qWait(80)
+    assert not timer.isActive()
+    assert repo.load_file_settings("h0").retouch.manual_dust_size == 14
+    assert repo.get_global_setting(BRUSH_SIZE_KEY) == 14
+    assert state.undo_index == 1
+
+    # Painting a stroke within the debounce window records two separate undo steps (brush then stroke).
+    AppController.adjust_brush_size(stub, 6.0)
+    assert state.config.retouch.manual_dust_size == 20
+    assert timer.isActive()
+    stroke_cfg = replace(state.config, retouch=replace(state.config.retouch, manual_dust_spots=[(0.5, 0.5, 20.0)]))
+    session.update_config(stroke_cfg, persist=True, render=False)
+    assert state.undo_index == 3
+    session.undo()
+    assert state.config.retouch.manual_dust_spots == []
+    assert state.config.retouch.manual_dust_size == 20, "undoing the stroke keeps the brush size"
+    # Timer firing later does not clobber anything.
+    QTest.qWait(80)
+    assert state.config.retouch.manual_dust_size == 20
+
+    # Background auto-measured writes (record_history=False) during a wheel scroll rebase the
+    # pending baseline instead of splitting the scroll into two undo steps or persisting mid-scroll.
+    AppController.adjust_brush_size(stub, 3.0)
+    assert state.config.retouch.manual_dust_size == 23
+    measured_cfg = replace(
+        state.config,
+        geometry=replace(state.config.geometry, crop_detect_key="auto-k1"),
+    )
+    session.update_config(measured_cfg, persist=True, render=False, record_history=False)
+    assert state.undo_index == 2, "record_history=False must not split an active wheel gesture"
+    assert repo.get_global_setting(BRUSH_SIZE_KEY) == 20, "uncommitted preview size is not written mid-scroll"
+    AppController.adjust_brush_size(stub, 2.0)
+    assert state.config.retouch.manual_dust_size == 25
+    QTest.qWait(80)
+    assert state.undo_index == 3
+    assert repo.get_global_setting(BRUSH_SIZE_KEY) == 25
+    assert repo.load_file_settings("h0").geometry.crop_detect_key == "auto-k1"
+    session.undo()
+    assert state.config.retouch.manual_dust_size == 20
+    assert state.config.geometry.crop_detect_key == "auto-k1"
+
+    # Unloading the sole open frame within the debounce window flushes the pending brush size first.
+    AppController.adjust_brush_size(stub, 8.0)
+    assert state.config.retouch.manual_dust_size == 28
+    session.remove_current_file()
+    assert repo.get_global_setting(BRUSH_SIZE_KEY) == 28
+    assert repo.load_file_settings("h0").retouch.manual_dust_size == 28
+    assert state.config.retouch.manual_dust_size == 28
+
+
+def test_toolbar_refreshes_undo_on_history_changed_and_syncs_tool_slider_on_undo(qapp, tmp_path):
+    from negpy.desktop.session import DesktopSessionManager
+    from negpy.desktop.view.canvas.toolbar import ActionToolbar
+    from negpy.infrastructure.storage.repository import StorageRepository
+
+    repo = StorageRepository(str(tmp_path / "edits.db"), str(tmp_path / "settings.db"))
+    repo.initialize()
+    session = DesktopSessionManager(repo)
+    session.state.uploaded_files = [{"name": "f0.arw", "path": "/tmp/f0.arw", "hash": "h0"}]
+    session.state.selected_file_idx = 0
+    session.state.current_file_hash = "h0"
+    session.state.current_file_path = "/tmp/f0.arw"
+    session.state.config = replace(session.state.config, retouch=replace(session.state.config.retouch, manual_dust_size=10))
+
+    ctrl = MagicMock()
+    ctrl.session = session
+    ctrl.state = session.state
+    ctrl.measuring_baseline.return_value = False
+    ctrl.average_scopes.return_value = {}
+    tb = ActionToolbar(ctrl)
+    assert not tb.btn_undo.isEnabled()
+
+    # Debounced wheel commit emits history_changed (render=False -> no state_changed): btn_undo must enable.
+    session.preview_brush_size(22)
+    session.commit_brush_size()
+    assert tb.btn_undo.isEnabled()
+
+    # Undoing a brush-size step updates the mirrored tool slider via _sync_tool_row.
+    fake_slider = MagicMock()
+    fake_source = MagicMock()
+    fake_source.isEnabled.return_value = True
+    tb._tool_slider = fake_slider
+    tb._tool_slider_source = fake_source
+    tb._shown_tool = ToolMode.DUST_PICK
+    session.state.active_tool = ToolMode.DUST_PICK
+    session.undo()
+    assert session.state.config.retouch.manual_dust_size == 10
+    fake_slider.setValue.assert_called_with(10.0)

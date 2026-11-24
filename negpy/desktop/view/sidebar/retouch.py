@@ -177,6 +177,7 @@ class RetouchSidebar(BaseSidebar):
         self.manual_size_slider.valueCommitted.connect(
             lambda v: self.update_config_section("retouch", render=False, persist=True, manual_dust_size=int(v))
         )
+        self.controller.brush_size_changed.connect(lambda v: self.manual_size_slider.setValue(float(v)))
         self.clone_btn.toggled.connect(self._on_clone_toggled)
         self.clone_source_btn.toggled.connect(self.controller.arm_clone_source)
         self.clone_match_btn.toggled.connect(
