@@ -49,9 +49,21 @@ def render_tables() -> str:
                 rows.append(f"| {_key(k_inc)} / {_key(k_dec)} | Increase / decrease **{name}** (default step {_step(g)}) |")
             else:
                 assert isinstance(row, EditorRowSingle)
-                if not row.entry.default_key:
-                    continue
-                rows.append(f"| {_key(row.entry.default_key)} | {row.entry.description} |")
+                if row.entry.platform_keys is not None:
+                    other_key, mac_key = row.entry.platform_keys
+                    if not (other_key or mac_key):
+                        continue
+                    if other_key and mac_key:
+                        key_col = f"{_key(other_key)} ({_key(mac_key)} on macOS)"
+                    elif mac_key:
+                        key_col = f"{_key(mac_key)} (macOS)"
+                    else:
+                        key_col = _key(other_key)
+                else:
+                    if not row.entry.default_key:
+                        continue
+                    key_col = _key(row.entry.default_key)
+                rows.append(f"| {key_col} | {row.entry.description} |")
         if not rows:
             continue
         lines += [f"## {category}", "| Key | Action |", "|-----|--------|", *rows, ""]

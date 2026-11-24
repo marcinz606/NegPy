@@ -175,6 +175,23 @@ def test_display_key_uses_the_platform_notation():
     assert display_key("") == ""
 
 
+def test_redo_uses_ctrl_shift_z_on_macos_and_ctrl_y_elsewhere():
+    entry = REGISTRY["redo"]
+    assert entry.key_for_platform("darwin") == "Ctrl+Shift+Z"
+    assert entry.key_for_platform("linux") == "Ctrl+Y"
+    assert entry.key_for_platform("win32") == "Ctrl+Y"
+    expected_default = "Ctrl+Shift+Z" if sys.platform == "darwin" else "Ctrl+Y"
+    assert entry.default_key == expected_default
+    assert default_bindings()["redo"] == expected_default
+    for platform in ("darwin", "linux", "win32"):
+        keys = [
+            (clash_scope(action_id, e.key_for_platform(platform)), e.key_for_platform(platform))
+            for action_id, e in REGISTRY.items()
+            if e.key_for_platform(platform)
+        ]
+        assert len(keys) == len(set(keys))
+
+
 def test_display_key_keeps_an_unparsable_binding():
     assert display_key("not a key") == "not a key"
 
@@ -206,8 +223,9 @@ def test_every_default_key_parses(qapp):
     from negpy.desktop.view.shortcut_registry import REGISTRY
 
     bad = [
-        (action, entry.default_key)
+        (action, key)
         for action, entry in REGISTRY.items()
-        if entry.default_key and not QKeySequence(entry.default_key).toString(QKeySequence.SequenceFormat.PortableText)
+        for key in ({entry.default_key, *(entry.platform_keys or ())} - {""})
+        if not QKeySequence(key).toString(QKeySequence.SequenceFormat.PortableText)
     ]
     assert bad == []
