@@ -40,7 +40,7 @@ La traduzione italiana copre tutta l'interfaccia, i messaggi, la visita guidata,
 
 ### Acquisizione
 
-* Scanner per pellicola: Plustek OpticFilm 8200i SE, 8100 V2, 8300i SE, 7600i v1 e 7600i v2 via USB, Nikon Coolscan, Reflecta, Pacific Image e tutto ciò che SANE supporta.
+* Scanner per pellicola: Plustek OpticFilm 8200i SE, 8200i, 8100 V2, 8300i SE, 7600i v1 e 7600i v2 via USB, Nikon Coolscan, Reflecta, Pacific Image e tutto ciò che SANE supporta.
 * Scansione con fotocamera collegata (macOS e Linux), comprese le acquisizioni RGB a banda stretta con uno [Scanlight](https://github.com/jackw01/scanlight) e la fusione tricromica al sottopixel ([guida](docs/it/CAMERA_SCANNING.md)).
 * Correzione del campo piatto, calibrazione del sensore per la luce a banda stretta e correzione dell'obiettivo letta dal file.
 * RAW di fotocamera, TIFF, DNG, JPEG XL e formati di scanner come Pakon, NEF di Coolscan, FFF di Flextight e Noritsu.

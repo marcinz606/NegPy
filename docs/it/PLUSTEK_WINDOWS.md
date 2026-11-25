@@ -1,6 +1,6 @@
 # Configurazione USB su Windows (Plustek OpticFilm)
 
-Il backend USB Plustek di NegPy usa il driver esterno [pyopticfilm](https://github.com/jboneng/pyopticfilm) (libusb tramite PyUSB), versione **1.3.10** o successiva. Il driver Plustek di serie per Windows non deve possedere il dispositivo.
+Il backend USB Plustek di NegPy usa il driver esterno [pyopticfilm](https://github.com/jboneng/pyopticfilm) (libusb tramite PyUSB), versione **1.3.11** o successiva. Il driver Plustek di serie per Windows non deve possedere il dispositivo.
 
 ## Requisiti
 
@@ -11,6 +11,7 @@ Il backend USB Plustek di NegPy usa il driver esterno [pyopticfilm](https://gith
   - **8300i SE** (`07B3:181F`, GL128)
   - **7600i v1** (`07B3:0C3B`, GL843; `bcdDevice` `0x0400`)
   - **7600i v2** (`07B3:0C3B`, GL845; `bcdDevice` `0x0605`)
+  - **8200i** (`07B3:130D`, GL845)
 - WinUSB (o libusbK) associato con [Zadig](https://zadig.akeo.ie/)
 - NegPy con la dipendenza facoltativa `plustek` (`uv sync --group plustek` oppure `pip install negpy[plustek]`). Su Windows, pyopticfilm installa anche `libusb-package`
 
@@ -20,13 +21,13 @@ Accendi lo scanner e collegalo, poi:
 
 1. Apri **Gestione dispositivi**
 2. Cerca Plustek tra i dispositivi di acquisizione immagini o USB
-3. Proprietà → Dettagli → ID hardware deve contenere `VID_07B3&PID_1825`, `PID_1824`, `PID_181F` o `PID_0C3B` per il tuo modello
+3. Proprietà → Dettagli → ID hardware deve contenere `VID_07B3&PID_1825`, `PID_1824`, `PID_181F`, `PID_0C3B` o `PID_130D` per il tuo modello
 
 ## 2. Associa WinUSB (Zadig)
 
 1. Scarica [Zadig](https://zadig.akeo.ie/)
 2. Seleziona **Options → List All Devices**
-3. Seleziona Plustek Film Scanner (`07B3:1825`, `07B3:1824`, `07B3:181F` o `07B3:0C3B`)
+3. Seleziona Plustek Film Scanner (`07B3:1825`, `07B3:1824`, `07B3:181F`, `07B3:0C3B` o `07B3:130D`)
 4. Sostituisci il driver con **WinUSB**. Funziona anche libusbK
 5. Conserva il programma di installazione del driver Plustek di serie. Ti servirà per ripristinare VueScan o il software del produttore in seguito
 

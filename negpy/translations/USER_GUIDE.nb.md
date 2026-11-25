@@ -553,7 +553,7 @@ Fanen **Prøve** viser på skjermen hvordan bildet vil se ut når det skrives ut
 
 *   **Skanner**: **Filmskanner** for en egen filmskanner (kortene Enhet, Film og kvalitet og Innramming), eller **Kamera** for et kamera på et reprostativ (kortene Kamera og Forhåndsinnstilling).
 
-<!-- panel:scan_device src:a18b5f39 -->
+<!-- panel:scan_device src:a615f77c -->
 ### Enhet
 
 *   **Motor**: **SANE** (Linux og macOS), **Nikon Coolscan (nkscan)** eller **pyOpticfilm (Plustek)**. Kontrollene følger det skanneren rapporterer.
@@ -562,15 +562,15 @@ Fanen **Prøve** viser på skjermen hvordan bildet vil se ut når det skrives ut
 
 NegPy holder macOS og Windows våkne mens den skanner. På Linux slår du av automatisk hvilemodus før en lang rull.
 
-**Plustek**: OpticFilm 8200i SE, 8100 V2, 8300i SE, 7600i v1 og 7600i v2 virker; for andre modeller kan du prøve SANE. På Windows setter du først opp USB-driveren ([PLUSTEK_WINDOWS.md](PLUSTEK_WINDOWS.md)). **Coolscan**: trenger ikke SANE. På Linux krever USB en udev-regel for leverandøren `04b0`.
+**Plustek**: OpticFilm 8200i SE, 8200i, 8100 V2, 8300i SE, 7600i v1 og 7600i v2 virker; for andre modeller kan du prøve SANE. På Windows setter du først opp USB-driveren ([PLUSTEK_WINDOWS.md](PLUSTEK_WINDOWS.md)). **Coolscan**: trenger ikke SANE. På Linux krever USB en udev-regel for leverandøren `04b0`.
 
-<!-- panel:scan_quality src:1f841943 -->
+<!-- panel:scan_quality src:8a8dc1c2 -->
 ### Film og kvalitet
 
 *   **Film**: fargenegativ, S/H-negativ, dias eller Kodachrome. Den styrer bildeoppdaging, lysmåling, og om infrarødt tilbys.
 *   **Filmformat**: bildelengden (135, 66, 645 og andre). **Auto** virker der holderen bestemmer den.
 *   **Oppløsning** og **Bitdybde**: skanningens dpi og bit per kanal.
-*   **Skannemodus** (Plustek): **Flerpassering** tar gjennomsnittet av flere skanninger for mindre støy; **Adaptiv multieksponering** kombinerer en kort og en lang eksponering for større omfang, med den lange eksponeringen angitt ut fra hvert bilde; **Fast multieksponering** bruker skannerens ene lange eksponering på hvert bilde, slik SilverFast gjør (8200i SE, 8100 V2 og 8300i SE). 7600i v2 tilbyr adaptiv multieksponering, men ikke flerpassering.
+*   **Skannemodus** (Plustek): **Flerpassering** tar gjennomsnittet av flere skanninger for mindre støy; **Adaptiv multieksponering** kombinerer en kort og en lang eksponering for større omfang, med den lange eksponeringen angitt ut fra hvert bilde; **Fast multieksponering** bruker skannerens ene lange eksponering på hvert bilde, slik SilverFast gjør (8200i SE, 8100 V2 og 8300i SE). 7600i v2 og 8200i tilbyr adaptiv multieksponering, men ikke flerpassering.
 *   **Prøver** (Coolscan): leser hver linje flere ganger, for mindre støy i skyggene. Tregere.
 *   **Infrarød**: **IR** skanner en infrarød kanal, for støvfjerning på kortet Retusj. **ICE** (Coolscan) fjerner i stedet støvet i skanneren. En skanner uten ICE viser én **IR**-bryter. Ikke for S/H eller Kodachrome.
 *   **Superfin** (Coolscan): skanner én linje per passering. Tregere.
