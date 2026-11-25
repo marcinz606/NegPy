@@ -789,7 +789,7 @@ Esegui la scansione della pellicola direttamente in NegPy. Il riquadro **Scanner
 
 *   **Scanner**: **Scanner per pellicola** per uno scanner dedicato alle pellicole (i riquadri Dispositivo, Pellicola e qualità e Inquadratura), oppure **Fotocamera** per una fotocamera su uno stativo di riproduzione (i riquadri Fotocamera e Preimpostazione).
 
-<!-- panel:scan_device src:a18b5f39 -->
+<!-- panel:scan_device src:a615f77c -->
 ### Dispositivo
 
 *   **Backend**: **SANE** (Linux e macOS), **Nikon Coolscan (nkscan)** o **pyOpticfilm (Plustek)**. I controlli seguono ciò che lo scanner riporta.
@@ -798,15 +798,15 @@ Esegui la scansione della pellicola direttamente in NegPy. Il riquadro **Scanner
 
 NegPy tiene svegli macOS e Windows durante la scansione. Su Linux, disattiva la sospensione automatica prima di un rullino lungo.
 
-**Plustek**: funzionano OpticFilm 8200i SE, 8100 V2, 8300i SE, 7600i v1 e 7600i v2; per altri modelli, prova SANE. Su Windows, installa prima il driver USB ([PLUSTEK_WINDOWS.md](PLUSTEK_WINDOWS.md)). **Coolscan**: non richiede SANE. Su Linux, l'USB richiede una regola udev per il produttore `04b0`.
+**Plustek**: funzionano OpticFilm 8200i SE, 8200i, 8100 V2, 8300i SE, 7600i v1 e 7600i v2; per altri modelli, prova SANE. Su Windows, installa prima il driver USB ([PLUSTEK_WINDOWS.md](PLUSTEK_WINDOWS.md)). **Coolscan**: non richiede SANE. Su Linux, l'USB richiede una regola udev per il produttore `04b0`.
 
-<!-- panel:scan_quality src:1f841943 -->
+<!-- panel:scan_quality src:8a8dc1c2 -->
 ### Pellicola e qualità
 
 *   **Pellicola**: Negativo a colori, Negativo B/N, Diapositiva o Kodachrome. Stabilisce il rilevamento dei fotogrammi, la misurazione e se viene offerto l'infrarosso.
 *   **Formato della pellicola**: la lunghezza del fotogramma (135, 66, 645 e altri). **Auto** funziona dove la imposta il supporto.
 *   **Risoluzione** e **Profondità di bit**: i dpi della scansione e i bit per canale.
-*   **Modalità di scansione** (Plustek): **Multipassata** fa la media di più scansioni per meno rumore; **Multiesposizione adattiva** combina un'esposizione breve e una lunga per una gamma maggiore, con l'esposizione lunga impostata in base a ogni fotogramma; **Multiesposizione fissa** usa l'unica esposizione lunga dello scanner su ogni fotogramma, come fa SilverFast (8200i SE, 8100 V2 e 8300i SE). Il 7600i v2 offre la Multiesposizione adattiva ma non la Multipassata.
+*   **Modalità di scansione** (Plustek): **Multipassata** fa la media di più scansioni per meno rumore; **Multiesposizione adattiva** combina un'esposizione breve e una lunga per una gamma maggiore, con l'esposizione lunga impostata in base a ogni fotogramma; **Multiesposizione fissa** usa l'unica esposizione lunga dello scanner su ogni fotogramma, come fa SilverFast (8200i SE, 8100 V2 e 8300i SE). Il 7600i v2 e l'8200i offrono la Multiesposizione adattiva ma non la Multipassata.
 *   **Campioni** (Coolscan): legge ogni riga più volte, per meno rumore nelle ombre. Più lento.
 *   **Infrarosso**: **IR** scansiona un canale infrarosso, per la rimozione della polvere nel riquadro Ritocco. **ICE** (Coolscan) rimuove invece la polvere nello scanner. Uno scanner senza ICE mostra un unico interruttore **IR**. Non per B/N o Kodachrome.
 *   **Superfine** (Coolscan): scansiona una riga per passata. Più lento.

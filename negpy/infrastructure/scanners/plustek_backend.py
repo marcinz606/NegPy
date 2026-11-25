@@ -47,7 +47,7 @@ def _caps_for(model: Any) -> ScannerCapabilities:
     from pyopticfilm.scan.bringup import PRESCAN_DPI, default_frame_crop_norm, is_gl128_opticfilm
 
     # Prescan, Multi-Pass and fixed ME are GL128 session features. Other scan-ready leaves
-    # (7600i v1, 7600i v2) report scan_ready but raise on, or ignore, those paths. A locked
+    # (7600i v1, 7600i v2, 8200i) report scan_ready but raise on, or ignore, those paths. A locked
     # GL128 leaf (135i) offers none of them.
     gl128 = is_gl128_opticfilm(model) and model_is_scan_ready(model)
     multi_exposure = bool(getattr(model, "scan_ready", False) and getattr(model, "exposure_long", None))
@@ -470,7 +470,7 @@ class PlustekBackend:
 
         Progress uses 0–0.1 so a cold measure does not look hung. Film may stay
         loaded — shading runs at home before position feeds, like SilverFast.
-        GL128 only: other scan-ready leaves (7600i v1, 7600i v2) calibrate live in-scan.
+        GL128 only: other scan-ready leaves (7600i v1, 7600i v2, 8200i) calibrate live in-scan.
         """
         if cancel.is_set():
             raise RuntimeError(tr("Scan cancelled before start"))

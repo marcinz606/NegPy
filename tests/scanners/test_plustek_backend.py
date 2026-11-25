@@ -555,6 +555,53 @@ def test_7600i_v2_validates_ir_with_adaptive_me_and_rejects_fixed_and_multi_pass
         _validate_params(_params(dpi=3600, n_passes=3), model=MODEL_7600I_V2)
 
 
+def _info_8200i() -> UsbDeviceInfo:
+    from pyopticfilm.usb.device import PID_OPTICFILM_8200I
+
+    return UsbDeviceInfo(vendor_id=VID_PLUSTEK, product_id=PID_OPTICFILM_8200I, bus=7, address=3, bcd_device=0x0605)
+
+
+def test_8200i_is_scan_ready_with_ir_and_adaptive_me(monkeypatch):
+    """pyopticfilm 1.3.11 unlocks the GL845 8200i: the same features as the 7600i v2."""
+    from negpy.infrastructure.scanners.plustek_backend import _validate_params
+    from pyopticfilm.device.model_8200i import MODEL_8200I
+    from pyopticfilm.device.select import model_is_scan_ready
+
+    assert model_is_scan_ready(MODEL_8200I)
+    _patch_enum(monkeypatch, [_info_8200i()])
+    device = PlustekBackend().list_devices()[0]
+    caps = device.capabilities
+    assert device.model == "OpticFilm 8200i"
+    assert caps.ir_channel is True
+    assert caps.multi_exposure is True
+    assert caps.multi_exposure_fixed is False
+    assert caps.max_n_passes == 1
+    assert caps.prescan is False
+    assert set(caps.supported_dpi) == {900, 1800, 3600, 7200}
+    assert caps.multi_exposure_at(3600)
+
+    _validate_params(_params(dpi=3600, capture_ir=True, multi_exposure_mode=MultiExposureMode.ADAPTIVE), model=MODEL_8200I)
+    with pytest.raises(RuntimeError, match="Fixed Multi-Exposure"):
+        _validate_params(_params(dpi=3600, multi_exposure_mode=MultiExposureMode.FIXED), model=MODEL_8200I)
+    with pytest.raises(RuntimeError, match="Multi-Pass"):
+        _validate_params(_params(dpi=3600, n_passes=3), model=MODEL_8200I)
+
+
+def test_8200i_scan_skips_gl128_geometry_and_calibration(monkeypatch):
+    from pyopticfilm.device.model_8200i import MODEL_8200I
+
+    info = _info_8200i()
+    _patch_enum(monkeypatch, [info])
+    scanner = _fake_scanner()
+    scanner.model = MODEL_8200I
+    monkeypatch.setattr(f"{_BACKEND}.Scanner.open", _FakeOpen(scanner))
+    PlustekBackend().scan(info.device_id, _params(dpi=1800, capture_ir=True), lambda *_: None, threading.Event())
+    kwargs = scanner.scan.call_args.kwargs
+    assert kwargs["geometry"] is None
+    assert kwargs["infrared"] is True
+    scanner.calibrator.ensure_colour_asic_shading.assert_not_called()
+
+
 def test_7600i_v2_scan_skips_gl128_geometry_and_calibration(monkeypatch):
     from pyopticfilm.device.select import MODEL_7600I_V2
 

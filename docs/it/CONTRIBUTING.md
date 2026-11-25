@@ -31,7 +31,7 @@ Supporto per gli scanner (facoltativo):
     brew install sane-backends
     ```
 
-- **Plustek USB** (Windows/macOS/Linux): il driver [pyopticfilm](https://github.com/jboneng/pyopticfilm) (**1.3.10** o successivo): `uv sync --group plustek` oppure `pip install negpy[plustek]`. Su Windows, pyopticfilm installa `libusb-package`, e lo scanner richiede WinUSB associato con Zadig al posto del driver del produttore o di SilverFast (`07b3:1825` 8200i SE, `07b3:1824` 8100 V2, `07b3:181f` 8300i SE, `07b3:0c3b` 7600i v1 e v2). Vedi [PLUSTEK_WINDOWS.md](PLUSTEK_WINDOWS.md).
+- **Plustek USB** (Windows/macOS/Linux): il driver [pyopticfilm](https://github.com/jboneng/pyopticfilm) (**1.3.11** o successivo): `uv sync --group plustek` oppure `pip install negpy[plustek]`. Su Windows, pyopticfilm installa `libusb-package`, e lo scanner richiede WinUSB associato con Zadig al posto del driver del produttore o di SilverFast (`07b3:1825` 8200i SE, `07b3:1824` 8100 V2, `07b3:181f` 8300i SE, `07b3:0c3b` 7600i v1 e v2, `07b3:130d` 8200i). Vedi [PLUSTEK_WINDOWS.md](PLUSTEK_WINDOWS.md).
 
 - **Nikon Coolscan** (Windows/macOS/Linux): [nkscan](https://github.com/activexray/nkscan) 0.14 o successivo, distribuito come wheel: `uv sync --group nkscan` oppure `pip install negpy[nkscan]`. Su Linux, l'USB richiede una regola udev per il produttore `04b0`, e FireWire/SCSI richiede il modulo `sg`.
 
