@@ -77,6 +77,7 @@ from negpy.features.local.models import MaskShape
 from negpy.features.process.path import RenderPath, render_path
 from negpy.features.retouch.models import HEAL_SIZE_REF
 from negpy.features.retouch.logic import trace_scratch
+from negpy.infrastructure.gpu.resources import GPUTexture
 from negpy.services.view.coordinate_mapping import CoordinateMapping
 from negpy.services.view.printing_notes import mask_notes, recipe_lines
 
@@ -870,10 +871,19 @@ class CanvasOverlay(QWidget):
         """Forget the displayed texture before the engine frees its pool."""
         self._gpu_texture = None
 
+    def content_aligned(self) -> bool:
+        return (
+            not self.state.flat_peek
+            and not self.state.negative_peek
+            and not self.state.flatfield_peek
+            and self._tool_mode not in UNCROPPED_PREVIEW_TOOLS
+            and not self.state.canvas_value("crop_preview_full")
+        )
+
     def _host_buffer(self) -> Optional[np.ndarray]:
         """The displayed frame as NumPy, in working space. Reads the GPU texture back on
         first ask and holds it until the next frame replaces it."""
-        if self._display_buffer is None and self._gpu_texture is not None:
+        if self._display_buffer is None and self._gpu_texture is not None and not getattr(self.parent(), "_compare_awaiting_edit", False):
             try:
                 rb = self._gpu_texture.readback()
             except Exception:
@@ -1183,6 +1193,26 @@ class CanvasOverlay(QWidget):
         if self._view_rect.isEmpty():
             return
 
+        content_aligned = self.content_aligned()
+        if self._compare_hold_active() and content_aligned and not self.state.test_strip and self._gpu_compare_active():
+            self._local_mask_screen_polys = []
+            self._local_mask_screen_ctrl = []
+            self._draw_compare_hold(painter)
+            return
+
+        gpu_split_clipped = False
+        if self._compare_split_active() and content_aligned and self._gpu_compare_active():
+            target = self._content_view_rect()
+            split_w = self._split_screen_x() - target.left()
+            if not target.isEmpty() and split_w > 0.0:
+                full_path = QPainterPath()
+                full_path.addRect(QRectF(self.rect()))
+                before_path = QPainterPath()
+                before_path.addRect(QRectF(target.left(), target.top(), split_w, target.height()))
+                painter.save()
+                painter.setClipPath(full_path.subtracted(before_path))
+                gpu_split_clipped = True
+
         visible_rect = self._view_rect
 
         if self._tool_mode == ToolMode.CROP_MANUAL:
@@ -1266,13 +1296,7 @@ class CanvasOverlay(QWidget):
 
         # UNCROPPED_PREVIEW_TOOLS show the uncropped frame, where the boxes would not line up. The tool test hides
         # them as the tool opens; crop_preview_full keeps them hidden while that frame is still on screen after it closes.
-        content_aligned = (
-            not self.state.flat_peek
-            and not self.state.negative_peek
-            and not self.state.flatfield_peek
-            and self._tool_mode not in UNCROPPED_PREVIEW_TOOLS
-            and not self.state.canvas_value("crop_preview_full")
-        )
+        content_aligned = self.content_aligned()
         if self.state.test_strip and content_aligned:
             # Takes the content rect over from the zone grid: both would claim it.
             self._draw_test_strip(painter)
@@ -1302,6 +1326,9 @@ class CanvasOverlay(QWidget):
         if self._crop_preview_visible and self._crop_preview_rect:
             self._draw_crop_preview(painter, self._content_view_rect())
 
+        if gpu_split_clipped:
+            painter.restore()
+
         # Keyed off the stashed baseline, not state.compare_mode: the toggle flips before its
         # render lands, and half a split with no before frame is just the edit.
         if self._compare_split_active() and content_aligned:
@@ -1328,7 +1355,7 @@ class CanvasOverlay(QWidget):
             self._draw_cursor_probe(painter)
 
         # Over everything: the marks above describe the edit, not the baseline.
-        if self.state.compare_hold and content_aligned and not self.state.test_strip:
+        if self._compare_hold_active() and content_aligned and not self.state.test_strip:
             self._draw_compare_hold(painter)
 
     def _draw_grid(self, painter: QPainter, rect: QRectF, divisions: int, alpha: int) -> None:
@@ -1386,6 +1413,18 @@ class CanvasOverlay(QWidget):
     def _compare_before_qimage(self) -> Optional[QImage]:
         """The stashed baseline frame under the current display transform."""
         buf = self.state.compare_before
+        if isinstance(buf, GPUTexture):
+            key = (id(buf), self._display_cs, self._monitor_icc_bytes, self._proof)
+            if self._compare_qimage_cache is not None and self._compare_qimage_cache[0] == key:
+                return self._compare_qimage_cache[1]
+            try:
+                rb = buf.readback()
+            except Exception:
+                return None
+            arr = np.ascontiguousarray(rb[:, :, :3]) if rb.ndim == 3 and rb.shape[2] >= 3 else rb
+            img = ImageConverter.to_qimage(arr, self._display_cs, self._monitor_icc_bytes, self._proof)
+            self._compare_qimage_cache = (key, img)
+            return img
         if not isinstance(buf, np.ndarray):
             return None
         key = (id(buf), self._display_cs, self._monitor_icc_bytes, self._proof)
@@ -1402,13 +1441,29 @@ class CanvasOverlay(QWidget):
             return QRectF(float(crect[0]), float(crect[1]), float(crect[2]), float(crect[3]))
         return QRectF(0.0, 0.0, float(before.width()), float(before.height()))
 
+    def _compare_hold_active(self) -> bool:
+        parent = self.parent()
+        if parent is not None and hasattr(parent, "hold_latched"):
+            return bool(parent.hold_latched())
+        return bool(getattr(self.state, "compare_hold", False))
+
+    def _gpu_compare_active(self) -> bool:
+        parent = self.parent()
+        if getattr(parent, "_compare_awaiting_edit", False) and not self._compare_hold_active():
+            return False
+        gpu = getattr(parent, "gpu_widget", None)
+        return bool(gpu is not None and gpu.isVisible() and isinstance(getattr(self.state, "compare_before", None), GPUTexture))
+
     def _draw_compare_hold(self, painter: QPainter) -> None:
         """The baseline over the whole picture while the compare key is held."""
-        before = self._compare_before_qimage()
         target = self._content_view_rect()
-        if before is None or target.isEmpty():
+        if target.isEmpty():
             return
-        painter.drawImage(target, before, self._compare_before_src(before))
+        if not self._gpu_compare_active():
+            before = self._compare_before_qimage()
+            if before is None:
+                return
+            painter.drawImage(target, before, self._compare_before_src(before))
         draw_view_badge(
             painter, self.state.compare_reference_label or tr("BEFORE"), target.left() + THEME.space_xl, target.top() + THEME.space_xl
         )
@@ -1418,7 +1473,11 @@ class CanvasOverlay(QWidget):
         return rect.x() + float(np.clip(self.state.compare_split, 0.0, 1.0)) * rect.width()
 
     def _compare_split_active(self) -> bool:
-        return bool(self.state.compare_mode) and isinstance(self.state.compare_before, np.ndarray)
+        if getattr(self.parent(), "_compare_awaiting_edit", False):
+            return False
+        return bool(getattr(self.state, "compare_mode", False)) and isinstance(
+            getattr(self.state, "compare_before", None), (np.ndarray, GPUTexture)
+        )
 
     def _draw_compare_split(self, painter: QPainter) -> None:
         """Baseline frame left of the divider, the edit right of it.
@@ -1426,17 +1485,20 @@ class CanvasOverlay(QWidget):
         Each half is mapped through its own content rect, so a border or mat on the edit —
         which the baseline never has — cannot shift the picture across the divider.
         """
-        before = self._compare_before_qimage()
         target = self._content_view_rect()
-        if before is None or target.isEmpty():
+        if target.isEmpty():
             return
 
-        src = self._compare_before_src(before)
         x = self._split_screen_x()
-        painter.save()
-        painter.setClipRect(QRectF(target.left(), target.top(), x - target.left(), target.height()))
-        painter.drawImage(target, before, src)
-        painter.restore()
+        if not self._gpu_compare_active():
+            before = self._compare_before_qimage()
+            if before is None:
+                return
+            src = self._compare_before_src(before)
+            painter.save()
+            painter.setClipRect(QRectF(target.left(), target.top(), x - target.left(), target.height()))
+            painter.drawImage(target, before, src)
+            painter.restore()
 
         pen = QPen(with_alpha(THEME.mark_photo, 210), 1.0)
         pen.setCosmetic(True)
@@ -3306,7 +3368,12 @@ class CanvasOverlay(QWidget):
     def _hit_compare_split(self, pos: QPointF) -> bool:
         """True when `pos` is on the before/after divider. Only with no tool armed: a tool
         owns its clicks, and the divider spans the whole frame height."""
-        if not self._compare_split_active() or self._tool_mode != ToolMode.NONE:
+        if (
+            not self._compare_split_active()
+            or self._compare_hold_active()
+            or not self.content_aligned()
+            or self._tool_mode != ToolMode.NONE
+        ):
             return False
         rect = self._content_view_rect()
         if rect.isEmpty() or not (rect.top() <= pos.y() <= rect.bottom()):
@@ -3425,6 +3492,9 @@ class CanvasOverlay(QWidget):
             rect = self._content_view_rect()
             if not rect.isEmpty():
                 self.state.compare_split = float(np.clip((event.position().x() - rect.x()) / rect.width(), 0.0, 1.0))
+                gpu = getattr(self.parent(), "gpu_widget", None)
+                if gpu is not None and gpu.isVisible():
+                    gpu.set_compare_split(self.state.compare_split)
                 self.update()
             event.accept()
             return

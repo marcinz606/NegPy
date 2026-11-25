@@ -39,6 +39,14 @@ class GPUCanvasWidget(QWidget):
         self.current_texture_view: Optional[Any] = None
         self.uniform_buffer: Optional[Any] = None
         self.image_size: Tuple[int, int] = (1, 1)
+        self.after_content_rect: Optional[Tuple[int, int, int, int]] = None
+        self.before_texture_view: Optional[Any] = None
+        self.before_image_size: Tuple[int, int] = (1, 1)
+        self.before_content_rect: Optional[Tuple[int, int, int, int]] = None
+        self.compare_mode_code: int = 0  # 0: off, 1: split, 2: full-frame hold
+        self.compare_split: float = 0.5
+        self._dummy_before_tex: Optional[Any] = None
+        self._dummy_before_view: Optional[Any] = None
         self.format: str = ""
 
         # Working-space to display-profile LUT (3D texture plus linear sampler). Re-uploaded when
@@ -96,8 +104,14 @@ class GPUCanvasWidget(QWidget):
         self.format = self.context.get_preferred_format(adapter).replace("-srgb", "")
         self._configure_context()
 
-        # Uniform buffer: 3 * vec4<f32>
-        self.uniform_buffer = self.device.create_buffer(size=48, usage=wgpu.BufferUsage.UNIFORM | wgpu.BufferUsage.COPY_DST)
+        # Uniform buffer: 5 * vec4<f32> (80 bytes)
+        self.uniform_buffer = self.device.create_buffer(size=80, usage=wgpu.BufferUsage.UNIFORM | wgpu.BufferUsage.COPY_DST)
+        self._dummy_before_tex = self.device.create_texture(
+            size=(1, 1, 1),
+            format=wgpu.TextureFormat.rgba32float,
+            usage=wgpu.TextureUsage.TEXTURE_BINDING | wgpu.TextureUsage.COPY_DST,
+        )
+        self._dummy_before_view = self._dummy_before_tex.create_view()
         self._upload_display_lut()
         self._create_render_pipeline(self.format)
 
@@ -205,10 +219,40 @@ class GPUCanvasWidget(QWidget):
         self.pan_y = py
         self.canvas.request_draw(self._draw_frame)
 
-    def update_texture(self, tex_wrapper: Any) -> None:
+    def update_texture(self, tex_wrapper: Any, content_rect: Optional[Tuple[int, int, int, int]] = None) -> None:
         self.current_texture_view = tex_wrapper.view
         self.image_size = (tex_wrapper.width, tex_wrapper.height)
+        self.after_content_rect = content_rect
         self.canvas.request_draw(self._draw_frame)
+
+    def set_compare_state(
+        self,
+        before_tex: Any,
+        before_rect: Optional[Tuple[int, int, int, int]],
+        after_rect: Optional[Tuple[int, int, int, int]],
+        split: float,
+        mode_code: int,
+        *,
+        redraw: bool = True,
+    ) -> None:
+        prev_mode = self.compare_mode_code
+        if before_tex is not None and getattr(before_tex, "view", None) is not None:
+            self.before_texture_view = before_tex.view
+            self.before_image_size = (before_tex.width, before_tex.height)
+            self.before_content_rect = before_rect
+            self.compare_mode_code = int(mode_code)
+        else:
+            self.before_texture_view = None
+            self.compare_mode_code = 0
+        self.after_content_rect = after_rect
+        self.compare_split = float(split)
+        if redraw and self.device and self.context and not (prev_mode == 0 and self.compare_mode_code == 0):
+            self.canvas.request_draw(self._draw_frame)
+
+    def set_compare_split(self, split: float) -> None:
+        self.compare_split = float(split)
+        if self.device and self.context and self.compare_mode_code == 1:
+            self.canvas.request_draw(self._draw_frame)
 
     def set_background_color(self, r: float, g: float, b: float) -> None:
         self._bg = (r, g, b)
@@ -221,6 +265,8 @@ class GPUCanvasWidget(QWidget):
 
     def clear(self) -> None:
         self.current_texture_view = None
+        self.before_texture_view = None
+        self.compare_mode_code = 0
         self.canvas.request_draw(self._draw_frame)
 
     def resizeEvent(self, event) -> None:
@@ -267,8 +313,10 @@ class GPUCanvasWidget(QWidget):
         shader_source = """
         struct RenderUniforms {
             rect: vec4<f32>,
-            transform: vec4<f32>, // x: zoom, y: pan_x, z: pan_y, w: LUT grid size
-            filt: vec4<f32>       // x: image pixels per screen pixel
+            transform: vec4<f32>,      // x: zoom, y: pan_x, z: pan_y, w: LUT grid size
+            filt: vec4<f32>,           // x: after screen px/texel, y: compare_mode (0/1/2), z: split_x, w: before screen px/texel
+            after_content: vec4<f32>,  // normalized (x, y, w, h) of picture inside after tex
+            before_content: vec4<f32>  // normalized (x, y, w, h) of picture inside before tex
         };
         @group(0) @binding(1) var<uniform> params: RenderUniforms;
 
@@ -310,6 +358,7 @@ class GPUCanvasWidget(QWidget):
         @group(0) @binding(0) var tex: texture_2d<f32>;
         @group(0) @binding(2) var lut_tex: texture_3d<f32>;
         @group(0) @binding(3) var lut_samp: sampler;
+        @group(0) @binding(4) var before_tex: texture_2d<f32>;
 
         // Working-space → display-profile LUT grid size, uploaded per LUT: the soft
         // proof uses a finer grid than the plain display transform.
@@ -319,7 +368,6 @@ class GPUCanvasWidget(QWidget):
         }
 
         fn cubic(v: f32) -> f32 {
-            let a = 0.5;
             let x = abs(v);
             if (x < 1.0) {
                 return 1.5 * x * x * x - 2.5 * x * x + 1.0;
@@ -331,7 +379,7 @@ class GPUCanvasWidget(QWidget):
 
         // Minification path. Bicubic reads a 4x4 window of a much denser grid, so it
         // is no more correct than bilinear there and costs four times the taps.
-        fn textureSampleBilinear(uv: vec2<f32>) -> vec4<f32> {
+        fn sampleBilinearAfter(uv: vec2<f32>) -> vec4<f32> {
             let dims = textureDimensions(tex);
             let fdims = vec2<f32>(f32(dims.x), f32(dims.y));
             let pixel = uv * fdims - 0.5;
@@ -350,23 +398,18 @@ class GPUCanvasWidget(QWidget):
             return col;
         }
 
-        fn textureSampleBicubic(uv: vec2<f32>) -> vec4<f32> {
+        fn sampleBicubicAfter(uv: vec2<f32>) -> vec4<f32> {
             let dims = textureDimensions(tex);
             let fdims = vec2<f32>(f32(dims.x), f32(dims.y));
-
             let pixel = uv * fdims - 0.5;
             let ipos = floor(pixel);
             let fpos = fract(pixel);
 
             var col = vec4<f32>(0.0);
-
             for (var y = -1; y <= 2; y++) {
                 for (var x = -1; x <= 2; x++) {
                     let offset = vec2<f32>(f32(x), f32(y));
-                    let coord = vec2<i32>(ipos + offset);
-
-                    let c = clamp(coord, vec2<i32>(0), vec2<i32>(dims) - 1);
-
+                    let c = clamp(vec2<i32>(ipos + offset), vec2<i32>(0), vec2<i32>(dims) - 1);
                     let weight = cubic(f32(x) - fpos.x) * cubic(f32(y) - fpos.y);
                     col += textureLoad(tex, c, 0) * weight;
                 }
@@ -374,15 +417,72 @@ class GPUCanvasWidget(QWidget):
             return col;
         }
 
+        fn sampleBilinearBefore(uv: vec2<f32>) -> vec4<f32> {
+            let dims = textureDimensions(before_tex);
+            let fdims = vec2<f32>(f32(dims.x), f32(dims.y));
+            let pixel = uv * fdims - 0.5;
+            let ipos = floor(pixel);
+            let fpos = fract(pixel);
+
+            var col = vec4<f32>(0.0);
+            for (var y = 0; y <= 1; y++) {
+                for (var x = 0; x <= 1; x++) {
+                    let coord = clamp(vec2<i32>(ipos + vec2<f32>(f32(x), f32(y))), vec2<i32>(0), vec2<i32>(dims) - 1);
+                    let wx = select(1.0 - fpos.x, fpos.x, x == 1);
+                    let wy = select(1.0 - fpos.y, fpos.y, y == 1);
+                    col += textureLoad(before_tex, coord, 0) * (wx * wy);
+                }
+            }
+            return col;
+        }
+
+        fn sampleBicubicBefore(uv: vec2<f32>) -> vec4<f32> {
+            let dims = textureDimensions(before_tex);
+            let fdims = vec2<f32>(f32(dims.x), f32(dims.y));
+            let pixel = uv * fdims - 0.5;
+            let ipos = floor(pixel);
+            let fpos = fract(pixel);
+
+            var col = vec4<f32>(0.0);
+            for (var y = -1; y <= 2; y++) {
+                for (var x = -1; x <= 2; x++) {
+                    let offset = vec2<f32>(f32(x), f32(y));
+                    let c = clamp(vec2<i32>(ipos + offset), vec2<i32>(0), vec2<i32>(dims) - 1);
+                    let weight = cubic(f32(x) - fpos.x) * cubic(f32(y) - fpos.y);
+                    col += textureLoad(before_tex, c, 0) * weight;
+                }
+            }
+            return col;
+        }
+
         @fragment
         fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
+            let mode = params.filt.y;
+            var use_before = false;
+            var b_uv = in.uv;
+            if (mode > 0.5) {
+                let c_uv = (in.uv - params.after_content.xy) / max(params.after_content.zw, vec2<f32>(1e-6));
+                let in_content = c_uv.x >= 0.0 && c_uv.x <= 1.0 && c_uv.y >= 0.0 && c_uv.y <= 1.0;
+                if (in_content && (mode > 1.5 || c_uv.x < params.filt.z)) {
+                    use_before = true;
+                    b_uv = params.before_content.xy + c_uv * params.before_content.zw;
+                }
+            }
+
             // filt.x >= 1 = magnifying, the only regime the extra taps buy anything.
-            // Must be if/else: assigning one then overwriting runs both.
             var col: vec4<f32>;
-            if (params.filt.x >= 1.0) {
-                col = textureSampleBicubic(in.uv);
+            if (use_before) {
+                if (params.filt.w >= 1.0) {
+                    col = sampleBicubicBefore(b_uv);
+                } else {
+                    col = sampleBilinearBefore(b_uv);
+                }
             } else {
-                col = textureSampleBilinear(in.uv);
+                if (params.filt.x >= 1.0) {
+                    col = sampleBicubicAfter(in.uv);
+                } else {
+                    col = sampleBilinearAfter(in.uv);
+                }
             }
             let n = params.transform.w;
             let coord = vec3<f32>(lut_coord(col.r, n), lut_coord(col.g, n), lut_coord(col.b, n));
@@ -406,7 +506,7 @@ class GPUCanvasWidget(QWidget):
                     "visibility": wgpu.ShaderStage.VERTEX | wgpu.ShaderStage.FRAGMENT,
                     "buffer": {
                         "type": wgpu.BufferBindingType.uniform,
-                        "min_binding_size": 48,
+                        "min_binding_size": 80,
                     },
                 },
                 {
@@ -421,6 +521,14 @@ class GPUCanvasWidget(QWidget):
                     "binding": 3,
                     "visibility": wgpu.ShaderStage.FRAGMENT,
                     "sampler": {"type": wgpu.SamplerBindingType.filtering},
+                },
+                {
+                    "binding": 4,
+                    "visibility": wgpu.ShaderStage.FRAGMENT,
+                    "texture": {
+                        "sample_type": wgpu.TextureSampleType.unfilterable_float,
+                        "view_dimension": wgpu.TextureViewDimension.d2,
+                    },
                 },
             ]
         )
@@ -437,6 +545,13 @@ class GPUCanvasWidget(QWidget):
                 "targets": [{"format": format}],
             },
         )
+
+    @staticmethod
+    def _norm_rect(rect: Optional[Tuple[int, int, int, int]], size: Tuple[int, int]) -> Tuple[float, float, float, float]:
+        w, h = float(max(1, size[0])), float(max(1, size[1]))
+        if rect is not None and rect[2] > 0 and rect[3] > 0:
+            return (rect[0] / w, rect[1] / h, rect[2] / w, rect[3] / h)
+        return (0.0, 0.0, 1.0, 1.0)
 
     def _draw_frame(self) -> None:
         if not self.render_pipeline or not self.context:
@@ -476,11 +591,20 @@ class GPUCanvasWidget(QWidget):
             nx = (ww - nw) / 2.0
             ny = (wh - nh) / 2.0
 
+            active_mode = float(self.compare_mode_code if self.before_texture_view is not None else 0)
+            ax, ay, aw, ah = self._norm_rect(self.after_content_rect, self.image_size)
+            bx, by, bw, bh = self._norm_rect(self.before_content_rect, self.before_image_size)
+            biw, bih = float(max(1, self.before_image_size[0])), float(max(1, self.before_image_size[1]))
+            before_scale = min(
+                (nw * self.zoom * aw) / max(1.0, biw * bw),
+                (nh * self.zoom * ah) / max(1.0, bih * bh),
+            )
+
             self.device.queue.write_buffer(
                 self.uniform_buffer,
                 0,
                 struct.pack(
-                    "ffffffffffff",
+                    "20f",
                     (nx / ww) * 2.0 - 1.0,
                     1.0 - (ny / wh) * 2.0,
                     (nw / ww) * 2.0,
@@ -491,12 +615,21 @@ class GPUCanvasWidget(QWidget):
                     float(self._lut_n),
                     # Screen pixels per image pixel: r fits the image, zoom scales it.
                     r * self.zoom,
-                    0.0,
-                    0.0,
-                    0.0,
+                    active_mode,
+                    self.compare_split,
+                    before_scale,
+                    ax,
+                    ay,
+                    aw,
+                    ah,
+                    bx,
+                    by,
+                    bw,
+                    bh,
                 ),
             )
 
+            before_view = self.before_texture_view if self.before_texture_view is not None else self._dummy_before_view
             try:
                 bind_group = self.device.create_bind_group(
                     layout=self.bind_group_layout,
@@ -507,20 +640,15 @@ class GPUCanvasWidget(QWidget):
                             "resource": {
                                 "buffer": self.uniform_buffer,
                                 "offset": 0,
-                                "size": 48,
+                                "size": 80,
                             },
                         },
                         {"binding": 2, "resource": self.lut_view},
                         {"binding": 3, "resource": self.lut_sampler},
+                        {"binding": 4, "resource": before_view},
                     ],
                 )
             except (RuntimeError, wgpu.GPUError) as exc:
-                # The engine's texture pool can destroy a size it no longer needs (e.g. a
-                # border/crop change resizes the paper texture) one render generation after
-                # update_texture() last handed this widget a view onto it. A stray repaint
-                # (resize/expose) landing in that window would otherwise raise here; skip
-                # this one frame like the swapchain-unavailable case above -- the next real
-                # frame calls update_texture() with a fresh view and self-heals.
                 logger.debug("stale texture view during draw: %s", exc)
                 bind_group = None
 

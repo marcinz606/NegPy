@@ -166,6 +166,9 @@ class ImageCanvas(QWidget):
         self._space_pan_held = False
         self._bg_color = QColor(THEME.canvas_bg_black)
         self._last_buffer: Any = None
+        self._last_content_rect: Optional[Tuple[int, int, int, int]] = None
+        self._compare_awaiting_edit: bool = False
+        self._gpu_hold_drawn: bool = False
 
         self.root_layout = QStackedLayout(self)
         self.root_layout.setStackingMode(QStackedLayout.StackingMode.StackAll)
@@ -244,6 +247,7 @@ class ImageCanvas(QWidget):
     def set_tool_mode(self, mode: ToolMode) -> None:
         self.setCursor(_cursor_for_tool(mode))
         self.overlay.set_tool_mode(mode)
+        self._sync_gpu_compare(redraw=not getattr(self, "_compare_awaiting_edit", False))
         # The crop handles reach the corner the plate sits in.
         self.analysis_plate.set_blocked(mode == ToolMode.CROP_MANUAL)
 
@@ -425,6 +429,9 @@ class ImageCanvas(QWidget):
         self.zoom_level = 1.0
         self.pan_offset = QPointF(0, 0)
         self._last_buffer = None
+        self._last_content_rect = None
+        self._compare_awaiting_edit = False
+        self._gpu_hold_drawn = False
         self.gpu_widget.clear()
         self.overlay.update_buffer(None, "sRGB", None)
         self.navigator.hide()
@@ -436,6 +443,8 @@ class ImageCanvas(QWidget):
         pool is freed fails validation. Zoom and pan survive.
         """
         self._last_buffer = None
+        self._compare_awaiting_edit = False
+        self._gpu_hold_drawn = False
         self.gpu_widget.clear()
         self.overlay.drop_gpu_texture()
 
@@ -459,7 +468,7 @@ class ImageCanvas(QWidget):
         import numpy as np
 
         buf = self._last_buffer
-        if buf is None:
+        if buf is None or getattr(self, "_compare_awaiting_edit", False):
             return None
         rect = self.content_rect()
 
@@ -730,10 +739,16 @@ class ImageCanvas(QWidget):
         this buffer; both paths apply the identical LUT, the GPU one in its shader.
         """
         self._last_buffer = buffer
+        self._last_content_rect = content_rect
+        self._compare_awaiting_edit = False
+        self._gpu_hold_drawn = False
         if self.state.gpu_enabled and not self.state.gpu_viewport_failed and isinstance(buffer, GPUTexture):
             self.gpu_widget.show()
             self.gpu_widget.set_display_transform(color_space, monitor_icc_bytes, proof)
-            self.gpu_widget.update_texture(buffer)
+            if content_rect is None:
+                self.gpu_widget.update_texture(buffer)
+            else:
+                self.gpu_widget.update_texture(buffer, content_rect)
             self.overlay.update_buffer(
                 None,
                 color_space,
@@ -743,10 +758,13 @@ class ImageCanvas(QWidget):
                 proof=proof,
                 gpu_texture=buffer,
             )
+            if hasattr(self, "_sync_gpu_compare"):
+                self._sync_gpu_compare()
             self.overlay.show()
             self.overlay.raise_()
             self.overlay.update()
         else:
+            self.gpu_widget.set_compare_state(None, None, None, getattr(self.state, "compare_split", 0.5), 0, redraw=False)
             self.gpu_widget.hide()
             # Only the CPU overlay needs host pixels; the GPU branch above never does.
             if isinstance(buffer, GPUTexture):
@@ -765,8 +783,61 @@ class ImageCanvas(QWidget):
         # shifts the fit scale. Refresh the true-zoom readout for the new buffer.
         self.zoom_changed.emit(self.zoom_level)
 
+    def hold_latched(self) -> bool:
+        """True while hold is pressed, or after hold painted BEFORE onto the GPU surface
+        while the shared pool texture still awaits the follow-up edit render."""
+        return bool(
+            getattr(self.state, "compare_hold", False)
+            or (getattr(self, "_compare_awaiting_edit", False) and getattr(self, "_gpu_hold_drawn", False))
+        )
+
+    def _sync_gpu_compare(self, *, redraw: bool = True) -> None:
+        before = getattr(self.state, "compare_before", None)
+        aligned = self.overlay.content_aligned() and not getattr(self.state, "test_strip", None)
+        if not isinstance(before, GPUTexture):
+            self._gpu_hold_drawn = False
+        latched = self.hold_latched() if hasattr(self, "hold_latched") else False
+        if aligned and latched and isinstance(before, GPUTexture):
+            mode_code = 2
+        elif (
+            aligned
+            and not getattr(self, "_compare_awaiting_edit", False)
+            and getattr(self.state, "compare_mode", False)
+            and isinstance(before, GPUTexture)
+        ):
+            mode_code = 1
+        else:
+            mode_code = 0
+            self._gpu_hold_drawn = False
+        if mode_code == 2 and redraw:
+            self._gpu_hold_drawn = True
+        self.gpu_widget.set_compare_state(
+            before if mode_code else None,
+            getattr(self.state, "compare_before_rect", None),
+            getattr(self, "_last_content_rect", None),
+            getattr(self.state, "compare_split", 0.5),
+            mode_code,
+            redraw=redraw,
+        )
+
+    def stage_compare_before(self, pool_overwritten: bool = False) -> None:
+        """Stage a GPU baseline (or drop one). Full-frame hold can draw immediately; split waits
+        for the follow-up edit render to restore the shared pool texture."""
+        if pool_overwritten:
+            self._compare_awaiting_edit = True
+        is_gpu = isinstance(self.state.compare_before, GPUTexture)
+        if not is_gpu:
+            self._gpu_hold_drawn = False
+        hold_now = is_gpu and self.hold_latched()
+        self._sync_gpu_compare(redraw=hold_now)
+        if hold_now:
+            self.overlay.refresh_compare()
+
     def refresh_compare(self) -> None:
         """Repaint the before/after split (its baseline frame landed or was dropped)."""
+        if not isinstance(self.state.compare_before, GPUTexture):
+            self._gpu_hold_drawn = False
+        self._sync_gpu_compare(redraw=not self._compare_awaiting_edit or self.hold_latched())
         self.overlay.refresh_compare()
 
     def update_overlay(self, filename: str, res: str, colorspace: str, extra: str, edits: int = 0) -> None:
