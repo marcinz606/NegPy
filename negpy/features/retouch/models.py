@@ -21,9 +21,9 @@ class RetouchConfig:
     dust_size: int = 4
     manual_dust_spots: List[Tuple[float, float, float]] = field(default_factory=list)
     # Each stroke: (points, size, src_dx, src_dy). points = [[nx, ny], ...] source-normalized,
-    # size = diameter at HEAL_SIZE_REF scale, (src_dx, src_dy) = the source-normalized offset
-    # to the clone source. A single-point stroke is a spot. manual_dust_spots is the legacy
-    # pre-stroke format.
+    # size = diameter at HEAL_SIZE_REF scale, and (src_dx, src_dy) = legacy (0.0, 0.0) tuple
+    # slots retained for serialized schema compatibility (Clone uses clone_strokes). A single-
+    # point stroke is a spot. manual_dust_spots is the legacy pre-stroke format.
     manual_heal_strokes: List[Tuple] = field(default_factory=list)
     # Each line: (nx0, ny0, nx1, ny1, width), the source-normalized endpoints of a transport
     # scratch plus the width the guide drew, at HEAL_SIZE_REF scale. Traced from one click.

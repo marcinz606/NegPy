@@ -1348,6 +1348,7 @@
   "Hashing {current}/{total}: {name}": "Đang băm {current}/{total}: {name}",
   "Hatch the clipped pixels in the Clipping Overlay colors": "Gạch chéo các điểm ảnh bị cắt ngưỡng bằng màu của Lớp phủ cắt ngưỡng",
   "Heal": "Vá",
+  "Heal: click or paint over a defect, and NegPy rebuilds it from matching film nearby.": "Vá: bấm hoặc tô lên một khuyết điểm, NegPy dựng lại nó từ phần phim tương tự gần đó.",
   "Heal: click or paint over dust to remove it, and clean film under the brush stays as it is.": "Vá: bấm hoặc tô lên bụi để xóa nó, phần phim sạch dưới cọ vẫn giữ nguyên.",
   "Height": "Chiều cao",
   "Help": "Trợ giúp",

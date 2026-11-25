@@ -1348,6 +1348,7 @@
   "Hashing {current}/{total}: {name}": "Beregner hash {current}/{total}: {name}",
   "Hatch the clipped pixels in the Clipping Overlay colors": "Skraver de klippede pikslene i fargene til klippeoverlegget",
   "Heal": "Lege",
+  "Heal: click or paint over a defect, and NegPy rebuilds it from matching film nearby.": "Lege: klikk eller mal over en feil, så bygger NegPy den opp på nytt fra lignende film i nærheten.",
   "Heal: click or paint over dust to remove it, and clean film under the brush stays as it is.": "Lege: klikk eller mal over støv for å fjerne det, og ren film under penselen blir som den er.",
   "Height": "Høyde",
   "Help": "Hjelp",

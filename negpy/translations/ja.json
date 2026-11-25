@@ -1348,6 +1348,7 @@
   "Hashing {current}/{total}: {name}": "{current}/{total} のハッシュ: {name}",
   "Hatch the clipped pixels in the Clipping Overlay colors": "クリッピングしたピクセルをクリッピングオーバーレイの色で斜線表示します",
   "Heal": "修復",
+  "Heal: click or paint over a defect, and NegPy rebuilds it from matching film nearby.": "修復: 欠陥をクリックするか塗ると、NegPy が近くの似たフィルムから作り直します。",
   "Heal: click or paint over dust to remove it, and clean film under the brush stays as it is.": "修復: ほこりをクリックするか塗って取り除きます。ブラシの下のきれいなフィルムはそのまま残ります。",
   "Height": "高さ",
   "Help": "ヘルプ",

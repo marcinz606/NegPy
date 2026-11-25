@@ -29,8 +29,7 @@ def _stroke(cx, cy, shape, diameter_px=15.0):
 
 
 def _scene():
-    """Three well-separated specks, far enough apart that no two strokes' padded
-    fill supports ever touch — the common case a heal session actually looks like."""
+    """Three well-separated specks, the common case a heal session looks like."""
     img = _grainy(240, 240, seed=7)
     img[30:33, 30:33] = 0.92
     img[120:123, 120:123] = 0.92
@@ -44,20 +43,19 @@ def _scene():
     return img, strokes
 
 
-def _config(strokes) -> WorkspaceConfig:
+def _config(strokes, lines=()) -> WorkspaceConfig:
     base = WorkspaceConfig()
-    return replace(base, retouch=replace(base.retouch, manual_heal_strokes=strokes))
+    return replace(base, retouch=replace(base.retouch, manual_heal_strokes=strokes, scratch_lines=list(lines)))
 
 
 def _source_key(settings: WorkspaceConfig) -> str:
-    """Mirrors how run_pipeline folds the stroke identity into source_key — _manual_bake's
-    own cache is keyed on this, so a fixed key across different stroke lists would mask
-    the very re-bake this module tests."""
+    """Mirrors how run_pipeline folds the stroke identity into source_key: _manual_bake's own
+    cache is keyed on it, so a fixed key would mask the re-bake this module tests."""
     return "src" + manual_bake_token(settings.retouch)
 
 
-def _bake(proc: ImageProcessor, img, settings: WorkspaceConfig, key: str):
-    return proc._manual_bake(img, settings, key, proc._paint_plane(img, settings, None))
+def _bake(proc: ImageProcessor, img, settings: WorkspaceConfig, key=None):
+    return proc._manual_bake(img, settings, key or _source_key(settings))
 
 
 class TestIncrementalMatchesFullRecompute:
@@ -66,119 +64,65 @@ class TestIncrementalMatchesFullRecompute:
         proc = ImageProcessor()
         for n in range(1, len(strokes) + 1):
             settings = _config(strokes[:n])
-            key = _source_key(settings)
-            got, got_wide = _bake(proc, img, settings, key)
-            want, want_wide = _bake(ImageProcessor(), img, settings, key)
+            got, got_wide = _bake(proc, img, settings)
+            want, want_wide = _bake(ImageProcessor(), img, settings)
             np.testing.assert_array_equal(np.asarray(got), np.asarray(want), err_msg=f"mismatch at {n} strokes")
             assert len(got_wide) == len(want_wide)
 
-    def test_appending_all_at_once_matches_one_at_a_time(self):
-        """The end state must not depend on how you got there."""
-        img, strokes = _scene()
-        stepwise = ImageProcessor()
-        for n in range(1, len(strokes) + 1):
-            settings = _config(strokes[:n])
-            out, _ = _bake(stepwise, img, settings, _source_key(settings))
-
-        settings_all = _config(strokes)
-        direct_out, _ = _bake(ImageProcessor(), img, settings_all, _source_key(settings_all))
-        np.testing.assert_array_equal(np.asarray(out), np.asarray(direct_out))
-
-    def test_a_stroke_that_finds_nothing_still_matches(self):
-        """Painting on clean film contributes no score — the incremental path must not
-        treat that as if the earlier strokes' bake had changed."""
-        img, strokes = _scene()
-        shape = img.shape[:2]
-        clean_stroke = ([[0.4, 0.5], [0.5, 0.5], [0.6, 0.5]], _size_at_ref(6.0, shape), 0.0, 0.0)  # a drag over nothing
-        proc = ImageProcessor()
-        settings1 = _config(strokes[:1])
-        _bake(proc, img, settings1, _source_key(settings1))
-        settings2 = _config(strokes[:1] + [clean_stroke])
-        got, _ = _bake(proc, img, settings2, _source_key(settings2))
-        want, _ = _bake(ImageProcessor(), img, settings2, _source_key(settings2))
-        np.testing.assert_array_equal(np.asarray(got), np.asarray(want))
-
     def test_removing_a_stroke_falls_back_and_still_matches(self):
-        """Not a strict append (an undo) — must recompute correctly, not serve a stale
-        3-stroke result trimmed to 2."""
+        """Not a strict append (an undo): recompute, never serve a stale result."""
         img, strokes = _scene()
         proc = ImageProcessor()
-        settings3 = _config(strokes)
-        _bake(proc, img, settings3, _source_key(settings3))
-
+        _bake(proc, img, _config(strokes))
         settings2 = _config(strokes[:2])
-        got, _ = _bake(proc, img, settings2, _source_key(settings2))
-        want, _ = _bake(ImageProcessor(), img, settings2, _source_key(settings2))
+        got, _ = _bake(proc, img, settings2)
+        want, _ = _bake(ImageProcessor(), img, settings2)
         np.testing.assert_array_equal(np.asarray(got), np.asarray(want))
 
-    def test_a_new_source_key_falls_back_and_still_matches(self):
-        """A different bake (flatfield toggle, new file) must not reuse another
-        source's cached baseline."""
+    def test_a_new_source_falls_back_and_still_matches(self):
         img, strokes = _scene()
         proc = ImageProcessor()
         settings = _config(strokes[:2])
-        _bake(proc, img, settings, _source_key(settings) + "|other")
-        got, _ = _bake(proc, img, settings, _source_key(settings))
-        want, _ = _bake(ImageProcessor(), img, settings, _source_key(settings))
+        _bake(proc, img.copy(), settings)
+        got, _ = _bake(proc, img, settings)
+        want, _ = _bake(ImageProcessor(), img, settings)
         np.testing.assert_array_equal(np.asarray(got), np.asarray(want))
 
 
 class TestIncrementalSkipsUnchangedWork:
-    def test_appending_a_stroke_only_scores_the_new_one(self):
-        """The regression this module exists to fix: adding stroke N+1 must not re-run
-        detection for strokes 1..N."""
+    def test_appending_a_stroke_heals_only_the_new_one(self):
         img, strokes = _scene()
         proc = ImageProcessor()
-        seen_counts: list[int] = []
-        real = ip_mod.paint_to_score
+        seen: list[int] = []
+        real = ip_mod.apply_heal_strokes
 
-        def counting(image, s, spots, averaged=None):
-            seen_counts.append(len(s))
-            return real(image, s, spots, averaged)
+        def counting(image, s, *a):
+            seen.append(len(tuple(s)))
+            return real(image, s, *a)
 
-        with patch.object(ip_mod, "paint_to_score", side_effect=counting):
+        with patch.object(ip_mod, "apply_heal_strokes", side_effect=counting):
             for n in range(1, len(strokes) + 1):
-                settings = _config(strokes[:n])
-                _bake(proc, img, settings, _source_key(settings))
-
-        assert seen_counts == [1, 1, 1], f"expected one new stroke scored per call, got {seen_counts}"
-
-    def test_appending_a_stroke_only_fills_the_new_component(self):
-        """repair_components re-fills only the components that hold a dirty pixel; an
-        untouched one keeps what base_out already holds there."""
-        from negpy.features.retouch import logic as retouch_logic
-
-        img, strokes = _scene()
-        score, _ = retouch_logic.paint_to_score(img, strokes, [])
-        assert score is not None
-        base = np.full_like(img, 7.0)
-        dirty = np.zeros(img.shape[:2], dtype=bool)
-        dirty[188:196, 58:66] = True  # the newest stroke only
-        out = np.asarray(retouch_logic.repair_components(img, score, floor=False, base_out=base, dirty=dirty))
-        fresh = np.asarray(retouch_logic.repair_components(img, score, floor=False))
-        for y, x in ((31, 31), (121, 121)):
-            np.testing.assert_array_equal(out[y, x], base[y, x])
-        np.testing.assert_array_equal(out[191, 61], fresh[191, 61])
-        assert not np.array_equal(out[191, 61], base[191, 61])
+                _bake(proc, img, _config(strokes[:n]))
+        assert seen == [1, 1, 1], f"expected one new stroke healed per call, got {seen}"
 
     def test_dust_removal_on_detects_once_and_stays_incremental(self):
         img, strokes = _scene()
         proc = ImageProcessor()
         stats_calls: list[int] = []
-        seen_counts: list[int] = []
-        real_stats, real_score = ip_mod.compute_dust_stats, ip_mod.paint_to_score
+        seen: list[int] = []
+        real_stats, real_heal = ip_mod.compute_dust_stats, ip_mod.apply_heal_strokes
 
         def counting_stats(*a, **k):
             stats_calls.append(1)
             return real_stats(*a, **k)
 
-        def counting_score(image, s, spots, averaged=None):
-            seen_counts.append(len(s))
-            return real_score(image, s, spots, averaged)
+        def counting_heal(image, s, *a):
+            seen.append(len(tuple(s)))
+            return real_heal(image, s, *a)
 
         with (
             patch.object(ip_mod, "compute_dust_stats", side_effect=counting_stats),
-            patch.object(ip_mod, "paint_to_score", side_effect=counting_score),
+            patch.object(ip_mod, "apply_heal_strokes", side_effect=counting_heal),
         ):
             for n in range(1, len(strokes) + 1):
                 base = _config(strokes[:n])
@@ -186,68 +130,142 @@ class TestIncrementalSkipsUnchangedWork:
                 proc.run_pipeline(img, settings, "src", render_size_ref=240, prefer_gpu=False, readback_metrics=False)
 
         assert len(stats_calls) == 1
-        assert seen_counts == [1, 1, 1]
+        assert seen == [1, 1, 1]
 
 
-class TestPaintPlane:
-    def test_a_smaller_detection_plane_repairs_under_the_stroke(self):
-        img = _grainy(480, 480, seed=9)
-        img[238:242, 238:242] = 0.92
-        plane = np.ascontiguousarray(img[::2, ::2])
-        settings = _config([_stroke(0.5, 0.5, img.shape[:2], diameter_px=24.0)])
-        out, _ = ImageProcessor()._manual_bake(img, settings, _source_key(settings), (plane, plane))
-        assert out[238:242, 238:242].max() < 0.7
-        assert np.array_equal(out[:100], img[:100])
+class TestManualBake:
+    def test_every_stroke_repairs_its_speck(self):
+        img, strokes = _scene()
+        out, _ = _bake(ImageProcessor(), img, _config(strokes))
+        for y, x in ((30, 30), (120, 120), (190, 60)):
+            assert abs(float(out[y : y + 3, x : x + 3].mean()) - 0.5) < 0.05
+        assert np.array_equal(out[200:, 150:], img[200:, 150:]), "film far from every stroke is untouched"
 
-    def test_paint_over_a_mark_that_an_earlier_bake_repaired(self):
-        """The plane is pooled before the bakes, so it still shows a mark the buffer has lost."""
-        plane, strokes = _scene()
-        baked = _grainy(240, 240, seed=7)
-        settings = _config(strokes[:1])
-        out, _ = ImageProcessor()._manual_bake(baked, settings, _source_key(settings), (plane, plane))
-        assert np.isfinite(out).all()
-        assert abs(float(out[30:33, 30:33].mean()) - 0.5) < 0.05
+    def test_a_line_and_a_stroke_bake_together(self):
+        img = _grainy(400, 1200, level=0.45, sigma=0.012, seed=3)
+        for x in range(1200):
+            img[200:202, x] *= 1.12
+        img[60:63, 300:303] = 0.92
+        from negpy.features.retouch.logic import trace_scratch
 
-    def test_a_painted_hair_reaches_the_inpaint_masks(self):
-        img = _grainy(200, 200)
-        for i in range(40, 160):
-            img[100 + (i - 100) // 6, i] = 0.95
-        stroke = ([[0.2, 0.47], [0.5, 0.5], [0.8, 0.53]], _size_at_ref(20.0, (200, 200)), 0.0, 0.0)
-        settings = _config([stroke])
-        _, masks = _bake(ImageProcessor(), img, settings, _source_key(settings))
-        assert any(m[100, 100] for m in masks)
-
-    def test_a_bright_scratch_survives_the_pooled_plane(self):
-        """Min-pooling erases a thin bright mark, so the scratch pass reads the averaged plane."""
-        from negpy.features.retouch.logic import downsample_ir
-
-        img = _grainy(480, 480, seed=11)
-        img[239:241, 200:280] = 0.9
-        proc = ImageProcessor()
-        settings = _config([([[0.42, 0.5], [0.5, 0.5], [0.58, 0.5]], _size_at_ref(16.0, img.shape[:2]), 0.0, 0.0)])
-        pooled = np.ascontiguousarray(downsample_ir(img, 240), dtype=np.float32)
-        assert pooled[120, 105:135].max() < 0.7, "the pooled plane must have lost the scratch for this test to mean anything"
-        planes = proc._paint_plane(img, settings, pooled)
-        out, masks = proc._manual_bake(img, settings, _source_key(settings), planes)
-        if masks:
-            from negpy.features.retouch.logic import apply_hair_inpaint
-
-            out = np.asarray(apply_hair_inpaint(out, masks))
-        assert out[239:241, 215:265].max() < 0.7
+        line = trace_scratch(img, 0.5, 200.5 / 400)
+        assert line is not None
+        settings = _config([_stroke(301.5 / 1200, 61.5 / 400, img.shape[:2])], lines=[line])
+        out, _ = _bake(ImageProcessor(), img, settings)
+        assert abs(float(out[60:63, 300:303].mean()) - 0.45) < 0.05, "the stroke repaired"
+        before = float(np.abs(img[200:202, 100:1100] - 0.45).mean())
+        after = float(np.abs(out[200:202, 100:1100] - 0.45).mean())
+        assert after < 0.5 * before, "the line repaired"
 
     def test_an_already_baked_source_is_not_baked_again(self):
-        """The export fallback hands run_pipeline a buffer with the heals in it: a second gate
-        finds repaired film, and a click would then fill its whole disc."""
+        """The export fallback hands run_pipeline a buffer with the heals in it."""
         img, strokes = _scene()
         settings = _config(strokes[:1])
         proc = ImageProcessor()
         with patch.object(ImageProcessor, "_manual_bake", side_effect=AssertionError("baked twice")):
             proc.run_pipeline(img, settings, "src", render_size_ref=240, prefer_gpu=False, readback_metrics=False, source_baked=True)
 
-    def test_the_planes_are_pooled_once_per_source(self):
-        _, strokes = _scene()
-        img = _grainy(300, 6000, seed=2)
+    def test_auto_hairs_inpaint_once_before_manual_heals(self):
+        """Auto-detected hairs heal before PatchMatch runs and stay cached across manual clicks."""
+        img = _grainy(240, 240, level=0.5, sigma=0.01, seed=11)
+        # Long dark dust hair (low transmittance -> high density) plus two manual dust specks nearby.
+        img[80:82, 40:200] = 0.04
+        img[90:93, 120:123] = 0.92
+        img[140:143, 120:123] = 0.92
+        s1 = _stroke(121.5 / 240, 91.5 / 240, (240, 240), diameter_px=14.0)
+        s2 = _stroke(121.5 / 240, 141.5 / 240, (240, 240), diameter_px=14.0)
+
         proc = ImageProcessor()
-        first = proc._paint_plane(img, _config(strokes[:1]), None)
-        assert first[0].shape != img.shape
-        assert proc._paint_plane(img, _config(strokes[:2]), None)[0] is first[0]
+        proc.engine_gpu = None
+        hair_calls: list[int] = []
+        real_hair = ip_mod.apply_hair_inpaint
+
+        def counting_hair(*a, **k):
+            hair_calls.append(1)
+            return real_hair(*a, **k)
+
+        with patch.object(ip_mod, "apply_hair_inpaint", side_effect=counting_hair):
+            for cur in ([s1], [s1, s2]):
+                base = _config(cur)
+                cfg = replace(base, retouch=replace(base.retouch, dust_remove=True, dust_hair_threshold=0.1))
+                proc.run_pipeline(img, cfg, "src", render_size_ref=240, prefer_gpu=False, readback_metrics=False)
+
+        assert len(hair_calls) == 1, f"auto hair re-inpainted on manual stroke append ({len(hair_calls)} calls)"
+        assert proc._manual_inc_out is not None
+        assert float(proc._manual_inc_out[88:95, 118:125].min()) > 0.25, "unhealed hair leaked into manual heal donor"
+
+    def test_scratch_threshold_change_invalidates_incremental_heal_cache(self):
+        """Changing scratch_threshold re-runs lines and re-applies heal strokes on the updated line buffer."""
+        img = _grainy(300, 900, level=0.45, sigma=0.012, seed=5)
+        img[150:152, :] *= 1.14
+        img[60:63, 200:203] = 0.92
+        from negpy.features.retouch.logic import trace_scratch
+
+        line = trace_scratch(img, 0.5, 150.5 / 300)
+        assert line is not None
+        stroke = _stroke(201.5 / 900, 61.5 / 300, img.shape[:2])
+        proc = ImageProcessor()
+
+        cfg_lo = replace(_config([stroke], lines=[line]), retouch=replace(_config([stroke], lines=[line]).retouch, scratch_threshold=0.1))
+        cfg_hi = replace(cfg_lo, retouch=replace(cfg_lo.retouch, scratch_threshold=0.9))
+        out_lo, _ = _bake(proc, img, cfg_lo)
+        out_hi, _ = _bake(proc, img, cfg_hi)
+        want_hi, _ = _bake(ImageProcessor(), img, cfg_hi)
+        np.testing.assert_array_equal(np.asarray(out_hi), np.asarray(want_hi))
+        assert not np.array_equal(np.asarray(out_lo), np.asarray(out_hi))
+
+    def test_appending_heal_stroke_invalidates_downstream_clone_cache(self):
+        """Clone sits downstream of manual heal and must re-bake when a new heal stroke lands under its source."""
+        img, strokes = _scene()
+        clone = ([[0.75, 0.75]], 18.0, -61.5 / 240 + 0.75, -191.5 / 240 + 0.75, 1.0, 0.3, False)
+        # Note: clone stroke tuple is (points, size, dx, dy, strength, feather, match_tone) where source = dest + (dx, dy)
+        clone_from_speck = ([[0.75, 0.75]], 18.0, (61.5 / 240) - 0.75, (191.5 / 240) - 0.75, 1.0, 0.2, False)
+        proc = ImageProcessor()
+        proc.engine_gpu = None
+
+        cfg1 = replace(_config(strokes[:2]), retouch=replace(_config(strokes[:2]).retouch, clone_strokes=[clone_from_speck]))
+        proc.run_pipeline(img, cfg1, "src", render_size_ref=240, prefer_gpu=False, readback_metrics=False)
+        before_clone = proc._clone_out.copy()
+
+        # Third heal stroke repairs the speck at (61.5, 191.5) that clone copies from.
+        cfg2 = replace(_config(strokes), retouch=replace(_config(strokes).retouch, clone_strokes=[clone_from_speck]))
+        proc.run_pipeline(img, cfg2, "src", render_size_ref=240, prefer_gpu=False, readback_metrics=False)
+        after_clone = proc._clone_out.copy()
+        assert not np.array_equal(before_clone, after_clone), "clone cache served stale unhealed source"
+        _ = clone
+
+    def test_wide_scratch_line_inpaints_before_manual_heal_and_caches_across_renders(self):
+        """Wide scratch cores hair-inpaint ahead of PatchMatch heals and stay cached across slider drags."""
+        img = _grainy(320, 640, level=0.42, sigma=0.01, seed=31)
+        # Wide bright scratch band (14 px thick -> Chebyshev radius >= 5 -> routed to apply_hair_inpaint)
+        # plus a dark manual defect spot right on top of the wide scratch at x=320.
+        img[153:167, 40:600] = 0.92
+        line = (40.0 / 640, 160.0 / 320, 600.0 / 640, 160.0 / 320, _size_at_ref(20.0, img.shape[:2]))
+        touchup = _stroke(320.5 / 640, 160.0 / 320, img.shape[:2], diameter_px=18.0)
+
+        proc = ImageProcessor()
+        proc.engine_gpu = None
+        call_order: list[str] = []
+        real_hair = ip_mod.apply_hair_inpaint
+        real_heal = ip_mod.apply_heal_strokes
+
+        def track_hair(*a, **k):
+            call_order.append("hair")
+            return real_hair(*a, **k)
+
+        def track_heal(*a, **k):
+            call_order.append("heal")
+            return real_heal(*a, **k)
+
+        cfg1 = _config([touchup], lines=[line])
+        cfg2 = replace(cfg1, exposure=replace(cfg1.exposure, density=cfg1.exposure.density + 0.25))
+        with (
+            patch.object(ip_mod, "apply_hair_inpaint", side_effect=track_hair),
+            patch.object(ip_mod, "apply_heal_strokes", side_effect=track_heal),
+        ):
+            proc.run_pipeline(img, cfg1, "src", render_size_ref=320, prefer_gpu=False, readback_metrics=False)
+            proc.run_pipeline(img, cfg2, "src", render_size_ref=320, prefer_gpu=False, readback_metrics=False)
+
+        assert call_order == ["hair", "heal"], f"expected cached hair->heal order, got {call_order}"
+        assert proc._manual_inc_routed is not None
+        assert float(proc._manual_inc_out[156:164, 316:325].mean()) < 0.55

@@ -250,7 +250,7 @@ Auf einem Lith-Abzug wirken nur Selen und Gold. Auf einer Cyanotypie wirkt kein 
 
 **Splittonung** (alle Abzüge): **Schattenstärke** und **Lichterstärke** geben den Schatten und den Lichtern Farbe. **Schattenfarbton** und **Lichterfarbton** wählen die Farbe und erscheinen, sobald die Stärke über 0 liegt.
 
-<!-- panel:retouch src:85e58a6a -->
+<!-- panel:retouch src:69eb5e9a -->
 ### 7.1 Retusche: Staub, Haare, Kratzer
 
 Entfernt Staub, Haare und Kratzer. Jede Reparatur wird aus dem sauberen Film darum herum aufgebaut.
@@ -258,7 +258,7 @@ Entfernt Staub, Haare und Kratzer. Jede Reparatur wird aus dem sauberen Film dar
 *   **Überlagerung**: **Markiert** zeigt, was die Staubentfernung gefunden hat, **IR** den Infrarotkanal des Scans.
 *   **Optische Entfernung** (auch in der Leiste des Tabs Finish): findet Staub und Haare selbst. **Flecken-Schwelle** und **Haar-Schwelle**: niedriger findet mehr, kann aber echte Details entfernen; 1 ist aus. **Größe**: der größte Staub, der entfernt wird. Um einen Bereich zu schützen, ziehe mit der rechten Maustaste darüber oder klicke mit der rechten Maustaste auf eine Markierung. Die Cursor-Schaltfläche überspringt das Rechtsklick-Menü.
 *   **IR-Entfernung** (Scans mit Infrarotkanal, auch in der Leiste des Tabs Finish): findet Staub im Infrarot, wo ihn das Bild nicht zeigt. **IR-Schwelle**: niedriger findet mehr. S/W und Kodachrome werden übersprungen, weil ihr Bild auch im Infrarot sichtbar ist. Der Kanal stammt aus 4-Kanal-TIFF- und DNG-Scans oder aus einer `_IR.tif`-Datei neben dem Scan.
-*   **Heilen**: klicke auf eine Markierung, um sie zu reparieren. Ein Klick repariert immer. Male über einen Bereich, um nur auffällige Markierungen zu reparieren, also male großzügig.
+*   **Heilen**: klicke auf eine Markierung oder male über ein Haar oder einen Kratzer, um es zu reparieren. NegPy baut den Bereich unter dem Pinsel aus passendem Film in der Nähe neu auf, mit Korn. Halte den Pinsel nah am Defekt.
 *   **Kratzer**: klicke Punkte entlang eines Kratzers oder Haars und drücke dann `Enter`.
 *   **Linie**: klicke einmal auf einen langen, geraden Kratzer. NegPy findet und repariert dann die ganze Linie. **Linienempfindlichkeit**: niedriger findet schwächere Linien.
 *   **Pinselgröße**: auch mit `Alt`+Scrollen auf dem Bild.

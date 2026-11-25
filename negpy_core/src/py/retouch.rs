@@ -648,10 +648,135 @@ fn clone_stroke(
     .ok_or_else(|| PyValueError::new_err("invalid clone stroke"))
 }
 
+/// `apply_heal_stroke` in place on an HxWx3 linear image: the crop `(x0, y0, x1, y1)`, the
+/// smoothed path in crop pixels, the integer brush radius and an optional `ch x cw` uint8 mask
+/// of pixels to exclude from the PatchMatch donor pool.
+#[pyfunction]
+#[pyo3(signature = (out, rect, path, brush, avoid=None))]
+fn heal_stroke(
+    py: Python<'_>,
+    mut out: PyReadwriteArrayDyn<'_, f32>,
+    rect: (usize, usize, usize, usize),
+    path: numpy::PyReadonlyArrayDyn<'_, i32>,
+    brush: i64,
+    avoid: Option<numpy::PyReadonlyArray2<'_, u8>>,
+) -> PyResult<()> {
+    use numpy::PyUntypedArrayMethods;
+    let [h, w, 3] = out.shape()[..] else {
+        return Err(PyValueError::new_err("needs an HxWx3 image"));
+    };
+    if !out.is_c_contiguous() {
+        return Err(PyValueError::new_err("needs a C-contiguous image"));
+    }
+    if !(1..=crate::heal::MAX_HEAL_BRUSH).contains(&brush) {
+        return Err(PyValueError::new_err("brush radius out of range"));
+    }
+    let (x0, y0, x1, y1) = rect;
+    if x1 > w || y1 > h || x0 >= x1 || y0 >= y1 {
+        return Err(PyValueError::new_err("crop outside the image"));
+    }
+    let (ch, cw) = (y1 - y0, x1 - x0);
+    let avoid_slice = match &avoid {
+        Some(a) => {
+            if a.shape() != [ch, cw] {
+                return Err(PyValueError::new_err("needs a crop-shaped avoid mask"));
+            }
+            if !a.is_c_contiguous() {
+                return Err(PyValueError::new_err("needs a C-contiguous avoid mask"));
+            }
+            Some(
+                a.as_slice()
+                    .map_err(|_| PyValueError::new_err("needs a C-contiguous avoid mask"))?,
+            )
+        }
+        None => None,
+    };
+    let path = path_points(&path)?;
+    let s = crate::heal::HealStroke {
+        rect,
+        path: &path,
+        brush,
+        avoid: avoid_slice,
+    };
+    let o = out
+        .as_slice_mut()
+        .map_err(|_| PyValueError::new_err("needs a C-contiguous image"))?;
+    super::detach(py, ch.saturating_mul(cw), || {
+        crate::heal::heal_stroke(o, (h, w), &s)
+    })
+    .ok_or_else(|| PyValueError::new_err("invalid heal stroke"))
+}
+
+type RawHealBatch<'py> = Vec<(
+    (usize, usize, usize, usize),
+    numpy::PyReadonlyArrayDyn<'py, i32>,
+    i64,
+)>;
+
+/// Apply a batch of `(rect, path, brush)` manual heal strokes in place, parallelizing disjoint
+/// crops across the rayon pool while keeping exact sequential ordering semantics.
+#[pyfunction]
+fn heal_strokes(
+    py: Python<'_>,
+    mut out: PyReadwriteArrayDyn<'_, f32>,
+    strokes: RawHealBatch<'_>,
+) -> PyResult<()> {
+    use numpy::PyUntypedArrayMethods;
+    let [h, w, 3] = out.shape()[..] else {
+        return Err(PyValueError::new_err("needs an HxWx3 image"));
+    };
+    if !out.is_c_contiguous() {
+        return Err(PyValueError::new_err("needs a C-contiguous image"));
+    }
+    if strokes.is_empty() {
+        return Ok(());
+    }
+    let single = strokes.len() == 1;
+    let mut paths: Vec<Vec<(i64, i64)>> = Vec::with_capacity(strokes.len());
+    let mut metas: Vec<((usize, usize, usize, usize), i64)> = Vec::with_capacity(strokes.len());
+    let mut work = 0usize;
+    for (rect, path_arr, brush) in &strokes {
+        if !(1..=crate::heal::MAX_HEAL_BRUSH).contains(brush) {
+            return Err(PyValueError::new_err("brush radius out of range"));
+        }
+        let (x0, y0, x1, y1) = *rect;
+        if x1 > w || y1 > h || x0 >= x1 || y0 >= y1 {
+            return Err(PyValueError::new_err("crop outside the image"));
+        }
+        paths.push(path_points(path_arr)?);
+        metas.push((*rect, *brush));
+        let area = (x1 - x0).saturating_mul(y1 - y0);
+        let mult = if single && area <= 131_072 { 1 } else { 64 };
+        work = work.saturating_add(area.saturating_mul(mult));
+    }
+    let items: Vec<crate::heal::HealStroke<'_>> = metas
+        .iter()
+        .zip(&paths)
+        .map(|(&(rect, brush), p)| crate::heal::HealStroke {
+            rect,
+            path: p,
+            brush,
+            avoid: None,
+        })
+        .collect();
+    let o = out
+        .as_slice_mut()
+        .map_err(|_| PyValueError::new_err("needs a C-contiguous image"))?;
+    super::detach(py, work, || crate::heal::heal_strokes(o, (h, w), &items))
+        .ok_or_else(|| PyValueError::new_err("invalid heal batch"))
+}
+
 fn path_points(path: &numpy::PyReadonlyArrayDyn<'_, i32>) -> PyResult<Vec<(i64, i64)>> {
+    use numpy::PyUntypedArrayMethods;
+    if !matches!(path.shape(), [_, 2]) {
+        return Err(PyValueError::new_err("needs an Nx2 path"));
+    }
+    if !path.is_c_contiguous() {
+        return Err(PyValueError::new_err("needs a C-contiguous path"));
+    }
     let pts = path
         .as_slice()
-        .map_err(|_| PyValueError::new_err("needs a contiguous path"))?;
+        .map_err(|_| PyValueError::new_err("needs a C-contiguous path"))?;
     Ok(pts
         .as_chunks::<2>()
         .0
@@ -790,6 +915,8 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(ir_gain, m)?)?;
     m.add_function(wrap_pyfunction!(release_score, m)?)?;
     m.add_function(wrap_pyfunction!(clone_stroke, m)?)?;
+    m.add_function(wrap_pyfunction!(heal_stroke, m)?)?;
+    m.add_function(wrap_pyfunction!(heal_strokes, m)?)?;
     m.add_function(wrap_pyfunction!(scratch_ridge, m)?)?;
     m.add_function(wrap_pyfunction!(scratch_slope_search, m)?)?;
     m.add_function(wrap_pyfunction!(split_hairs, m)?)?;

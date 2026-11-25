@@ -16,6 +16,7 @@ pub mod finish;
 pub mod flatfield;
 pub mod gray;
 pub mod hdr;
+pub mod heal;
 pub mod histogram;
 pub mod inpaint;
 pub mod jpeg;

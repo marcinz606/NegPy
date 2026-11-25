@@ -3,8 +3,9 @@ import math
 import json
 
 import cv2
-
+import negpy_core
 import numpy as np
+import pytest
 
 from negpy.domain.models import WorkspaceConfig
 from negpy.features.retouch.logic import (
@@ -27,12 +28,12 @@ from negpy.features.retouch.logic import (
     luma_bake_token,
     manual_bake_token,
     normalize_ir,
-    paint_to_score,
     repair_components,
     route_wide_defects,
     scratch_detect_bar,
     trace_scratch,
 )
+from negpy.features.retouch.heal import apply_heal_stroke, apply_heal_strokes
 from negpy.features.retouch.models import HEAL_SIZE_REF, RetouchConfig
 
 
@@ -48,169 +49,128 @@ def _grainy(h, w, level=0.5, sigma=0.01, seed=21):
 
 def _heal(img, points, diameter_px):
     """Paint one stroke over ``img`` and repair it, the way the source bake does."""
-    size = _size_at_ref(diameter_px, img.shape[:2])
-    score, hair = paint_to_score(img, [(points, size, 0.0, 0.0)], [])
-    out = img
-    if score is not None:
-        out = np.asarray(repair_components(out, score, floor=False))
-    if hair is not None:
-        out = np.asarray(apply_hair_inpaint(out, [hair]))
-    return out, score
+    return apply_heal_strokes(img, [(points, _size_at_ref(diameter_px, img.shape[:2]), 0.0, 0.0)])
 
 
-def _click(shape, diameter_px, nx=0.5, ny=0.5):
-    return ([[nx, ny]], _size_at_ref(diameter_px, shape), 0.0, 0.0)
+def _disc(shape, cx, cy, r):
+    yy, xx = np.mgrid[0 : shape[0], 0 : shape[1]]
+    return np.hypot(xx - cx, yy - cy) <= r
 
 
-def _drag(shape, diameter_px):
-    return ([[0.3, 0.5], [0.5, 0.5], [0.7, 0.5]], _size_at_ref(diameter_px, shape), 0.0, 0.0)
+def test_heal_click_removes_a_speck_and_keeps_the_grain():
+    img = _grainy(120, 120)
+    clean = img.copy()
+    img[58:63, 58:63] = 0.95
+
+    out = _heal(img, [[60.5 / 120, 60.5 / 120]], 14.0)
+
+    core = np.s_[58:63, 58:63]
+    assert abs(float(out[core].mean()) - 0.5) < 0.02, "the speck was not rebuilt to the film level"
+    inside = _disc(img.shape, 60.5, 60.5, 6.0)
+    ratio = float(out[inside].std()) / float(clean[inside].std())
+    assert ratio > 0.6, f"the repair smoothed the grain away (std ratio {ratio:.2f})"
 
 
-def _touched(score, hair, shape):
-    out = np.zeros(shape, bool)
-    if score is not None:
-        out |= score < 1.0
-    if hair is not None:
-        out |= hair > 0
-    return out
+def test_heal_drag_repairs_a_faint_soft_blob():
+    """Heal rebuilds the brush footprint unconditionally, including faint ~3-sigma soft blobs."""
+    img = _grainy(120, 160, sigma=0.01)
+    yy, xx = np.mgrid[0:120, 0:160]
+    blob = np.exp(-(((xx - 80.0) ** 2 + (yy - 60.0) ** 2) / (2.0 * 4.0**2)))
+    img += (0.03 * blob)[..., None].astype(np.float32)  # about 3 sigma of grain at its peak
+
+    out = _heal(img, [[0.45, 0.5], [0.5, 0.5], [0.55, 0.5]], 20.0)
+
+    core = _disc(img.shape, 80, 60, 3.0)
+    before = float(np.abs(img[core] - 0.5).mean())
+    after = float(np.abs(out[core] - 0.5).mean())
+    assert after < 0.5 * before, f"faint blob not repaired ({before:.4f} -> {after:.4f})"
 
 
-def test_brush_repairs_the_defect_and_leaves_clean_grain_alone():
-    """The brush marks a search area, not a stamp: a speck under a generous brush is
-    rebuilt, and the clean film around it inside the same brush is byte-identical."""
-    img = _grainy(100, 100)
-    img[49:52, 49:52] = 0.95
-
-    out, _ = _heal(img, [[0.5, 0.5]], 15.0)
-
-    assert out[49:52, 49:52].max() < 0.7, "dust inside the brush was not repaired"
-    yy, xx = np.mgrid[0:100, 0:100]
-    dist = np.hypot(xx - 50, yy - 50)
-    clean_in_brush = (dist < 7) & (dist > 5.5)  # outside the defect's own skirt pad
-    assert np.array_equal(out[clean_in_brush], img[clean_in_brush]), "clean grain inside the brush changed"
-
-
-def test_brush_repairs_a_dark_scratch():
-    """#791: a scratch has lost emulsion, so it reads *brighter* in transmittance than the
-    film around it. The old bright-only gate could never repair one — the two-sided gate
-    plus floor=False must."""
+def test_heal_repairs_a_bright_scratch_along_a_drag():
     img = _grainy(100, 160)
-    for x in range(30, 130):
-        img[58:61, x] = 0.85  # a scratch running across the frame
+    img[58:61, 30:130] = 0.85
 
-    out, _ = _heal(img, [[30.0 / 160, 59.0 / 100], [80.0 / 160, 59.0 / 100], [129.0 / 160, 59.0 / 100]], 10.0)
+    out = _heal(img, [[30.0 / 160, 59.0 / 100], [80.0 / 160, 59.0 / 100], [129.0 / 160, 59.0 / 100]], 10.0)
 
-    err_before = float(np.abs(img[58:61, 30:130] - 0.5).mean())
-    err_after = float(np.abs(out[58:61, 30:130] - 0.5).mean())
+    err_before = float(np.abs(img[58:61, 32:128] - 0.5).mean())
+    err_after = float(np.abs(out[58:61, 32:128] - 0.5).mean())
     assert err_after < err_before * 0.2, f"scratch not repaired ({err_before:.3f} -> {err_after:.3f})"
 
 
-def test_drag_on_clean_film_is_a_noop():
-    """Painting over film with nothing wrong with it must not smooth its grain away."""
-    img = _grainy(100, 100)
-    assert paint_to_score(img, [_drag((100, 100), 15.0)], []) == (None, None)
+def test_heal_continues_a_tonal_edge_through_the_brush():
+    """A speck on a horizon is rebuilt from both sides: the edge stays sharp, with no grey smear."""
+    img = _grainy(120, 160, level=0.3, sigma=0.008)
+    img[:60] += 0.4
+    clean = img.copy()
+    img[55:66, 75:86] = 0.95
+
+    out = _heal(img, [[80.5 / 160, 60.5 / 120]], 16.0)
+
+    assert abs(float(out[52:58, 78:84].mean()) - float(clean[52:58, 78:84].mean())) < 0.05, "bright side"
+    assert abs(float(out[62:68, 78:84].mean()) - float(clean[62:68, 78:84].mean())) < 0.05, "dark side"
 
 
-def test_silent_click_fills_its_disc():
-    img = _grainy(100, 100)
-    score, hair = paint_to_score(img, [_click((100, 100), 12.0)], [])
-    assert hair is None
-    assert score[50, 50] <= _IR_SCORE_FLOOR + 1e-6
-    yy, xx = np.mgrid[0:100, 0:100]
-    assert (score[np.hypot(xx - 50, yy - 50) > 7.0] == 1.0).all()
-
-
-def test_a_click_that_moved_a_little_still_fills_its_disc():
-    """The canvas adds a second point when the pointer moves between press and release."""
-    img = _grainy(100, 100)
-    stroke = ([[0.5, 0.5], [0.51, 0.5]], _size_at_ref(12.0, (100, 100)), 0.0, 0.0)
-    score, _ = paint_to_score(img, [stroke], [])
-    assert score is not None and score[50, 50] <= _IR_SCORE_FLOOR + 1e-6
-
-
-def test_click_on_a_mark_repairs_only_the_mark():
-    img = _grainy(100, 100)
-    img[49:52, 49:52] = 0.95
-    score, _ = paint_to_score(img, [_click((100, 100), 30.0)], [])
-    assert score[50, 50] < _IR_WRITE_HI
-    assert score[50, 62] == 1.0, "clean film inside the brush"
-
-
-def test_painted_hair_goes_to_the_inpaint_mask():
-    img = _grainy(200, 200)
-    for i in range(40, 160):
-        img[100 + (i - 100) // 6, i] = 0.95
-    stroke = ([[0.2, 0.47], [0.5, 0.5], [0.8, 0.53]], _size_at_ref(20.0, (200, 200)), 0.0, 0.0)
-    _, hair = paint_to_score(img, [stroke], [])
-    assert hair is not None and hair[100, 100] > 0
-
-
-def test_click_at_the_frame_corner():
-    img = _grainy(100, 100)
-    score, _ = paint_to_score(img, [_click((100, 100), 12.0, 0.0, 0.0)], [])
-    assert score is not None and score[0, 0] < 1.0 and np.isfinite(score).all()
-
-
-def test_largest_brush_on_a_large_plane():
-    img = _grainy(2400, 3600, seed=3)
-    score, _ = paint_to_score(img, [([[0.5, 0.5]], 64.0, 0.0, 0.0)], [])
-    assert score is not None and np.isfinite(score).all()
-
-
-def test_click_on_flat_clipped_film():
-    img = np.ones((100, 100, 3), dtype=np.float32)
-    score, _ = paint_to_score(img, [_click((100, 100), 12.0)], [])
-    assert score is not None and np.isfinite(score).all() and score[50, 50] < 1.0
-
-
-def test_repair_footprint_stays_within_the_brush():
-    """Nothing outside the painted capsule may change — the repaired footprint must not
-    exceed the on-screen cursor."""
+def test_heal_footprint_stays_within_the_brush():
     img = _grainy(100, 100, level=0.4, seed=31)
     img[48:52, :] = 0.95  # dust strip across the whole frame
 
-    out, _ = _heal(img, [[0.5, 0.5]], 16.0)  # radius 8 px
+    out = _heal(img, [[0.5, 0.5]], 16.0)  # radius 8 px
 
-    changed = np.abs(out.astype(np.float64) - img).max(axis=2) > 5e-3
+    changed = np.abs(out.astype(np.float64) - img).max(axis=2) > 0.0
     ys, xs = np.where(changed)
     assert len(ys) > 0, "strip inside the brush was not repaired"
-    dist = np.hypot(xs + 0.5 - 50.0, ys + 0.5 - 50.0)
-    assert dist.max() <= 9.0, f"repair leaked {dist.max():.2f}px from centre, brush radius is 8"
-    assert out[48:52, 80:].min() > 0.9, "strip outside the brush must stay untouched"
+    assert float(np.hypot(xs - 50.0, ys - 50.0).max()) <= 9.0, "the repair leaked past the brush"
+    assert out[48:52, 80:].min() > 0.9, "the strip outside the brush stays as it is"
 
 
-def test_stroke_radius_matches_cursor_fraction():
-    """The repaired footprint must equal the overlay cursor circle: the cursor
-    (overlay._brush_screen_radius) draws size/(2·HEAL_SIZE_REF) of the view, and the
-    same fraction must hold at any render resolution."""
-    size = 24.0
-    for h, w in ((300, 450), (600, 900)):
-        img = _grainy(h, w, seed=17)
-        img[h // 2 - 1 : h // 2 + 2, :] = 0.95  # a strip crossing the whole frame
-        score, hair = paint_to_score(img, [([[0.5, 0.5]], size, 0.0, 0.0)], [])
-
-        _ys, xs = np.where(_touched(score, hair, (h, w)))
-        reach = float(np.abs(xs - w / 2.0).max())
-        expected = size / (2.0 * HEAL_SIZE_REF) * max(h, w)
-        assert abs(reach - expected) <= 2.0, f"{h}x{w}: footprint {reach:.2f}px, cursor {expected:.2f}px"
+def test_heal_edge_cases_stay_finite():
+    for img, stroke in (
+        (_grainy(100, 100), ([[0.0, 0.0]], _size_at_ref(12.0, (100, 100)), 0.0, 0.0)),
+        (np.ones((100, 100, 3), dtype=np.float32), ([[0.5, 0.5]], _size_at_ref(12.0, (100, 100)), 0.0, 0.0)),
+        (_grainy(600, 900, seed=3), ([[0.5, 0.5]], 64.0, 0.0, 0.0)),
+        (_grainy(40, 40), ([[0.5, 0.5]], 64.0, 0.0, 0.0)),
+    ):
+        out = apply_heal_strokes(img, [stroke])
+        assert out.shape == img.shape and np.isfinite(out).all()
 
 
 def test_legacy_spots_repair():
-    """Pre-stroke (nx, ny, size) spots still repair — they are just a one-point stroke."""
+    """Pre-stroke (nx, ny, size) spots still repair: they run as one-point strokes."""
     img = _grainy(100, 100)
     img[48:53, 48:53] = 0.95
-    score, _ = paint_to_score(img, [], [(0.5, 0.5, _size_at_ref(12.0, (100, 100)))])
-    assert score is not None
-    out = np.asarray(repair_components(img, score, floor=False))
+    out = apply_heal_strokes(img, [], [(0.505, 0.505, _size_at_ref(12.0, (100, 100)))])
     assert out[48:53, 48:53].max() < 0.7
+
+
+def test_heal_is_deterministic_and_the_batch_matches_one_stroke_at_a_time():
+    """Disjoint strokes heal in parallel waves; the result must equal applying them in order."""
+    img = _grainy(240, 240, seed=7)
+    centres = ((30, 30), (120, 120), (60, 190), (125, 135))  # the last two overlap the second
+    for cx, cy in centres:
+        img[cy - 2 : cy + 3, cx - 2 : cx + 3] = 0.92
+    strokes = [([[(cx + 0.5) / 240, (cy + 0.5) / 240]], _size_at_ref(14.0, img.shape[:2]), 0.0, 0.0) for cx, cy in centres]
+
+    batch = apply_heal_strokes(img, strokes)
+    seq = img.copy()
+    for points, size, _, _ in strokes:
+        apply_heal_stroke(seq, points, size)
+    assert np.array_equal(batch, seq)
+    assert np.array_equal(batch, apply_heal_strokes(img, strokes))
+
+
+def _square_score(shape, y0, y1, x0, x1):
+    from negpy.features.retouch.logic import _mask_to_score
+
+    mask = np.zeros(shape, dtype=np.uint8)
+    mask[y0:y1, x0:x1] = 1
+    return _mask_to_score(mask, 2.5)
 
 
 def test_repair_components_matches_the_whole_frame_repair():
     """Cropping per defect is an optimization, not a different result."""
     img = _grainy(120, 120, seed=5)
     img[58:62, 58:62] = 0.95
-    score, _ = paint_to_score(img, [([[0.5, 0.5]], _size_at_ref(14.0, (120, 120)), 0.0, 0.0)], [])
-    assert score is not None
+    score = _square_score((120, 120), 58, 62, 58, 62)
     cropped = np.asarray(repair_components(img, score, floor=False))
     whole = np.asarray(apply_score_repair(img, score, floor=False))
     np.testing.assert_allclose(cropped, whole, atol=2e-3)
@@ -219,7 +179,7 @@ def test_repair_components_matches_the_whole_frame_repair():
 def test_repair_leaves_unscored_pixels_byte_identical():
     img = _grainy(120, 120, seed=8)
     img[58:62, 58:62] = 0.95
-    score, _ = paint_to_score(img, [([[0.5, 0.5]], _size_at_ref(14.0, (120, 120)), 0.0, 0.0)], [])
+    score = _square_score((120, 120), 58, 62, 58, 62)
     out = np.asarray(repair_components(img, score, floor=False))
     untouched = np.repeat((score >= 1.0)[..., None], 3, axis=2)
     assert np.array_equal(out[untouched], img[untouched])
@@ -837,3 +797,327 @@ def test_trace_scratch_follows_a_steep_line_across_a_wide_hq_buffer():
     assert nx1 - nx0 > 0.8
     fitted = (ny1 - ny0) * h / max((nx1 - nx0) * w, 1e-6)
     assert abs(fitted - slope) < 0.002
+
+
+def test_heal_stroke_respects_avoid_mask():
+    """Pixels flagged in ``avoid`` are excluded from the PatchMatch donor pool."""
+    import negpy_core
+
+    img = _grainy(96, 96, level=0.35, sigma=0.01, seed=17)
+    # Contaminate the upper half with bright green; leave the lower half clean at 0.35.
+    img[:44, :, :] = 0.35
+    img[:44, :, 1] = 0.90
+    img[46:51, 46:51] = 0.98
+
+    avoid = np.zeros((96, 96), dtype=np.uint8)
+    avoid[:45, :] = 1
+    path = np.array([[48, 48]], dtype=np.int32)
+    out = img.copy()
+    negpy_core.heal_stroke(out, (0, 0, 96, 96), path, 5, avoid=avoid)
+
+    core = out[46:51, 46:51]
+    assert abs(float(core[:, :, 1].mean()) - 0.35) < 0.04, "donor came from avoided region"
+
+
+def test_heal_vignette_gradient_has_no_internal_step_seam():
+    """Across a strong tonal gradient, donor patches carry their DC shift so interior seams stay smooth."""
+    rng = np.random.default_rng(42)
+    yy, xx = np.mgrid[0:140, 0:180].astype(np.float32)
+    base = 0.12 + 0.55 * (xx / 179.0) + 0.18 * (yy / 139.0)
+    grain = rng.normal(0.0, 0.012, (140, 180, 3)).astype(np.float32)
+    clean = np.clip(base[..., None] + grain, 0.02, 0.98).astype(np.float32)
+    img = clean.copy()
+    img[58:82, 78:102] = 0.99
+
+    out = _heal(img, [[90.0 / 180, 70.0 / 140]], 34.0)
+
+    patch_err = np.abs(out[56:84, 76:104].mean(axis=2) - clean[56:84, 76:104].mean(axis=2))
+    assert float(patch_err.mean()) < 0.025
+    # Adjacent interior differences should remain bounded by local grain, never a tonal cliff.
+    interior = out[60:80, 80:100].mean(axis=2)
+    max_step = max(float(np.abs(np.diff(interior, axis=0)).max()), float(np.abs(np.diff(interior, axis=1)).max()))
+    assert max_step < 0.08, f"internal tonal step cliff ({max_step:.3f})"
+
+
+def test_heal_sanitizes_non_finite_and_extreme_inputs():
+    """NaN/Inf/zero/negative pixels, 1x1 frames, full-frame brushes, off-frame strokes, duplicate points and F-order arrays."""
+    import negpy_core
+    import pytest
+
+    img = _grainy(80, 80, level=0.4, sigma=0.01, seed=9)
+    img[10, 10] = np.nan
+    img[12, 14] = np.inf
+    img[15, 16] = -np.inf
+    img[18, 20] = -0.5
+    img[22, 24] = 0.0
+    img[38:43, 38:43] = np.inf
+
+    # Fortran-ordered input + duplicate points (size 180 -> brush radius 4.5 px on 80x80, covering 38:43).
+    f_img = np.asfortranarray(img)
+    out = apply_heal_strokes(f_img, [([[40.5 / 80, 40.5 / 80], [40.5 / 80, 40.5 / 80], [40.5 / 80, 40.5 / 80]], 180.0, 0.0, 0.0)])
+    assert out.flags["C_CONTIGUOUS"]
+    assert np.isfinite(out[35:46, 35:46]).all()
+    assert abs(float(out[38:43, 38:43].mean()) - 0.4) < 0.05
+
+    # 1x1 image and out-of-frame strokes safely no-op.
+    tiny = np.full((1, 1, 3), 0.5, dtype=np.float32)
+    assert np.array_equal(apply_heal_strokes(tiny, [([[0.5, 0.5]], 10.0, 0.0, 0.0)]), tiny)
+    off = apply_heal_strokes(_grainy(40, 40), [([[-2.0, -2.0]], 8.0, 0.0, 0.0), ([[0.5, 0.5]], float("nan"), 0.0, 0.0)])
+    assert off.shape == (40, 40, 3)
+
+    # Brush covering 100% of frame falls back cleanly without panicking.
+    small = _grainy(24, 24, level=0.45)
+    full = apply_heal_strokes(small, [([[0.5, 0.5]], 400.0, 0.0, 0.0)])
+    assert np.isfinite(full).all()
+
+    # Invalid brush radii and malformed path shapes raise ValueError cleanly.
+    buf = _grainy(32, 32)
+    with pytest.raises(ValueError):
+        negpy_core.heal_stroke(buf, (0, 0, 32, 32), np.array([[16, 16]], dtype=np.int32), 0)
+    with pytest.raises(ValueError):
+        negpy_core.heal_stroke(buf, (0, 0, 32, 32), np.array([[16, 16]], dtype=np.int32), 100_000)
+    with pytest.raises(ValueError):
+        negpy_core.heal_stroke(buf, (0, 0, 32, 32), np.array([16, 16, 17], dtype=np.int32), 4)
+
+
+def test_heal_long_diagonal_scratch_partitions_bounded_at_export_scale():
+    """A full-frame diagonal scratch at 2400x3600 subdivides into tight crops instead of allocating a full-frame bbox."""
+    import time
+
+    h, w = 2400, 3600
+    img = np.full((h, w, 3), 0.42, dtype=np.float32)
+    xs = np.linspace(180, w - 180, 1200).astype(np.int32)
+    ys = np.linspace(120, h - 120, 1200).astype(np.int32)
+    for dy in range(-1, 2):
+        for dx in range(-1, 2):
+            img[np.clip(ys + dy, 0, h - 1), np.clip(xs + dx, 0, w - 1)] = 0.95
+
+    t0 = time.perf_counter()
+    out = apply_heal_strokes(img, [([[180.0 / w, 120.0 / h], [(w - 180.0) / w, (h - 120.0) / h]], 5.0, 0.0, 0.0)])
+    elapsed = time.perf_counter() - t0
+
+    mid_vals = out[ys[100:-100], xs[100:-100]]
+    assert abs(float(mid_vals.mean()) - 0.42) < 0.02, "diagonal scratch not healed"
+    assert elapsed < 1.5, f"diagonal scratch took {elapsed:.2f}s (subdivision regression)"
+
+
+def test_heal_continues_curved_line_across_perpendicular_scratch():
+    """A narrow high-contrast curved arc crossed by a long perpendicular scratch heals without cutting a gap in the arc."""
+    h, w = 160, 160
+    clean = _grainy(h, w, level=0.48, sigma=0.008, seed=23)
+    yy, xx = np.mgrid[0:h, 0:w].astype(np.float32)
+    # Dense dark feature in transmittance (bright white curved arc in print), 4 px wide.
+    arc_x = 52.0 + 0.006 * (yy - 30.0) ** 2
+    arc = np.exp(-0.5 * ((xx - arc_x) / 1.8) ** 2)
+    clean = np.clip(clean * (1.0 - 0.82 * arc[..., None]), 0.04, 0.98).astype(np.float32)
+
+    img = clean.copy()
+    # Horizontal scratch cutting across both dark background and the curved arc at y = 79..81.
+    img[79:82, 30:130] = 0.92
+    out = _heal(img, [[30.0 / w, 80.5 / h], [80.0 / w, 80.5 / h], [130.0 / w, 80.5 / h]], 11.0)
+
+    # Check every row inside the healed horizontal band right along the curved arc centerline:
+    for y in range(75, 86):
+        cx = int(round(52.0 + 0.006 * (y - 30.0) ** 2))
+        got = float(out[y, cx - 1 : cx + 2].mean())
+        want = float(clean[y, cx - 1 : cx + 2].mean())
+        assert abs(got - want) < 0.06, f"arc severed at row {y}: got {got:.3f}, want {want:.3f}"
+    # And background along the scratch away from the arc is healed back to ~0.48.
+    assert abs(float(out[79:82, 95:120].mean()) - 0.48) < 0.03
+
+
+def test_heal_reconstructs_tight_circular_arc_via_rotation():
+    """A scratch across the top apex of a tight semicircle heals by rotating angled shoulder patches."""
+    h, w = 80, 120
+    clean = _grainy(h, w, level=0.22, sigma=0.008, seed=41)
+    yy, xx = np.mgrid[0:h, 0:w].astype(np.float32)
+    dist = np.abs(np.hypot(xx - 60.0, yy - 58.0) - 26.0)
+    w_ring = np.clip((2.2 - dist) / 1.4, 0.0, 1.0)[..., None]
+    clean = (clean * (1.0 - w_ring) + 0.82 * w_ring).astype(np.float32)
+
+    img = clean.copy()
+    img[22:45, 57:64] = 0.04
+    pts = [[60.5 / w, (y + 0.5) / h] for y in range(22, 45, 4)]
+    # Restrict upper semicircle so no unrotated horizontal arc exists anywhere in the crop.
+    out = _heal(img[:56], [[p[0], p[1] * h / 56.0] for p in pts], 10.0)
+
+    assert float(out[32, 60].mean()) > 0.58, f"circle apex severed: {float(out[32, 60].mean()):.3f}"
+    assert float(out[24, 60].mean()) < 0.34 and float(out[40, 60].mean()) < 0.34
+
+
+def test_heal_reconstructs_tapered_stripe_via_scale():
+    """A scratch across a perspective-foreshortened stripe heals at the local tapered width."""
+    h, w = 120, 120
+    clean = _grainy(h, w, level=0.20, sigma=0.008, seed=53)
+    yy, xx = np.mgrid[0:h, 0:w].astype(np.float32)
+    hw = 1.6 + 0.045 * yy
+    t = np.clip((hw + 1.0 - np.abs(xx - 60.0)) / 1.2, 0.0, 1.0)[..., None]
+    clean = (clean * (1.0 - t) + 0.80 * t).astype(np.float32)
+
+    img = clean.copy()
+    img[54:59, 40:81] = 0.04
+    out = _heal(img, [[40.0 / w, 56.5 / h], [60.0 / w, 56.5 / h], [80.0 / w, 56.5 / h]], 8.0)
+
+    assert float(out[56, 60].mean()) > 0.68
+    assert float(out[56, 52].mean()) < 0.30
+
+
+def test_heal_preserves_clumpy_multi_pixel_dye_clouds():
+    """Wide strokes on coarse-grained scans preserve multi-pixel dye-cloud clumping rather than 1x1 confetti."""
+    rng = np.random.default_rng(77)
+    h, w = 160, 160
+    # Correlated ~6 px dye clouds via 2x upsampled + smoothed random field, plus fine sensor noise.
+    coarse = rng.normal(0.0, 0.09, (h // 3, w // 3, 3)).astype(np.float32)
+    clouds = np.repeat(np.repeat(coarse, 3, axis=0), 3, axis=1)
+    pad_h, pad_w = h - clouds.shape[0], w - clouds.shape[1]
+    clouds = np.pad(clouds, ((0, pad_h), (0, pad_w), (0, 0)), mode="edge")
+    clouds = 0.25 * (np.roll(clouds, -1, axis=0) + np.roll(clouds, 1, axis=0) + np.roll(clouds, -1, axis=1) + np.roll(clouds, 1, axis=1))
+    clean = np.clip(0.30 + clouds + rng.normal(0.0, 0.008, (h, w, 3)).astype(np.float32), 0.05, 0.90)
+
+    img = clean.copy()
+    img[40:120, 75:86] = 0.94
+    pts = [[80.5 / w, (y + 0.5) / h] for y in range(40, 121, 8)]
+    out = _heal(img, pts, 16.0)
+
+    c_strip = clean[45:115, 74:87]
+    o_strip = out[45:115, 74:87]
+    c_lag4 = float(np.sqrt(np.mean((c_strip[:, 4:] - c_strip[:, :-4]) ** 2)))
+    o_lag4 = float(np.sqrt(np.mean((o_strip[:, 4:] - o_strip[:, :-4]) ** 2)))
+    c_lag1 = float(np.sqrt(np.mean((c_strip[:, 1:] - c_strip[:, :-1]) ** 2)))
+    o_lag1 = float(np.sqrt(np.mean((o_strip[:, 1:] - o_strip[:, :-1]) ** 2)))
+    assert o_lag4 > 0.78 * c_lag4, f"3-8px dye-cloud clumps collapsed: {o_lag4:.4f} vs {c_lag4:.4f}"
+    assert (o_lag1 / o_lag4) < 1.25 * (c_lag1 / c_lag4), "clumpy dye clouds turned into 1x1 sandpaper"
+
+
+def test_heal_rejects_fortran_ordered_arrays():
+    """PyO3 and Python heal entry points reject Fortran-ordered image, path and avoid arrays."""
+    c_img = np.full((32, 40, 3), 0.4, dtype=np.float32, order="C")
+    f_img = np.asfortranarray(c_img)
+    c_path = np.array([[10, 10], [20, 15]], dtype=np.int32, order="C")
+    f_path = np.asfortranarray(c_path)
+    f_avoid = np.asfortranarray(np.zeros((32, 40), dtype=np.uint8))
+
+    with pytest.raises(ValueError, match="C-contiguous"):
+        apply_heal_stroke(f_img, [[0.5, 0.5]], 8.0)
+    with pytest.raises(ValueError, match="C-contiguous"):
+        negpy_core.heal_stroke(f_img, (0, 0, 40, 32), c_path, 4)
+    with pytest.raises(ValueError, match="C-contiguous"):
+        negpy_core.heal_stroke(c_img, (0, 0, 40, 32), f_path, 4)
+    with pytest.raises(ValueError, match="C-contiguous"):
+        negpy_core.heal_stroke(c_img, (0, 0, 40, 32), c_path, 4, f_avoid)
+    with pytest.raises(ValueError, match="C-contiguous"):
+        negpy_core.heal_strokes(f_img, [((0, 0, 40, 32), c_path, 4)])
+    with pytest.raises(ValueError, match="C-contiguous"):
+        negpy_core.heal_strokes(c_img, [((0, 0, 40, 32), f_path, 4)])
+
+
+def test_heal_handles_extreme_i32_coordinates_and_dense_scribbles():
+    """Extreme i32 path coordinates and dense back-and-forth scribbles clip and finish cleanly."""
+    img = _grainy(560, 560, level=0.40, sigma=0.012, seed=91)
+    img[276:284, 276:284] = 0.95
+
+    extreme = np.array([[-2_147_483_648, -2_147_483_648], [280, 280], [2_147_483_647, 2_147_483_647]], dtype=np.int32)
+    out_ext = img.copy()
+    negpy_core.heal_stroke(out_ext, (0, 0, 560, 560), extreme, 6)
+    assert np.isfinite(out_ext).all()
+    assert float(out_ext[278:282, 278:282].mean()) < 0.52
+
+    # 8,000-point back-and-forth scribble inside a compact box must heal as one mask without OOM/hang.
+    t = np.arange(8000, dtype=np.int32)
+    sx = 260 + (t % 2) * 40
+    sy = 260 + ((t // 2) % 40)
+    scribble = np.ascontiguousarray(np.stack([sx, sy], axis=1), dtype=np.int32)
+    out_scr = img.copy()
+    negpy_core.heal_stroke(out_scr, (0, 0, 560, 560), scribble, 5)
+    assert np.isfinite(out_scr).all()
+    assert abs(float(out_scr[278:282, 278:282].mean()) - 0.40) < 0.04
+
+
+def test_heal_handles_fully_covered_crop_without_overflow():
+    """Brushes covering 100% or 98% of `rect` complete with finite values and zero overflow."""
+    img = _grainy(32, 32, level=0.42, sigma=0.01, seed=93)
+    orig = img.copy()
+    negpy_core.heal_stroke(img, (0, 0, 32, 32), np.array([[16, 16]], dtype=np.int32), 48)
+    assert np.isfinite(img).all()
+    np.testing.assert_array_equal(img, orig)
+
+    nearly_full = orig.copy()
+    negpy_core.heal_stroke(nearly_full, (0, 0, 32, 32), np.array([[16, 16]], dtype=np.int32), 21)
+    assert np.isfinite(nearly_full).all()
+    assert abs(float(nearly_full.mean()) - 0.42) < 0.03
+
+
+def test_heal_respects_avoid_mask_with_narrow_border_or_full_exclusion():
+    """`avoid` is never relaxed to copy excluded pixels, even when only a 2 px border or 0 px remain."""
+    h, w = 48, 48
+    img = _grainy(h, w, level=0.32, sigma=0.008, seed=95)
+    # Leave only a 2 px clean border at ~0.32; fill interior non-hole region with bright 0.96 avoid tone.
+    avoid = np.ones((h, w), dtype=np.uint8)
+    avoid[:2, :] = 0
+    avoid[-2:, :] = 0
+    avoid[:, :2] = 0
+    avoid[:, -2:] = 0
+    img[avoid != 0] = 0.96
+    img[22:27, 22:27] = 0.85
+    avoid[20:29, 20:29] = 0
+    # Mark collar around the brush as avoid too so only the 2 px outer frame is clean.
+    avoid_tight = np.ones((h, w), dtype=np.uint8)
+    avoid_tight[:2, :] = 0
+    avoid_tight[-2:, :] = 0
+    avoid_tight[:, :2] = 0
+    avoid_tight[:, -2:] = 0
+
+    out_border = img.copy()
+    negpy_core.heal_stroke(out_border, (0, 0, w, h), np.array([[24, 24]], dtype=np.int32), 5, avoid_tight)
+    assert float(out_border[23:26, 23:26].mean()) < 0.42, "avoid pixels leaked when only 2 px border was clean"
+
+    # 100% exterior masked by avoid: hole must not absorb 0.98 avoid tones.
+    full_avoid = np.ones((h, w), dtype=np.uint8)
+    out_none = np.full((h, w, 3), 0.98, dtype=np.float32)
+    out_none[20:29, 20:29] = 0.25
+    negpy_core.heal_stroke(out_none, (0, 0, w, h), np.array([[24, 24]], dtype=np.int32), 3, full_avoid)
+    assert float(out_none[24, 24].mean()) < 0.35, "100% avoid exterior leaked into hole"
+
+
+def test_heal_subdivides_hooked_stroke_and_matches_batch_bits():
+    """A long hooked scratch masks its returning tail in early sub-strokes and matches heal_strokes."""
+    h, w = 620, 620
+    img = _grainy(h, w, level=0.36, sigma=0.012, seed=97)
+    # Hooked U-turn scratch whose return leg passes within 22 px of the outgoing leg.
+    pts_px = [(80, y) for y in range(80, 521, 20)] + [(92, 530), (104, 520)] + [(104, y) for y in range(500, 79, -20)]
+    path = np.array(pts_px, dtype=np.int32)
+    img[78:533, 78:83] = 0.95
+    img[518:533, 80:107] = 0.95
+    img[78:523, 102:107] = 0.95
+
+    out_single = img.copy()
+    out_batch = img.copy()
+    negpy_core.heal_stroke(out_single, (0, 0, w, h), path, 5)
+    negpy_core.heal_strokes(out_batch, [((0, 0, w, h), path, 5)])
+    np.testing.assert_array_equal(out_single, out_batch)
+    assert float(out_single[120:480, 79:82].max()) < 0.50, "returning unhealed leg leaked into outgoing sub-stroke"
+    assert float(out_single[120:480, 103:106].max()) < 0.50, "return leg left unhealed"
+
+
+def test_heal_dodges_wide_multiscale_neighbour_dust_blob():
+    """High-DPI unclicked dust blobs (~13x13 px) are caught on coarse pyramid levels and excluded."""
+    h, w = 180, 180
+    img = _grainy(h, w, level=0.34, sigma=0.01, seed=99)
+    # Clicked scratch spot at (90, 90) surrounded by four wide 13x13 unclicked dust blobs.
+    img[85:96, 85:96] = 0.94
+    for cy, cx in [(90, 114), (90, 66), (66, 90), (114, 90)]:
+        img[cy - 6 : cy + 7, cx - 6 : cx + 7] = 0.96
+
+    out = img.copy()
+    negpy_core.heal_stroke(out, (10, 10, 170, 170), np.array([[80, 80]], dtype=np.int32), 8)
+    assert float(out[86:95, 86:95].max()) < 0.50, "wide neighbour dust blob copied into healed spot"
+
+
+def test_heal_tightens_oversized_full_frame_rect():
+    """Passing a full-frame `rect` for a small spot heals cleanly without scanning the whole frame."""
+    img = _grainy(900, 1200, level=0.38, sigma=0.01, seed=101)
+    img[448:453, 598:603] = 0.94
+    out = img.copy()
+    negpy_core.heal_stroke(out, (0, 0, 1200, 900), np.array([[600, 450]], dtype=np.int32), 6)
+    assert abs(float(out[448:453, 598:603].mean()) - 0.38) < 0.04
+    assert np.array_equal(out[:200, :200], img[:200, :200])

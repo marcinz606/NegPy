@@ -1348,6 +1348,7 @@
   "Hashing {current}/{total}: {name}": "해싱 {current}/{total}: {name}",
   "Hatch the clipped pixels in the Clipping Overlay colors": "클리핑된 픽셀에 클리핑 오버레이 색으로 빗금을 칩니다",
   "Heal": "복구",
+  "Heal: click or paint over a defect, and NegPy rebuilds it from matching film nearby.": "복구: 결함을 클릭하거나 칠하면 NegPy가 근처의 비슷한 필름으로 다시 만듭니다.",
   "Heal: click or paint over dust to remove it, and clean film under the brush stays as it is.": "복구: 먼지를 클릭하거나 칠해서 없애며, 브러시 아래의 깨끗한 필름은 그대로 둡니다.",
   "Height": "높이",
   "Help": "도움말",

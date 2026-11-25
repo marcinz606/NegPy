@@ -1348,6 +1348,7 @@
   "Hashing {current}/{total}: {name}": "计算文件标识 {current}/{total}：{name}",
   "Hatch the clipped pixels in the Clipping Overlay colors": "用截断叠加的颜色以斜线标出截断像素",
   "Heal": "修复",
+  "Heal: click or paint over a defect, and NegPy rebuilds it from matching film nearby.": "修复：点击或涂抹瑕疵，NegPy 会用附近相似的胶片重建它。",
   "Heal: click or paint over dust to remove it, and clean film under the brush stays as it is.": "修复：点击或涂抹灰尘即可去除，画笔下干净的胶片保持不变。",
   "Height": "高度",
   "Help": "帮助",
