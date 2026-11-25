@@ -123,7 +123,7 @@ def test_an_offset_slides_the_rect_by_the_same_film_distance_the_scan_uses() -> 
 
 def test_an_absolute_rect_can_be_re_addressed_backwards() -> None:
     session, _module, _ = _roll()
-    assert session.offset_range == (-1.0, 1.0)
+    assert session.offset_range == (-55.0 / _PITCH_MM, 55.0 / _PITCH_MM)
     _previews(session, (2,))  # measure first, so the offset only moves the slice
 
     session.set_offset(2, -1.0)

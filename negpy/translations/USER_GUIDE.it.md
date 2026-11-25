@@ -608,7 +608,7 @@ Corregge gli errori di colore dovuti alla luce, alla fotocamera e alla pellicola
 
 **Rifinitura della tinta** (fotocamera con luce a banda stretta): ruota tutte le tinte, per una luce che rende arancioni i gialli o oliva i verdi. Lascia 0 per la luce bianca. A differenza del profilo del sensore, funziona anche sulle diapositive.
 
-<!-- panel:assembly src:96b2e550 -->
+<!-- panel:assembly src:e8ef30cf -->
 ### 10.8 Composizione del fotogramma
 
 Come i file diventano fotogrammi. Ogni rullino conserva qui le proprie impostazioni.
@@ -631,6 +631,10 @@ Per una fotocamera con luce a banda stretta che scatta tre foto di ogni fotogram
 *   **Ricomponi** (su un fotogramma diviso): lo rende di nuovo un unico fotogramma ed elimina le modifiche di entrambe le metà.
 
 Fai clic destro su una metà per **Regola la divisione per questo fotogramma…** e **Reimposta la divisione al valore predefinito del rullino**. Disattivare il Mezzo formato mantiene le metà modificate affiancate come **dittico**; riattivalo per modificarle.
+
+#### XPAN
+
+**Modalità XPAN** consente di spostare ogni fotogramma nell'anteprima della striscia Coolscan fino a 55 mm in ogni direzione. Vale per tutti i rullini.
 
 ---
 
@@ -864,7 +868,7 @@ Condiviso da entrambi gli scanner.
 *   **Cartella come rullino**: le scansioni vanno nella cartella stessa. Se disattivato, scrive in una sottocartella **Rullino**, e un nuovo nome di Rullino avvia un nuovo rullino. **+** accanto a Rullino passa al nome successivo (da `Roll001` a `Roll002`).
 *   **Formato** e **Nome file** (scanner per pellicola): TIFF, oppure TIFF (mono) per il B/N, e il modello del nome file (`{{ date }}`, `{{ seq }}`).
 
-<!-- panel:scan_strip src:135ca0e1 -->
+<!-- panel:scan_strip src:122ca17f -->
 ### Anteprima della striscia
 
 Mostra l'intera striscia, per posizionare e scegliere i fotogrammi prima della scansione. **Applica inquadratura** conserva l'inquadratura e **Scansiona** esegue la scansione. **Ferma anteprima** termina in anticipo un'anteprima.
@@ -872,7 +876,8 @@ Mostra l'intera striscia, per posizionare e scegliere i fotogrammi prima della s
 *   **Ritaglio**: trascina su un fotogramma. **Cancella ritagli** rimuove tutti i ritagli.
 *   **Scostamento**: sposta ogni fotogramma lungo la pellicola per allinearlo alle immagini. Il riquadro bianco mostra il fotogramma trovato da NegPy.
 *   **Deriva**: uno scostamento che cresce da un fotogramma all'altro.
-*   Il cursore sotto ogni tessera sposta solo quel fotogramma.
+*   Il cursore sotto ogni tessera sposta solo quel fotogramma. Con **Modalità XPAN** nella scheda Rullino arriva fino a 55 mm.
+*   **Unisci dopo la scansione** (clic destro su una tessera, Modalità XPAN): abbina il fotogramma al vicino. NegPy unisce la coppia appena entrambi i fotogrammi sono scansionati. Con **Esposizione condivisa** il secondo fotogramma usa l'esposizione del primo.
 *   **Dimensioni** imposta la dimensione delle tessere. **Tutti**, **Nessuno** e l'interruttore di ogni fotogramma scelgono i fotogrammi. **Anteprima del fotogramma** scansiona di nuovo un fotogramma.
 
 ---

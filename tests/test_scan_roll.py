@@ -114,7 +114,7 @@ def test_capture_triplet_reaches_the_roll_open():
 def test_start_scan_remembers_as_roll():
     c = _controller()
     c._batch_frame_selected = True
-    AppController.start_batch(c, SimpleNamespace(as_roll=True))
+    AppController.start_batch(c, SimpleNamespace(as_roll=True, stitch_pairs=()))
     assert c._scan_as_roll is True and c._batch_frame_selected is False
     AppController.start_scan(c, SimpleNamespace(as_roll=False))
     assert c._scan_as_roll is False

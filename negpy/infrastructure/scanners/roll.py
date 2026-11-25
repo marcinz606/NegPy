@@ -22,6 +22,13 @@ import numpy as np
 from negpy.infrastructure.scanners.base import ScannerCapabilities
 
 
+# How far a frame on a measured strip moves each way with XPAN Mode on, in mm of film.
+# Without it, a frame moves one pitch at most, as in Nikon Scan.
+MEASURED_NUDGE_MM = 55.0
+# The global setting behind the XPAN Mode toggle.
+XPAN_MODE_SETTING = "xpan_mode"
+
+
 def effective_pitch_mm(caps: ScannerCapabilities) -> float:
     """Feed-axis distance between frame positions, falling back to the frame's long
     side when the transport does not report one. 0.0 when neither is known."""

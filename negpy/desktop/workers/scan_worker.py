@@ -67,6 +67,11 @@ class BatchRequest:
     frame_offsets: dict[int, float] = field(default_factory=dict)
     eject_when_done: bool = True
     as_roll: bool = False
+    # First frames of the pairs the strip preview marks for a stitch: frame N pairs with N+1.
+    # Frame N+1 scans at frame N's exposures, so the two halves of one picture match.
+    stitch_pairs: tuple[int, ...] = ()
+    # Marked pairs whose second frame meters on its own instead.
+    separate_exposure_pairs: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -250,6 +255,8 @@ class ScanWorker(QObject):
             service = self._ensure_service()
             frames = list(req.frames) or self._whole_strip(service, req)
             total = max(1, len(frames))
+            leaders = {f + 1: f for f in req.stitch_pairs if f not in req.separate_exposure_pairs}
+            pair_exposures: dict[int, dict[str, int]] = {}
             for index, frame in enumerate(frames):
                 if self._cancel_event.is_set():
                     outcome = ("cancelled", None)
@@ -259,6 +266,11 @@ class ScanWorker(QObject):
                 # one that re-addresses an absolute frame may legitimately go negative.
                 offset = frame_offset_mm(req.params.frame_offset_mm, req.frame_offset_modifier_mm, req.frame_offsets, frame)
                 frame_params = dataclasses.replace(req.params, frame=frame, window=window, frame_offset_mm=offset)
+                if frame_params.exposures is None and leaders.get(frame) in pair_exposures:
+                    # The first frame's exposures already carry any Analog Gain, so it applies once.
+                    frame_params = dataclasses.replace(
+                        frame_params, exposures=pair_exposures[leaders[frame]], analog_gain_ev=0.0, channel_gain_ev=(0.0, 0.0, 0.0)
+                    )
                 logger.info("Batch frame %d at %+.2f mm on the feed axis", frame, offset)
                 base = index / total
 
@@ -282,6 +294,8 @@ class ScanWorker(QObject):
                 if self._cancel_event.is_set():
                     outcome = ("cancelled", None)
                     break
+                if frame in leaders.values() and result.exposures:
+                    pair_exposures[frame] = dict(result.exposures)
                 try:
                     path = service.write_result(
                         result=result,

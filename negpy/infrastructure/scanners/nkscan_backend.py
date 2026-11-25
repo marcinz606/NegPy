@@ -38,6 +38,7 @@ from negpy.infrastructure.scanners.params import (
     film_passes_infrared,
 )
 from negpy.infrastructure.scanners.result import ScanResult
+from negpy.infrastructure.scanners.roll import MEASURED_NUDGE_MM
 from negpy.kernel.system.logging import get_logger
 
 logger = get_logger(__name__)
@@ -64,9 +65,9 @@ _IDLE_RETURN_S = 9 * 60
 
 _MM_PER_INCH = 25.4
 
-# The maximum number of thumbnail lines that a frame moves in each direction. This is one frame,
-# as in Nikon Scan (`CSAThumbCtrl::BaseLineOffset`).
-_MAX_NUDGE_LINES = 144
+# The maximum number of thumbnail lines that a frame moves in each direction. Nikon Scan
+# (`CSAThumbCtrl::BaseLineOffset`) holds one 36 mm frame to 144 lines; this reaches MEASURED_NUDGE_MM.
+_MAX_NUDGE_LINES = round(144 * MEASURED_NUDGE_MM / 36.0)
 
 # The two nkscan framing mechanisms that measure the frames. Only a strip feeder that measures
 # the frames can return a strip without a command.

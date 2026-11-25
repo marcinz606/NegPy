@@ -633,6 +633,10 @@ For a camera with narrowband light that takes three shots of each frame: red, gr
 
 Right-click a half for **Adjust Split for This Frame…** and **Reset Split to Roll Default**. Turning Half Frame off keeps edited halves side by side as a **diptych**; turn it on again to edit them.
 
+#### XPAN
+
+**XPAN Mode** lets each frame in the Coolscan strip preview move up to 55 mm each way. It applies to all rolls.
+
 ---
 
 ## 11. Metadata tab
@@ -873,7 +877,8 @@ Shows the whole strip, to place and pick the frames before the scan. **Apply Fra
 *   **Crop**: drag on a frame. **Clear Crops** removes all crops.
 *   **Offset**: moves every frame along the film to line it up with the pictures. The white box shows the frame NegPy found.
 *   **Drift**: an offset that grows from frame to frame.
-*   The slider under each tile moves that frame alone.
+*   The slider under each tile moves that frame alone. **XPAN Mode** on the Roll tab lets it move up to 55 mm.
+*   **Stitch After Scan** (right-click a tile, XPAN Mode): pairs the frame with its neighbor. NegPy stitches the pair once both frames are scanned. With **Shared Exposure** on, the second frame scans at the exposure of the first.
 *   **Size** sets the tile size. **All**, **None** and each frame's toggle pick frames. **Preview frame** scans one frame again.
 
 ---
