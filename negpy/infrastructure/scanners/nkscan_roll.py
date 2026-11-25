@@ -19,7 +19,7 @@ import numpy as np
 
 from negpy.infrastructure.scanners.base import ScannerDevice
 from negpy.infrastructure.scanners.nkscan_backend import _offset_units, _progress_bridge, _stack_rgb
-from negpy.infrastructure.scanners.roll import RollPreview, effective_pitch_mm
+from negpy.infrastructure.scanners.roll import MEASURED_NUDGE_MM, RollPreview, effective_pitch_mm
 from negpy.kernel.system.logging import get_logger
 
 logger = get_logger(__name__)
@@ -71,10 +71,11 @@ class NkscanRollSession:
         self._exposures: dict[str, int] | None = None
         self._closed = False
         self.slot_count = len(backend.measured_frames(device.id, film_format, film_type))
-        # An absolute rect can be re-addressed backwards, unlike a within-frame offset.
-        self.offset_range = (-1.0, 1.0)
         self.supports_single_slot_preview = True
         self._pitch_mm = effective_pitch_mm(device.capabilities)
+        # An absolute rect can be re-addressed backwards, unlike a within-frame offset.
+        span = MEASURED_NUDGE_MM / self._pitch_mm if self._pitch_mm else 1.0
+        self.offset_range = (-span, span)
 
     # ── preview ───────────────────────────────────────────────────────
 

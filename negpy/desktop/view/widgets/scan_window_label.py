@@ -127,6 +127,10 @@ class ScanWindowLabel(QLabel):
     # ── mouse ─────────────────────────────────────────────────────────
 
     def mousePressEvent(self, ev: QMouseEvent) -> None:
+        if ev.button() != Qt.MouseButton.LeftButton:
+            # Right-click opens a context menu where a dialog gives the label one.
+            ev.ignore()
+            return
         draw_rect = self._display()
         if draw_rect is None:
             return

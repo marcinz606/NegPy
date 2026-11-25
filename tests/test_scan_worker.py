@@ -3,6 +3,7 @@ from __future__ import annotations
 import dataclasses
 import threading
 from collections.abc import Callable, Iterable, Iterator
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -862,3 +863,36 @@ def test_a_refused_prescan_does_not_leave_a_request_prepared() -> None:
     worker.prepare_scan()
     worker.run_prescan(PrescanRequest(device_id="dev", prescan_dpi=0))
     worker.prepare_scan()  # raises while a stale request is still prepared
+
+
+class _PairService(_BatchService):
+    """Reports the exposures each frame ran at: the frame's own, or the ones it was given."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.given: dict[int, dict | None] = {}
+
+    def run_scan(self, device_id, params, progress, cancel):
+        super().run_scan(device_id, params, progress, cancel)
+        self.given[params.frame] = params.exposures
+        return SimpleNamespace(exposures=params.exposures or {"r": params.frame * 100})
+
+
+def test_run_batch_scans_the_second_frame_of_a_pair_at_the_first_frame_exposures() -> None:
+    worker = ScanWorker()
+    service = _PairService()
+    worker._service = service  # type: ignore[assignment]
+
+    worker.run_batch(dataclasses.replace(_batch_request((1, 2, 3, 4)), stitch_pairs=(1,)))
+
+    assert service.given == {1: None, 2: {"r": 100}, 3: None, 4: None}
+
+
+def test_run_batch_meters_a_pair_apart_when_asked() -> None:
+    worker = ScanWorker()
+    service = _PairService()
+    worker._service = service  # type: ignore[assignment]
+
+    worker.run_batch(dataclasses.replace(_batch_request((1, 2, 3, 4)), stitch_pairs=(1, 3), separate_exposure_pairs=(3,)))
+
+    assert service.given == {1: None, 2: {"r": 100}, 3: None, 4: None}

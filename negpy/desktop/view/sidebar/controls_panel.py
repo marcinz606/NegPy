@@ -57,6 +57,7 @@ from negpy.desktop.view.sidebar.geometry import GeometrySidebar
 from negpy.desktop.view.sidebar.autocrop import AutocropSidebar
 from negpy.desktop.view.sidebar.trichrome import TrichromeSidebar
 from negpy.desktop.view.sidebar.half_frame import HalfFrameSidebar
+from negpy.desktop.view.sidebar.xpan import XpanSidebar
 from negpy.desktop.view.sidebar.lens import LensSidebar
 from negpy.desktop.view.sidebar.lab import LabSidebar
 from negpy.desktop.view.sidebar.altprocess import AltProcessSidebar
@@ -239,12 +240,14 @@ class ControlsPanel(QWidget):
         # Each roll keeps its own Trichrome and Half Frame state, so neither has a scope pair.
         self.trichrome_sidebar = TrichromeSidebar(self.controller)
         self.half_frame_sidebar = HalfFrameSidebar(self.controller)
+        self.xpan_sidebar = XpanSidebar(self.controller)
         assembly_body = QWidget()
         assembly_layout = QVBoxLayout(assembly_body)
         assembly_layout.setContentsMargins(0, 0, 0, 0)
         assembly_layout.setSpacing(THEME.space_lg)
         assembly_layout.addWidget(self.trichrome_sidebar)
         assembly_layout.addWidget(self.half_frame_sidebar)
+        assembly_layout.addWidget(self.xpan_sidebar)
         self.assembly_section = self._make_section(
             tr("Frame Assembly"),
             "assembly",
@@ -1066,6 +1069,7 @@ class ControlsPanel(QWidget):
         self.lens_sidebar.sync_ui()
         self.trichrome_sidebar.sync_ui()
         self.half_frame_sidebar.sync_ui()
+        self.xpan_sidebar.sync_ui()
         self.sensor_sidebar.sync_ui()
         self.fade_sidebar.sync_ui()
         self.demosaic_sidebar.sync_ui()

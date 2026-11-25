@@ -904,6 +904,32 @@ def test_the_offset_on_a_measured_strip_goes_one_frame_pitch_in_each_direction()
     assert measured.frame_offset() == measured._frame_pitch()
 
 
+class _XpanRepo:
+    def __init__(self, xpan: bool) -> None:
+        self._xpan = xpan
+
+    def get_global_setting(self, key, default=None):
+        return self._xpan if key == "xpan_mode" else default
+
+
+def test_xpan_mode_lets_a_frame_on_a_measured_strip_move_55_mm_each_way() -> None:
+    controller = _FakeController()
+    dialog = StripPreviewDialog(controller, _discovery_device(), repo=_XpanRepo(True))
+    controller.deliver_all((1, 2, 3))
+    assert (dialog.offset_slider.minimum(), dialog.offset_slider.maximum()) == (-550, 550)
+    tile = dialog._tiles[1].offset_slider
+    assert (tile.minimum(), tile.maximum()) == (-550, 550)
+
+
+def test_without_xpan_mode_the_offsets_on_a_measured_strip_add_up_to_one_pitch_at_most() -> None:
+    controller = _FakeController()
+    dialog = StripPreviewDialog(controller, _discovery_device(), repo=_XpanRepo(False))
+    controller.deliver_all((1, 2, 3))
+    dialog.offset_slider.setValue(300)
+    dialog._tiles[1].offset_slider.setValue(300)
+    assert dialog._raw_offset_for_frame(1) == 36.0
+
+
 def test_a_saved_negative_offset_comes_back_as_it_was() -> None:
     dialog = StripPreviewDialog(_FakeController(), _discovery_device(), initial_offset=-1.5)
     assert dialog.frame_offset() == -1.5
@@ -1460,3 +1486,30 @@ def test_a_measured_strip_is_asked_for_a_half_frame_rolls_worth() -> None:
     dialog = StripPreviewDialog(controller, _discovery_device())
     dialog._on_preview_all()
     assert set(range(1, 81)) <= set(controller.preview_reqs[0].slots)
+
+
+def test_xpan_mode_marks_pairs_to_stitch_after_the_scan() -> None:
+    controller = _FakeController()
+    dialog = StripPreviewDialog(controller, _discovery_device(), repo=_XpanRepo(True), initial_stitch_pairs=(2,))
+    controller.deliver_all((1, 2, 3, 4))
+    assert dialog._tiles[3].pair_label.text() == "Stitch 2+3"
+
+    dialog._set_pair(2, False)
+    dialog._set_pair(3, True)
+    assert dialog.stitch_pairs() == (3,)
+    assert dialog._tiles[4].pair_label.isVisibleTo(dialog) and not dialog._tiles[2].pair_label.isVisibleTo(dialog)
+
+
+def test_without_xpan_mode_no_pair_is_kept() -> None:
+    dialog = StripPreviewDialog(_FakeController(), _discovery_device(), repo=_XpanRepo(False), initial_stitch_pairs=(2,))
+    assert dialog.stitch_pairs() == ()
+
+
+def test_a_marked_pair_can_meter_each_frame_apart() -> None:
+    dialog = StripPreviewDialog(
+        _FakeController(), _discovery_device(), repo=_XpanRepo(True), initial_stitch_pairs=(1, 3), initial_separate_exposure_pairs=(3, 5)
+    )
+    assert dialog.separate_exposure_pairs() == (3,)
+    dialog._set_shared_exposure(1, False)
+    dialog._set_shared_exposure(3, True)
+    assert dialog.separate_exposure_pairs() == (1,)

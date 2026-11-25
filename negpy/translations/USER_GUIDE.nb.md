@@ -410,7 +410,7 @@ Korrigerer fargefeil som kommer fra lyset, kameraet og filmen din.
 
 **Justering av fargetone** (kamera med smalbåndslys): dreier alle fargetoner, for et lys som gjør gult oransje eller grønt olivenfarget. Behold 0 for hvitt lys. I motsetning til sensorprofilen virker den også på dias.
 
-<!-- panel:assembly src:96b2e550 -->
+<!-- panel:assembly src:e8ef30cf -->
 ### 10.8 Bildesammensetning
 
 Hvordan filer blir til bilder. Hver rull beholder sine egne innstillinger her.
@@ -433,6 +433,10 @@ For et kamera med smalbåndslys som tar tre bilder av hvert bilde: rødt, grønt
 *   **Del opp** (på et delt bilde): gjør det til ett bilde igjen og sletter redigeringene av begge halvdelene.
 
 Høyreklikk en halvdel for **Juster delingen for dette bildet…** og **Tilbakestill delingen til rullens standard**. Når du slår av halvformat, blir redigerte halvdeler stående side om side som et **diptyk**; slå det på igjen for å redigere dem.
+
+#### XPAN
+
+**XPAN-modus** lar hvert bilde i Coolscan-stripeforhåndsvisningen flyttes opptil 55 mm i hver retning. Den gjelder alle ruller.
 
 <!-- panel:metadata_gear src:208e1498 -->
 ### Analogt utstyr
@@ -628,7 +632,7 @@ Felles for begge skannerne.
 *   **Mappe som rull**: skanninger legges i selve mappen. Av skriver inn i en undermappe **Rull**, og et nytt rullnavn starter en ny rull. **+** ved siden av Rull går til neste navn (`Roll001` til `Roll002`).
 *   **Format** og **Filnavn** (filmskanner): TIFF, eller TIFF (mono) for S/H, og filnavnmønsteret (`{{ date }}`, `{{ seq }}`).
 
-<!-- panel:scan_strip src:135ca0e1 -->
+<!-- panel:scan_strip src:122ca17f -->
 ### Stripeforhåndsvisning
 
 Viser hele stripen, for å plassere og velge bildene før skanningen. **Bruk innramming** beholder innrammingen og **Skann** skanner. **Stopp forhåndsvisning** avslutter en forhåndsvisning tidlig.
@@ -636,5 +640,6 @@ Viser hele stripen, for å plassere og velge bildene før skanningen. **Bruk inn
 *   **Beskjær**: dra på et bilde. **Fjern beskjæringer** fjerner alle beskjæringer.
 *   **Forskyvning**: flytter hvert bilde langs filmen for å rette det inn etter bildene. Den hvite boksen viser bildet NegPy fant.
 *   **Avdrift**: en forskyvning som vokser fra bilde til bilde.
-*   Glidebryteren under hver flis flytter bare det bildet.
+*   Glidebryteren under hver flis flytter bare det bildet. Med **XPAN-modus** på Rull-fanen går den opptil 55 mm.
+*   **Sy sammen etter skanning** (høyreklikk en flis, XPAN-modus): parer bildet med naboen. NegPy syr sammen paret så snart begge bildene er skannet. Med **Delt eksponering** skannes det andre bildet med eksponeringen til det første.
 *   **Størrelse** angir flisstørrelsen. **Alle**, **Ingen** og bryteren for hvert bilde velger bilder. **Forhåndsvis bilde** skanner ett bilde på nytt.
