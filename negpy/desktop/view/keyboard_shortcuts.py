@@ -189,6 +189,12 @@ def _context_cancel(controller, window) -> None:
     if controller.state.compare_mode:
         controller.toggle_compare()
         return
+    if getattr(controller.state, "compare_hold", False) is True:
+        if isinstance(getattr(controller, "_card_compare_saved", None), tuple):
+            controller.end_card_compare()
+        else:
+            controller.end_compare_hold()
+        return
     if controller.state.grain_focuser:
         controller.toggle_grain_focuser(force=False)
         return

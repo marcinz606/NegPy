@@ -167,8 +167,10 @@ class ImageCanvas(QWidget):
         self._bg_color = QColor(THEME.canvas_bg_black)
         self._last_buffer: Any = None
         self._last_content_rect: Optional[Tuple[int, int, int, int]] = None
+        self._preserved_edit_tex: Optional[Any] = None
         self._compare_awaiting_edit: bool = False
         self._gpu_hold_drawn: bool = False
+        self._gpu_surface_latched: bool = False
 
         self.root_layout = QStackedLayout(self)
         self.root_layout.setStackingMode(QStackedLayout.StackingMode.StackAll)
@@ -424,6 +426,21 @@ class ImageCanvas(QWidget):
             painter = QPainter(self)
             painter.fillRect(event.rect(), self._bg_color)
 
+    def _drop_preserved_edit(self, keep: Any = None) -> None:
+        prev = getattr(self, "_preserved_edit_tex", None)
+        self._preserved_edit_tex = None
+        if prev is not None and prev is not keep:
+            prev_view = getattr(prev, "view", None)
+            if prev_view is not None and self.gpu_widget.current_texture_view is prev_view:
+                self.gpu_widget.current_texture_view = None
+            if self.overlay._gpu_texture is prev:
+                self.overlay.drop_gpu_texture()
+            if self._last_buffer is prev:
+                self._last_buffer = None
+            destroy = getattr(prev, "destroy", None)
+            if callable(destroy):
+                destroy()
+
     def clear(self) -> None:
         """Total viewport reset."""
         self.zoom_level = 1.0
@@ -432,8 +449,10 @@ class ImageCanvas(QWidget):
         self._last_content_rect = None
         self._compare_awaiting_edit = False
         self._gpu_hold_drawn = False
+        self._gpu_surface_latched = False
         self.gpu_widget.clear()
         self.overlay.update_buffer(None, "sRGB", None)
+        self._drop_preserved_edit()
         self.navigator.hide()
 
     def release_gpu_texture(self) -> None:
@@ -445,8 +464,10 @@ class ImageCanvas(QWidget):
         self._last_buffer = None
         self._compare_awaiting_edit = False
         self._gpu_hold_drawn = False
+        self._gpu_surface_latched = False
         self.gpu_widget.clear()
         self.overlay.drop_gpu_texture()
+        self._drop_preserved_edit()
 
     def content_rect(self) -> Optional[Tuple[int, int, int, int]]:
         """Image content rect (off_x, off_y, w, h) inside the displayed buffer; None = no borders."""
@@ -742,6 +763,7 @@ class ImageCanvas(QWidget):
         self._last_content_rect = content_rect
         self._compare_awaiting_edit = False
         self._gpu_hold_drawn = False
+        self._gpu_surface_latched = False
         if self.state.gpu_enabled and not self.state.gpu_viewport_failed and isinstance(buffer, GPUTexture):
             self.gpu_widget.show()
             self.gpu_widget.set_display_transform(color_space, monitor_icc_bytes, proof)
@@ -758,12 +780,15 @@ class ImageCanvas(QWidget):
                 proof=proof,
                 gpu_texture=buffer,
             )
+            if hasattr(self, "_drop_preserved_edit"):
+                self._drop_preserved_edit(keep=buffer)
             if hasattr(self, "_sync_gpu_compare"):
                 self._sync_gpu_compare()
             self.overlay.show()
             self.overlay.raise_()
             self.overlay.update()
         else:
+            self.gpu_widget.current_texture_view = None
             self.gpu_widget.set_compare_state(None, None, None, getattr(self.state, "compare_split", 0.5), 0, redraw=False)
             self.gpu_widget.hide()
             # Only the CPU overlay needs host pixels; the GPU branch above never does.
@@ -773,8 +798,13 @@ class ImageCanvas(QWidget):
                     buffer = np.ascontiguousarray(readback[:, :, :3]) if readback.ndim == 3 and readback.shape[2] >= 3 else readback
                 except Exception:
                     logger.exception("Failed to read back GPU preview for canvas display")
+                    self._last_buffer = None
+                    if hasattr(self, "_drop_preserved_edit"):
+                        self._drop_preserved_edit()
                     return
             self.overlay.update_buffer(buffer, color_space, content_rect, monitor_icc_bytes=monitor_icc_bytes, proof=proof)
+            if hasattr(self, "_drop_preserved_edit"):
+                self._drop_preserved_edit()
             self.overlay.show()
             self.overlay.raise_()
         self._raise_floating_widgets()
@@ -811,6 +841,9 @@ class ImageCanvas(QWidget):
             self._gpu_hold_drawn = False
         if mode_code == 2 and redraw:
             self._gpu_hold_drawn = True
+            self._gpu_surface_latched = True
+        elif redraw:
+            self._gpu_surface_latched = False
         self.gpu_widget.set_compare_state(
             before if mode_code else None,
             getattr(self.state, "compare_before_rect", None),
@@ -820,17 +853,44 @@ class ImageCanvas(QWidget):
             redraw=redraw,
         )
 
+    def preserve_gpu_edit(self, can_clone_pool: bool = True, can_keep_preserved: bool = True) -> None:
+        """Clone the displayed GPU pool texture before a compare render overwrites it."""
+        if getattr(self, "_preserved_edit_tex", None) is not None:
+            if not can_keep_preserved:
+                self._compare_awaiting_edit = True
+            return
+        buf = self._last_buffer
+        if (
+            can_clone_pool
+            and not self._compare_awaiting_edit
+            and self.state.gpu_enabled
+            and not self.state.gpu_viewport_failed
+            and isinstance(buf, GPUTexture)
+            and hasattr(buf, "clone_gpu")
+        ):
+            try:
+                cloned = buf.clone_gpu()
+                self._preserved_edit_tex = cloned
+                self._last_buffer = cloned
+                self.gpu_widget.current_texture_view = cloned.view
+                self.overlay._gpu_texture = cloned
+                return
+            except Exception:
+                logger.debug("Failed to preserve edit texture before compare render", exc_info=True)
+        if isinstance(buf, GPUTexture):
+            self._compare_awaiting_edit = True
+
     def stage_compare_before(self, pool_overwritten: bool = False) -> None:
         """Stage a GPU baseline (or drop one). Full-frame hold can draw immediately; split waits
-        for the follow-up edit render to restore the shared pool texture."""
-        if pool_overwritten:
+        for the follow-up edit render only if the displayed pool texture was not preserved."""
+        if pool_overwritten and getattr(self, "_preserved_edit_tex", None) is None:
             self._compare_awaiting_edit = True
         is_gpu = isinstance(self.state.compare_before, GPUTexture)
         if not is_gpu:
             self._gpu_hold_drawn = False
-        hold_now = is_gpu and self.hold_latched()
-        self._sync_gpu_compare(redraw=hold_now)
-        if hold_now:
+        redraw = not self._compare_awaiting_edit or (is_gpu and self.hold_latched())
+        self._sync_gpu_compare(redraw=redraw)
+        if redraw:
             self.overlay.refresh_compare()
 
     def refresh_compare(self) -> None:

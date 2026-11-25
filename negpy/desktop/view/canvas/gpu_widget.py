@@ -44,6 +44,7 @@ class GPUCanvasWidget(QWidget):
         self.before_image_size: Tuple[int, int] = (1, 1)
         self.before_content_rect: Optional[Tuple[int, int, int, int]] = None
         self.compare_mode_code: int = 0  # 0: off, 1: split, 2: full-frame hold
+        self._drawn_compare_mode: int = 0
         self.compare_split: float = 0.5
         self._dummy_before_tex: Optional[Any] = None
         self._dummy_before_view: Optional[Any] = None
@@ -223,6 +224,7 @@ class GPUCanvasWidget(QWidget):
         self.current_texture_view = tex_wrapper.view
         self.image_size = (tex_wrapper.width, tex_wrapper.height)
         self.after_content_rect = content_rect
+        self._drawn_compare_mode = self.compare_mode_code
         self.canvas.request_draw(self._draw_frame)
 
     def set_compare_state(
@@ -235,7 +237,6 @@ class GPUCanvasWidget(QWidget):
         *,
         redraw: bool = True,
     ) -> None:
-        prev_mode = self.compare_mode_code
         if before_tex is not None and getattr(before_tex, "view", None) is not None:
             self.before_texture_view = before_tex.view
             self.before_image_size = (before_tex.width, before_tex.height)
@@ -246,8 +247,10 @@ class GPUCanvasWidget(QWidget):
             self.compare_mode_code = 0
         self.after_content_rect = after_rect
         self.compare_split = float(split)
-        if redraw and self.device and self.context and not (prev_mode == 0 and self.compare_mode_code == 0):
-            self.canvas.request_draw(self._draw_frame)
+        if redraw:
+            if self.device and self.context and not (self._drawn_compare_mode == 0 and self.compare_mode_code == 0):
+                self.canvas.request_draw(self._draw_frame)
+            self._drawn_compare_mode = self.compare_mode_code
 
     def set_compare_split(self, split: float) -> None:
         self.compare_split = float(split)
@@ -267,12 +270,16 @@ class GPUCanvasWidget(QWidget):
         self.current_texture_view = None
         self.before_texture_view = None
         self.compare_mode_code = 0
+        self._drawn_compare_mode = 0
         self.canvas.request_draw(self._draw_frame)
+
+    def _has_drawable_texture(self) -> bool:
+        return self.current_texture_view is not None or (self.compare_mode_code == 2 and self.before_texture_view is not None)
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
         # Bitmap present paints the last frame stretched to the new size until a new one lands.
-        if self.current_texture_view is not None and not self._force_drawing:
+        if self._has_drawable_texture() and not self._force_drawing:
             self._force_drawing = True
             try:
                 self._draw_now()
@@ -304,7 +311,7 @@ class GPUCanvasWidget(QWidget):
             try:
                 self._configure_context()
 
-                if self.current_texture_view:
+                if self._has_drawable_texture():
                     self.canvas.request_draw(self._draw_frame)
             except Exception as e:
                 logger.error(f"Failed to reconfigure WebGPU context on resize: {e}")
@@ -556,6 +563,12 @@ class GPUCanvasWidget(QWidget):
     def _draw_frame(self) -> None:
         if not self.render_pipeline or not self.context:
             return
+        if (
+            self.current_texture_view is not None
+            and getattr(self.parent(), "_compare_awaiting_edit", False)
+            and not (self.compare_mode_code == 2 and self.before_texture_view is not None)
+        ):
+            return
 
         try:
             current_tex = self.context.get_current_texture()
@@ -579,9 +592,16 @@ class GPUCanvasWidget(QWidget):
             ]
         )
 
-        if self.current_texture_view:
+        active_mode = float(self.compare_mode_code if self.before_texture_view is not None else 0)
+        use_before_geom = active_mode > 1.5 and (
+            self.current_texture_view is None or getattr(self.parent(), "_compare_awaiting_edit", False)
+        )
+        tex_view = self.before_texture_view if use_before_geom else self.current_texture_view
+        if tex_view is not None:
             ww, wh = float(current_tex.width), float(current_tex.height)
-            iw, ih = float(self.image_size[0]), float(self.image_size[1])
+            geom_size = self.before_image_size if use_before_geom else self.image_size
+            geom_rect = self.before_content_rect if use_before_geom else self.after_content_rect
+            iw, ih = float(max(1, geom_size[0])), float(max(1, geom_size[1]))
 
             dpr = self.devicePixelRatioF()
             margin_px = 2.0 * self.fit_margin * dpr
@@ -591,8 +611,7 @@ class GPUCanvasWidget(QWidget):
             nx = (ww - nw) / 2.0
             ny = (wh - nh) / 2.0
 
-            active_mode = float(self.compare_mode_code if self.before_texture_view is not None else 0)
-            ax, ay, aw, ah = self._norm_rect(self.after_content_rect, self.image_size)
+            ax, ay, aw, ah = self._norm_rect(geom_rect, geom_size)
             bx, by, bw, bh = self._norm_rect(self.before_content_rect, self.before_image_size)
             biw, bih = float(max(1, self.before_image_size[0])), float(max(1, self.before_image_size[1]))
             before_scale = min(
@@ -634,7 +653,7 @@ class GPUCanvasWidget(QWidget):
                 bind_group = self.device.create_bind_group(
                     layout=self.bind_group_layout,
                     entries=[
-                        {"binding": 0, "resource": self.current_texture_view},
+                        {"binding": 0, "resource": tex_view},
                         {
                             "binding": 1,
                             "resource": {
@@ -657,5 +676,8 @@ class GPUCanvasWidget(QWidget):
                 pass_enc.set_bind_group(0, bind_group)
                 pass_enc.draw(4, 1, 0, 0)
 
-        pass_enc.end()
-        self.device.queue.submit([enc.finish()])
+        try:
+            pass_enc.end()
+            self.device.queue.submit([enc.finish()])
+        except (RuntimeError, wgpu.GPUError) as exc:
+            logger.debug("stale texture view during submit: %s", exc)

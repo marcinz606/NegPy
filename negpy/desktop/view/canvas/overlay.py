@@ -913,6 +913,20 @@ class CanvasOverlay(QWidget):
         self._recalc_view_rect()
         self.update()
 
+    def _view_rect_for_size(self, img_w: int, img_h: int) -> QRectF:
+        w, h = self.width(), self.height()
+        if w <= 0 or h <= 0 or img_w <= 0 or img_h <= 0:
+            return QRectF()
+        margin = 2.0 * self.fit_margin
+        scale_fit = min(max(1.0, w - margin) / img_w, max(1.0, h - margin) / img_h)
+        total_scale = scale_fit * self.zoom_level
+        final_w = img_w * total_scale
+        final_h = img_h * total_scale
+        # Zoom scales about the widget center to match the GPU shader.
+        center_x = (w / 2) + (self.pan_x * w)
+        center_y = (h / 2) + (self.pan_y * h)
+        return QRectF(center_x - (final_w / 2), center_y - (final_h / 2), final_w, final_h)
+
     def _recalc_view_rect(self) -> None:
         old_rect = self._view_rect
         size = None
@@ -925,21 +939,7 @@ class CanvasOverlay(QWidget):
             self._view_rect = QRectF()
             return
 
-        w, h = self.width(), self.height()
-        img_w, img_h = size.width(), size.height()
-
-        margin = 2.0 * self.fit_margin
-        scale_fit = min(max(1.0, w - margin) / img_w, max(1.0, h - margin) / img_h)
-        total_scale = scale_fit * self.zoom_level
-
-        final_w = img_w * total_scale
-        final_h = img_h * total_scale
-
-        # Zoom scales about the widget center to match the GPU shader.
-        center_x = (w / 2) + (self.pan_x * w)
-        center_y = (h / 2) + (self.pan_y * h)
-
-        self._view_rect = QRectF(center_x - (final_w / 2), center_y - (final_h / 2), final_w, final_h)
+        self._view_rect = self._view_rect_for_size(size.width(), size.height())
         self._remap_inflight_points(old_rect)
 
     def _remap_inflight_points(self, old: QRectF) -> None:
@@ -1190,14 +1190,17 @@ class CanvasOverlay(QWidget):
         self._draw_ui(painter)
 
     def _draw_ui(self, painter: QPainter) -> None:
-        if self._view_rect.isEmpty():
-            return
-
         content_aligned = self.content_aligned()
         if self._compare_hold_active() and content_aligned and not self.state.test_strip and self._gpu_compare_active():
             self._local_mask_screen_polys = []
             self._local_mask_screen_ctrl = []
             self._draw_compare_hold(painter)
+            return
+        if getattr(self.parent(), "_gpu_surface_latched", False) and content_aligned and not self.state.test_strip:
+            self._local_mask_screen_polys = []
+            self._local_mask_screen_ctrl = []
+            return
+        if self._view_rect.isEmpty():
             return
 
         gpu_split_clipped = False
@@ -1454,9 +1457,27 @@ class CanvasOverlay(QWidget):
         gpu = getattr(parent, "gpu_widget", None)
         return bool(gpu is not None and gpu.isVisible() and isinstance(getattr(self.state, "compare_before", None), GPUTexture))
 
+    def _compare_hold_target_rect(self) -> QRectF:
+        before = getattr(self.state, "compare_before", None)
+        if (
+            self._gpu_compare_active()
+            and isinstance(before, GPUTexture)
+            and (not self._current_size or getattr(self.parent(), "_compare_awaiting_edit", False))
+        ):
+            vrect = self._view_rect_for_size(before.width, before.height)
+            crect = self.state.compare_before_rect
+            if crect is None or vrect.isEmpty() or before.width <= 0 or before.height <= 0:
+                return vrect
+            off_x, off_y, cw, ch = crect
+            if cw <= 0 or ch <= 0 or (off_x, off_y, cw, ch) == (0, 0, before.width, before.height):
+                return vrect
+            sx, sy = vrect.width() / before.width, vrect.height() / before.height
+            return QRectF(vrect.x() + off_x * sx, vrect.y() + off_y * sy, cw * sx, ch * sy)
+        return self._content_view_rect()
+
     def _draw_compare_hold(self, painter: QPainter) -> None:
         """The baseline over the whole picture while the compare key is held."""
-        target = self._content_view_rect()
+        target = self._compare_hold_target_rect()
         if target.isEmpty():
             return
         if not self._gpu_compare_active():
