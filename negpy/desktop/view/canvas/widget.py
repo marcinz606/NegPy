@@ -783,7 +783,7 @@ class ImageCanvas(QWidget):
 
         # While a heal tool is live the menu serves that tool: the general settings menu would
         # be noise mid-retouch.
-        if self.state.active_tool in (ToolMode.DUST_PICK, ToolMode.SCRATCH_PICK):
+        if self.state.active_tool in (ToolMode.DUST_PICK, ToolMode.SCRATCH_PICK, ToolMode.SCRATCH_LINE):
             self._exec_retouch_menu(pos, global_pos)
             return
         if self.state.active_tool == ToolMode.CLONE:
@@ -878,9 +878,12 @@ class ImageCanvas(QWidget):
             act_delete = menu.addAction(tr("Delete This Clone"))
             act_delete.triggered.connect(lambda _=False, i=hit[1]: controller.delete_clone(i))
             menu.addSeparator()
-        act_undo = menu.addAction(label_with_shortcut(tr("Undo Last Clone"), "undo"))
+        act_undo = menu.addAction(tr("Undo Last Clone"))
         act_undo.triggered.connect(controller.undo_last_clone)
         act_undo.setEnabled(count > 0)
+        act_redo = menu.addAction(label_with_shortcut(tr("Redo"), "redo"))
+        act_redo.triggered.connect(controller.session.redo)
+        act_redo.setEnabled(self.state.undo_index < self.state.max_history_index)
         act_clear = menu.addAction(tr("Clear All Clones…"))
         act_clear.triggered.connect(controller.clear_clones)
         act_clear.setEnabled(count > 0)
@@ -891,7 +894,7 @@ class ImageCanvas(QWidget):
         controller = self._controller
         assert controller is not None
         conf = self.state.config.retouch
-        num_heals = len(conf.manual_dust_spots) + len(conf.manual_heal_strokes)
+        num_heals = len(conf.manual_dust_spots) + len(conf.manual_heal_strokes) + len(conf.scratch_lines)
 
         menu = QMenu(self)
 
@@ -914,9 +917,12 @@ class ImageCanvas(QWidget):
             menu.addSeparator()
 
         self._add_exclude_action(menu, pos)
-        act_undo = menu.addAction(label_with_shortcut(tr("Undo Last Heal"), "undo"))
+        act_undo = menu.addAction(tr("Undo Last Heal"))
         act_undo.triggered.connect(controller.undo_last_retouch)
         act_undo.setEnabled(num_heals > 0)
+        act_redo = menu.addAction(label_with_shortcut(tr("Redo"), "redo"))
+        act_redo.triggered.connect(controller.session.redo)
+        act_redo.setEnabled(self.state.undo_index < self.state.max_history_index)
         act_clear = menu.addAction(tr("Clear All Heals…"))
         act_clear.triggered.connect(controller.clear_retouch)
         act_clear.setEnabled(num_heals > 0)

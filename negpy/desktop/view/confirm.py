@@ -185,8 +185,7 @@ def confirm_reset_tab(parent, tab: str, count: int) -> bool:
 
 
 def confirm_clear_heals(parent, count: int) -> bool:
-    """Ask before every manual heal and scratch on the frame goes. No undo step brings them
-    back. Enter confirms; Esc cancels."""
+    """Ask before every manual heal and scratch on the frame goes. Enter confirms; Esc cancels."""
     return confirm_action(
         parent,
         tr("Clear All Heals"),

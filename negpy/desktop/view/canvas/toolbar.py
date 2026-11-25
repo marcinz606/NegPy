@@ -24,7 +24,6 @@ from negpy.desktop.session import ZONE_STYLES, ToolMode
 from negpy.desktop.view.canvas.hud import INFO_LEVEL_LABELS
 from negpy.desktop.view.canvas.overlay import zone_colors
 from negpy.desktop.view.canvas.zone_legend import ZoneLegend
-from negpy.desktop.view.keyboard_shortcuts import _context_undo
 from negpy.desktop.view.widgets.granular_settings_dialog import open_paste_dialog, open_sync_bounds_dialog
 from negpy.desktop.view.shortcut_registry import label_with_shortcut, tooltip_with_shortcut
 from negpy.desktop.view.widgets.segmented_choice import MenuButton, RightClickToggleAll, SegmentedChoice, ToggleMenuButton
@@ -926,7 +925,7 @@ class ActionToolbar(QWidget):
         self.btn_tool_undo = QToolButton()
         self.btn_tool_undo.setIcon(_icon("mdi.undo"))
         self._tip(self.btn_tool_undo, tr("Undo"), "undo")
-        self.btn_tool_undo.clicked.connect(lambda: _context_undo(self.controller))
+        self.btn_tool_undo.clicked.connect(self.session.undo)
         self.btn_tool_redo = QToolButton()
         self.btn_tool_redo.setIcon(_icon("mdi.redo"))
         self._tip(self.btn_tool_redo, tr("Redo"), "redo")
@@ -1518,8 +1517,7 @@ class ActionToolbar(QWidget):
         self.btn_flip_h.clicked.connect(lambda: self.flip("horizontal"))
         self.btn_flip_v.clicked.connect(lambda: self.flip("vertical"))
 
-        # Same context routing as Ctrl+Z: heal-undo while a heal tool is in hand.
-        self.btn_undo.clicked.connect(lambda: _context_undo(self.controller))
+        self.btn_undo.clicked.connect(self.session.undo)
         self.btn_redo.clicked.connect(self.session.redo)
 
         controller = self.controller
@@ -1590,7 +1588,7 @@ class ActionToolbar(QWidget):
             ("cursor_probe", controller.toggle_cursor_probe),
         ):
             self._ov_view_actions[flag].triggered.connect(lambda checked, toggle=toggle: toggle(force=checked))
-        self._ov_undo_action.triggered.connect(lambda: _context_undo(controller))
+        self._ov_undo_action.triggered.connect(self.session.undo)
         self._ov_redo_action.triggered.connect(self.session.redo)
 
     def _on_overflow_unload(self) -> None:
