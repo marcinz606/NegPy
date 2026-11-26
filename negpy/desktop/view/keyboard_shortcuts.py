@@ -4,9 +4,10 @@ from typing import Optional
 
 from PyQt6.QtCore import QEvent, QObject, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QKeyEvent, QKeySequence, QShortcut
-from PyQt6.QtWidgets import QApplication, QWidget
+from PyQt6.QtWidgets import QApplication, QDockWidget, QWidget
 
-from negpy.desktop.session import ToolMode
+from negpy.desktop.session import RETOUCH_TOOLS, ToolMode
+from negpy.desktop.view.styles.templates import is_text_input_focused
 from negpy.services.assets import rolls
 from negpy.services.assets.rehome import gone_member_paths
 from negpy.desktop.view.confirm import (
@@ -344,6 +345,72 @@ class SpacePanKeyFilter(QObject):
         self._clear_pending_space()
         self._set_space_down(False)
         self._space_consumed = False
+        self._app.removeEventFilter(self)
+        try:
+            self._app.focusChanged.disconnect(self._on_focus_changed)
+        except (TypeError, RuntimeError):
+            pass
+
+
+class RetouchDeleteKeyFilter(QObject):
+    """Route Delete and Backspace to the active retouch tool without stealing widget focus."""
+
+    def __init__(self, window):
+        super().__init__(window)
+        self.window = window
+        self._app = QApplication.instance()
+        if self._app is None:
+            raise RuntimeError("Retouch key filter requires an active QApplication")
+        self._installed = True
+        self._app.installEventFilter(self)
+        self._app.focusChanged.connect(self._on_focus_changed)
+        window.destroyed.connect(self.uninstall)
+        window.canvas.overlay.destroyed.connect(self.uninstall)
+
+    def _on_focus_changed(self, _old, _new) -> None:
+        try:
+            self.window.canvas.overlay.sync_retouch_hover()
+        except RuntimeError:
+            self.uninstall()
+
+    def _owns_key(self, event) -> bool:
+        if event.key() not in (Qt.Key.Key_Backspace, Qt.Key.Key_Delete):
+            return False
+        if (event.modifiers() & ~Qt.KeyboardModifier.KeypadModifier) != Qt.KeyboardModifier.NoModifier:
+            return False
+        try:
+            if self.window.state.active_tool not in RETOUCH_TOOLS:
+                return False
+            if not self.window.canvas.overlay.isVisible():
+                return False
+            if QApplication.activePopupWidget() is not None or QApplication.activeModalWidget() is not None:
+                return False
+            active = QApplication.activeWindow()
+            if not (active is self.window or (isinstance(active, QDockWidget) and active.parentWidget() is self.window)):
+                return False
+        except RuntimeError:
+            self.uninstall()
+            return False
+        return not is_text_input_focused()
+
+    def eventFilter(self, _watched, event) -> bool:
+        event_type = event.type()
+        if event_type not in (QEvent.Type.ShortcutOverride, QEvent.Type.KeyPress):
+            return False
+        if not self._owns_key(event):
+            return False
+        if event_type == QEvent.Type.KeyPress and not event.isAutoRepeat():
+            if event.key() == Qt.Key.Key_Backspace:
+                self.window.canvas.overlay.handle_retouch_backspace()
+            else:
+                self.window.canvas.overlay.delete_hovered_heal()
+        event.accept()
+        return True
+
+    def uninstall(self, *_args) -> None:
+        if not self._installed:
+            return
+        self._installed = False
         self._app.removeEventFilter(self)
         try:
             self._app.focusChanged.disconnect(self._on_focus_changed)

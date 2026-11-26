@@ -186,7 +186,7 @@ Le azioni senza un tasto predefinito non sono elencate; ognuna di esse si può c
 |-----|--------|
 | `?` | Mostra le scorciatoie |
 
-Mentre è aperta una striscia di prova o un ventaglio di prove, `[` e `]` scorrono la scala di quella prova invece dell'immagine. Mentre è aperta la striscia di prova della carta, `←` e `→` passano alla carta vicina invece che al file vicino, `Invio` tiene la carta mostrata a fotogramma intero, e `Esc` torna alla striscia. Il primo `Esc` cancella i punti in corso; il secondo mette giù lo strumento.
+Mentre è aperta una striscia di prova o un ventaglio di prove, `[` e `]` scorrono la scala di quella prova invece dell'immagine. Mentre è aperta la striscia di prova della carta, `←` e `→` passano alla carta vicina invece che al file vicino, `Invio` tiene la carta mostrata a fotogramma intero, e `Esc` torna alla striscia. Il primo `Esc` cancella i punti in corso; il secondo mette giù lo strumento. Mentre è attivo uno strumento di ritocco, `Canc` o `Backspace` elimina la riparazione sotto il puntatore.
 
 ## Mouse
 | Comando | Azione |

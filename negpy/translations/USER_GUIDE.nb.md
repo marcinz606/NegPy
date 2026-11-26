@@ -250,7 +250,7 @@ På en lith-kopi virker bare Selen og Gull. På en cyanotypi virker ingen toner.
 
 **Delt toning** (alle kopier): **Skyggestyrke** og **Høylysstyrke** legger farge til skyggene og høylysene. **Skyggetone** og **Høylystone** velger fargen, og vises når styrken er over 0.
 
-<!-- panel:retouch src:85e58a6a -->
+<!-- panel:retouch src:ee32b882 -->
 ### 7.1 Retusj: støv, hår, riper
 
 Fjerner støv, hår og riper. Hver reparasjon bygges opp fra den rene filmen rundt den.
@@ -263,7 +263,7 @@ Fjerner støv, hår og riper. Hver reparasjon bygges opp fra den rene filmen run
 *   **Linje**: klikk én gang på en lang, rett ripe, så finner og reparerer NegPy hele linjen. **Linjefølsomhet**: lavere finner svakere linjer.
 *   **Penselstørrelse**: også `Alt`+rulling på bildet.
 *   **Klon**: kopierer film fra et annet område over en feil som Lege ikke kan rette. Det første klikket (eller `Alt`-klikk) velger kilden; mal så. **Angi kilde** velger en ny. **Tilpass tone** henter lysheten og fargen rundt feilen. **Styrke** angir hvor mye den dekker, **Mykning** hvor myk kanten er.
-*   **Angre siste** og **Fjern alle** fjerner manuelle reparasjoner; høyreklikk en på bildet for å slette den.
+*   **Angre siste** og **Fjern alle** fjerner manuelle reparasjoner. Med et retusjverktøy på peker du på en og trykker `Delete` eller `Backspace`, eller høyreklikker den, for å slette den.
 
 <!-- panel:finish src:0e98fdde -->
 ### 7.2 Etterbehandling: vignett, negativholder, kant

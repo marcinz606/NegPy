@@ -95,6 +95,7 @@ UNCROPPED_PREVIEW_TOOLS = frozenset(
 )
 # Esc puts back what these changed since they opened: each adjusts one thing as often as it likes.
 REVERTIBLE_TOOLS = frozenset({ToolMode.CROP_MANUAL, ToolMode.ANALYSIS_DRAW})
+RETOUCH_TOOLS = frozenset({ToolMode.DUST_PICK, ToolMode.SCRATCH_PICK, ToolMode.SCRATCH_LINE, ToolMode.CLONE})
 
 # Zone Overlay looks, by stored key and menu label.
 # Settings that describe a camera, which carry to camera frames only.

@@ -822,12 +822,12 @@ class RightPanel(QWidget):
         # with their controls out of sight. Returning to the tab restores the suspended tool and
         # its overlay, unless nothing was active when the user left or another tool has been
         # picked up meanwhile.
-        from negpy.desktop.session import ToolMode
+        from negpy.desktop.session import RETOUCH_TOOLS, ToolMode
 
         state = self.controller.session.state
         retouch_tab = self._section_tab_index.get("retouch_section")
         if index != retouch_tab:
-            if state.active_tool in (ToolMode.DUST_PICK, ToolMode.SCRATCH_PICK, ToolMode.CLONE):
+            if state.active_tool in RETOUCH_TOOLS:
                 self._suspended_retouch_tool = state.active_tool
                 self.controller.cancel_active_tool()
         else:

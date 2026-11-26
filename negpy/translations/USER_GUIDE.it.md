@@ -432,7 +432,7 @@ Su una stampa lith funzionano solo Selenio e Oro. Su una cianotipia non funziona
 
 ## 7. Scheda Finitura
 
-<!-- panel:retouch src:85e58a6a -->
+<!-- panel:retouch src:ee32b882 -->
 ### 7.1 Ritocco: polvere, peli, graffi
 
 Rimuove polvere, peli e graffi. Ogni riparazione viene ricostruita dalla pellicola pulita circostante.
@@ -445,7 +445,7 @@ Rimuove polvere, peli e graffi. Ogni riparazione viene ricostruita dalla pellico
 *   **Linea**: fai clic una volta su un graffio lungo e dritto, e NegPy trova e ripara l'intera linea. **Sensibilità della linea**: più basso trova linee più deboli.
 *   **Dimensione pennello**: anche `Alt`+rotellina sull'immagine.
 *   **Clona**: copia la pellicola da un'altra area sopra un difetto che il Correttivo non può riparare. Il primo clic (o `Alt`+clic) sceglie la sorgente; poi dipingi. **Imposta sorgente** ne sceglie una nuova. **Adegua il tono** prende la luminosità e il colore attorno al difetto. **Intensità** stabilisce quanto copre, **Sfumatura** quanto è morbido il suo bordo.
-*   **Annulla l'ultimo** e **Cancella tutto** rimuovono le riparazioni manuali; fai clic destro su una di esse sull'immagine per eliminarla.
+*   **Annulla l'ultimo** e **Cancella tutto** rimuovono le riparazioni manuali. Con uno strumento di ritocco attivo, punta a una e premi `Canc` o `Backspace`, oppure fai clic destro su di essa, per eliminarla.
 
 <!-- panel:finish src:0e98fdde -->
 ### 7.2 Rifinitura: vignettatura, portanegativi, bordo

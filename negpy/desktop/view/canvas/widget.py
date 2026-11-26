@@ -17,7 +17,7 @@ from negpy.infrastructure.gpu.device import GPUDevice
 from negpy.infrastructure.gpu.resources import GPUTexture
 from negpy.desktop.view.frame_merge_action import ACTION_IDS, LABELS, SCOPE_FRAME, merge_to_tiff, mergeable_in
 from negpy.desktop.view.sidecar_action import LABEL as SIDECAR_LABEL, load_edit_from_sidecar
-from negpy.desktop.view.shortcut_registry import label_with_shortcut
+from negpy.desktop.view.shortcut_registry import display_key, label_with_shortcut
 from negpy.desktop.view.styles.theme import THEME
 from negpy.kernel.system.config import APP_CONFIG
 from negpy.kernel.system.logging import get_logger
@@ -202,6 +202,7 @@ class ImageCanvas(QWidget):
         self.overlay.clone_stroke_completed.connect(self.clone_stroke_completed.emit)
         self.overlay.clone_source_picked.connect(self.clone_source_picked.emit)
         self.overlay.dust_exclusion_painted.connect(self.dust_exclusion_painted.emit)
+        self.overlay.heal_delete_requested.connect(self._delete_repair)
         self.overlay.straighten_completed.connect(self.straighten_completed.emit)
         self.overlay.keystone_line_marked.connect(self.keystone_line_marked.emit)
         self.overlay.test_strip_picked.connect(self.test_strip_picked.emit)
@@ -706,6 +707,7 @@ class ImageCanvas(QWidget):
             self.setCursor(Qt.CursorShape.ClosedHandCursor)
         elif not held:
             self.reset_tool_cursor()
+        self.overlay.sync_retouch_hover()
 
     def _sync_transform(self) -> None:
         """Propagates zoom/pan to sub-widgets."""
@@ -778,12 +780,12 @@ class ImageCanvas(QWidget):
     def show_canvas_menu(self, pos: QPointF, global_pos) -> None:
         """The canvas menu at ``pos`` (widget coordinates). Also called by the overlay, which
         holds the menu back until a right press turns out not to be an exclusion drag."""
-        if self.state.selected_file_idx < 0 or self._controller is None:
+        if self.state.selected_file_idx < 0 or self._controller is None or self.state.test_strip:
             return
 
         # While a heal tool is live the menu serves that tool: the general settings menu would
         # be noise mid-retouch.
-        if self.state.active_tool in (ToolMode.DUST_PICK, ToolMode.SCRATCH_PICK):
+        if self.state.active_tool in (ToolMode.DUST_PICK, ToolMode.SCRATCH_PICK, ToolMode.SCRATCH_LINE):
             self._exec_retouch_menu(pos, global_pos)
             return
         if self.state.active_tool == ToolMode.CLONE:
@@ -848,7 +850,7 @@ class ImageCanvas(QWidget):
     def _add_exclude_action(self, menu: QMenu, pos: QPointF) -> None:
         """Adds the exclude item for the patch under the cursor, on the menus a right-click
         reaches while the detector is running."""
-        if not self.state.config.retouch.dust_remove or self._controller is None:
+        if not self.state.config.retouch.dust_remove or self._controller is None or not self.overlay._retouch_repairs_visible(pos):
             return
         coords = self.overlay.image_coords_at(pos)
         if coords is None:
@@ -865,6 +867,26 @@ class ImageCanvas(QWidget):
         if confirm_unload(self):
             self._controller.session.remove_current_file()
 
+    def _delete_repair(self, kind: str, index: int) -> None:
+        if self._controller is None:
+            return
+        if kind == "clone":
+            self._controller.delete_clone(index)
+        else:
+            self._controller.delete_heal(kind, index)
+
+    def _delete_repair_label(self, kind: str) -> str:
+        text = tr("Delete This Clone") if kind == "clone" else tr("Delete This Heal")
+        key = display_key("Backspace" if sys.platform == "darwin" else "Delete")
+        return f"{text}  {key}" if key else text
+
+    def _exec_pinned_menu(self, menu: QMenu, pos: QPointF, global_pos) -> None:
+        self.overlay.set_menu_pos(pos)
+        try:
+            menu.exec(global_pos)
+        finally:
+            self.overlay.set_menu_pos(None)
+
     def _exec_clone_menu(self, pos: QPointF, global_pos) -> None:
         controller = self._controller
         assert controller is not None
@@ -873,10 +895,11 @@ class ImageCanvas(QWidget):
         act_source = menu.addAction(tr("Pick New Source"))
         act_source.triggered.connect(lambda: controller.arm_clone_source(True))
         menu.addSeparator()
-        hit = self.overlay.heal_hit_test(pos)
-        if hit is not None and hit[0] == "clone":
-            act_delete = menu.addAction(tr("Delete This Clone"))
-            act_delete.triggered.connect(lambda _=False, i=hit[1]: controller.delete_clone(i))
+        hit = self.overlay.retouch_hit_at(pos)
+        if hit is not None:
+            kind, index = hit
+            act_delete = menu.addAction(self._delete_repair_label(kind))
+            act_delete.triggered.connect(lambda _=False, k=kind, i=index: self._delete_repair(k, i))
             menu.addSeparator()
         act_undo = menu.addAction(label_with_shortcut(tr("Undo Last Clone"), "undo"))
         act_undo.triggered.connect(controller.undo_last_clone)
@@ -884,14 +907,14 @@ class ImageCanvas(QWidget):
         act_clear = menu.addAction(tr("Clear All Clones…"))
         act_clear.triggered.connect(controller.clear_clones)
         act_clear.setEnabled(count > 0)
-        menu.exec(global_pos)
+        self._exec_pinned_menu(menu, pos, global_pos)
 
     def _exec_retouch_menu(self, pos: QPointF, global_pos) -> None:
-        """Context menu while the heal or scratch tool is active."""
+        """Context menu while a manual heal tool is active."""
         controller = self._controller
         assert controller is not None
         conf = self.state.config.retouch
-        num_heals = len(conf.manual_dust_spots) + len(conf.manual_heal_strokes)
+        num_heals = len(conf.manual_dust_spots) + len(conf.manual_heal_strokes) + len(conf.scratch_lines)
 
         menu = QMenu(self)
 
@@ -904,13 +927,11 @@ class ImageCanvas(QWidget):
             act_point.setEnabled(self.overlay.has_scratch_points())
             menu.addSeparator()
 
-        hit = self.overlay.heal_hit_test(pos)
+        hit = self.overlay.retouch_hit_at(pos)
         if hit is not None:
             kind, index = hit
-            act_delete = menu.addAction(tr("Delete This Clone") if kind == "clone" else tr("Delete This Heal"))
-            act_delete.triggered.connect(
-                lambda _=False, k=kind, i=index: controller.delete_clone(i) if k == "clone" else controller.delete_heal(k, i)
-            )
+            act_delete = menu.addAction(self._delete_repair_label(kind))
+            act_delete.triggered.connect(lambda _=False, k=kind, i=index: self._delete_repair(k, i))
             menu.addSeparator()
 
         self._add_exclude_action(menu, pos)
@@ -920,4 +941,4 @@ class ImageCanvas(QWidget):
         act_clear = menu.addAction(tr("Clear All Heals…"))
         act_clear.triggered.connect(controller.clear_retouch)
         act_clear.setEnabled(num_heals > 0)
-        menu.exec(global_pos)
+        self._exec_pinned_menu(menu, pos, global_pos)

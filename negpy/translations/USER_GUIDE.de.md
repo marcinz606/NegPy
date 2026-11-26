@@ -250,7 +250,7 @@ Auf einem Lith-Abzug wirken nur Selen und Gold. Auf einer Cyanotypie wirkt kein 
 
 **Splittonung** (alle Abzüge): **Schattenstärke** und **Lichterstärke** geben den Schatten und den Lichtern Farbe. **Schattenfarbton** und **Lichterfarbton** wählen die Farbe und erscheinen, sobald die Stärke über 0 liegt.
 
-<!-- panel:retouch src:85e58a6a -->
+<!-- panel:retouch src:ee32b882 -->
 ### 7.1 Retusche: Staub, Haare, Kratzer
 
 Entfernt Staub, Haare und Kratzer. Jede Reparatur wird aus dem sauberen Film darum herum aufgebaut.
@@ -263,7 +263,7 @@ Entfernt Staub, Haare und Kratzer. Jede Reparatur wird aus dem sauberen Film dar
 *   **Linie**: klicke einmal auf einen langen, geraden Kratzer. NegPy findet und repariert dann die ganze Linie. **Linienempfindlichkeit**: niedriger findet schwächere Linien.
 *   **Pinselgröße**: auch mit `Alt`+Scrollen auf dem Bild.
 *   **Klonen**: kopiert Film aus einem anderen Bereich über einen Defekt, den Heilen nicht beheben kann. Der erste Klick (oder `Alt`-Klick) wählt die Quelle, danach malst du. **Quelle setzen** wählt eine neue. **Ton anpassen** übernimmt Helligkeit und Farbe um den Defekt. **Stärke** legt fest, wie stark er deckt, **Kantenweichheit**, wie weich seine Kante ist.
-*   **Letzte rückgängig** und **Alle entfernen** entfernen manuelle Reparaturen. Klicke mit der rechten Maustaste auf eine im Bild, um sie zu löschen.
+*   **Letzte rückgängig** und **Alle entfernen** entfernen manuelle Reparaturen. Bei eingeschaltetem Retusche-Werkzeug zeige auf eine und drücke `Entf` oder `Backspace`, oder klicke mit der rechten Maustaste darauf, um sie zu löschen.
 
 <!-- panel:finish src:0e98fdde -->
 ### 7.2 Finish: Vignette, Bildbühne, Rand
