@@ -1,6 +1,7 @@
 from negpy.kernel.system.i18n import tr
 from typing import Optional
 from PyQt6.QtWidgets import (
+    QApplication,
     QWIDGETSIZE_MAX,
     QSplitter,
     QWidget,
@@ -13,7 +14,7 @@ from PyQt6.QtWidgets import (
     QStackedLayout,
 )
 from PyQt6.QtGui import QIcon
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import QEvent, QObject, Qt, pyqtSignal
 from negpy.desktop.view.styles.templates import FIELD_LABEL_WIDTH, HEADER_HEIGHT, header_button, tool_toggle
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.fold import Fold
@@ -44,6 +45,68 @@ def roll_revert_icon(color: str, cutout: str = THEME.bg_header) -> QIcon:
 
 def _header_icon(name: str) -> QIcon:
     return qta.icon(name, color=THEME.text_hint, color_on=THEME.text_primary, color_disabled=THEME.text_muted)
+
+
+class _HoldReleaseGuard(QObject):
+    """Qt drops QPushButton.released when a held button or its ancestor hides, disables, or loses
+    window activation; end the hold here so the borrowed compare view cannot wedge."""
+
+    def __init__(self, btn: QPushButton):
+        super().__init__(btn)
+        self._btn = btn
+        self._active = False
+        btn.installEventFilter(self)
+        btn.pressed.connect(self._on_pressed)
+        btn.released.connect(self._on_released)
+        btn.destroyed.connect(self._cleanup)
+
+    def _on_pressed(self) -> None:
+        if not self._active:
+            self._active = True
+            app = QApplication.instance()
+            if app is not None:
+                app.installEventFilter(self)
+
+    def _on_released(self) -> None:
+        self._cleanup()
+
+    def _cleanup(self, *_args) -> None:
+        if self._active:
+            self._active = False
+            app = QApplication.instance()
+            if app is not None:
+                app.removeEventFilter(self)
+
+    def _force_release(self) -> None:
+        if not self._active:
+            return
+        self._cleanup()
+        if self._btn.isDown():
+            self._btn.setDown(False)
+        self._btn.released.emit()
+
+    def eventFilter(self, watched: QObject, event: QEvent) -> bool:
+        if not self._active:
+            return False
+        etype = event.type()
+        if watched is self._btn:
+            if etype in (
+                QEvent.Type.Hide,
+                QEvent.Type.HideToParent,
+                QEvent.Type.WindowBlocked,
+                QEvent.Type.WindowDeactivate,
+            ) or (etype == QEvent.Type.EnabledChange and not self._btn.isEnabled()):
+                self._force_release()
+        elif etype == QEvent.Type.ApplicationDeactivate:
+            self._force_release()
+        elif etype == QEvent.Type.WindowDeactivate and isinstance(watched, QWidget) and watched.isWindow():
+            win = self._btn.window()
+            pwin = win.parentWidget().window() if win.parentWidget() is not None else None
+            if watched is win or watched is pwin:
+                self._force_release()
+        elif etype == QEvent.Type.Show and isinstance(watched, QWidget) and watched.windowType() == Qt.WindowType.Popup:
+            self._force_release()
+        return False
 
 
 class CollapsibleSection(QWidget):
@@ -262,6 +325,7 @@ class CollapsibleSection(QWidget):
         """The eye left of Reset: held, the canvas shows the frame without this card."""
         btn = header_button(_header_icon("fa5s.eye"), tooltip)
         btn.setVisible(self.modified_count > 0)
+        _HoldReleaseGuard(btn)
         self._header_row.insertWidget(self._header_row.indexOf(self.reset_btn), btn)
         self.compare_btn = btn
         return btn

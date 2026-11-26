@@ -648,6 +648,8 @@ class AppController(QObject):
     monitor_profile_changed = pyqtSignal()
     compare_changed = pyqtSignal(bool)
     compare_frame_ready = pyqtSignal()
+    compare_render_starting = pyqtSignal(bool, bool)
+    compare_before_staged = pyqtSignal(bool)  # True when a GPU compare render overwrote the shared pool texture
     compare_hold_changed = pyqtSignal(bool)
     flat_output_changed = pyqtSignal(bool)
     launch_recipe_changed = pyqtSignal()  # the open frame's command-line export recipe came or went
@@ -756,6 +758,8 @@ class AppController(QObject):
         self._thumb_config: Optional[WorkspaceConfig] = None
         # The compare reference and label a held card eye borrowed (begin_card_compare).
         self._card_compare_saved: Optional[Tuple[Optional[WorkspaceConfig], str]] = None
+        self._in_flight_compare_key: str = ""
+        self._gpu_pool_dirty: bool = False
         self._active_diptych_memo: tuple[str, Optional[tuple[dict, tuple[WorkspaceConfig, WorkspaceConfig]]]] = ("", None)
         # Halves already known to hold a real edit; spares _may_persist_measured_bounds a
         # repeat lookup per render. Only ever grows, since a row is never deleted mid-session.
@@ -1328,6 +1332,7 @@ class AppController(QObject):
 
         self.session.active_file_changing.connect(self._update_thumbnail_from_state)
         self.session.frame_previews_ending.connect(self._previewed_meter_cards.clear)
+        self.session.session_emptied.connect(self.exit_compare)
         self.session.session_emptied.connect(self._render_memo.clear)
         self.session.session_emptied.connect(self._strip_memo.clear)
         self.session.file_selected.connect(self._on_file_selected_load)
@@ -1340,6 +1345,10 @@ class AppController(QObject):
     def _render_if_state_moved(self) -> None:
         """Renders after a session change unless it left every render input as last dispatched:
         a selection, a copy or a view preference changes no pixel."""
+        if not getattr(self.state, "gpu_enabled", True) and isinstance(getattr(self.state, "compare_before", None), GPUTexture):
+            self._drop_compare_before()
+            self.state.compare_before_rect = None
+            self.state.compare_before_key = ""
         last = self._dispatched_render_state
         if last is not None and all(a is b for a, b in zip(self._render_state(), last)):
             return
@@ -3289,6 +3298,7 @@ class AppController(QObject):
                 # thumbnail refresh, which reads whatever last_metrics holds.
                 self.state.last_metrics["source_hash"] = target_hash
                 self.state.last_metrics["render_identity"] = (target_hash, self.state.config)
+            self._gpu_pool_dirty = False
             self.image_updated.emit()
 
         self.state.preview_raw = None
@@ -4270,6 +4280,8 @@ class AppController(QObject):
         self.set_status(toast, 2500)
         self.status_progress_requested.emit(0, len(overrides))
         cam_xyz, camera_wb = self._effective_cam_xyz()
+        self._last_render_identity = None
+        self._gpu_pool_dirty = True
         self.strip_requested.emit(
             TestStripTask(
                 buffer=self.state.preview_raw,
@@ -4456,6 +4468,8 @@ class AppController(QObject):
         self.state.pick_better_pending = True
         self.set_status(tr("Printing Pick Better…"), 2500)
         self.status_progress_requested.emit(0, 2)
+        self._last_render_identity = None
+        self._gpu_pool_dirty = True
         self.pick_better_requested.emit(
             PickBetterTask(
                 buffer=self.state.preview_raw,
@@ -8641,6 +8655,8 @@ class AppController(QObject):
         config_override: Optional[WorkspaceConfig] = None,
         ephemeral: bool = False,
         compare_capture: bool = False,
+        *,
+        keep_overlays: bool = False,
     ) -> None:
         """
         Dispatches a render task to the worker thread.
@@ -8653,7 +8669,8 @@ class AppController(QObject):
         compare_capture marks the baseline render whose pixels are stashed for the
         before/after split instead of being displayed.
         """
-        self._render_debounce.stop()
+        if config_override is None:
+            self._render_debounce.stop()
         lens_token = lens_decode_token(metadata_lens_corrections(self.state.config), self.state.config.flatfield)
         if not ephemeral and self.state.current_file_path and lens_token != self.state.preview_lens_token:
             self.load_file(self.state.current_file_path, preserve_zoom=True)
@@ -8671,22 +8688,22 @@ class AppController(QObject):
 
         # A plain render paints the edit over the flat peek, so it ends the peek. The scan
         # peeks repaint over a render, so only an edit since they opened ends them.
-        if config_override is None and self.state.flat_peek:
-            self.state.flat_peek = False
-            self.flat_peek_changed.emit(False)
-        if config_override is None and self.state.average_peek:
-            if self._average_peek_hash != self.state.current_file_hash:
-                self._carry_average_peek()
-                return
-            self.state.average_peek = False
-            self.average_peek_changed.emit(False)
-        if config_override is None and (self.state.negative_peek or self.state.embedded_peek) and not self._peek_shows(self.state.config):
-            self.reset_all_peeks()
+        if config_override is None and not keep_overlays:
+            if self.state.flat_peek:
+                self.state.flat_peek = False
+                self.flat_peek_changed.emit(False)
+            if self.state.average_peek:
+                if self._average_peek_hash != self.state.current_file_hash:
+                    self._carry_average_peek()
+                    return
+                self.state.average_peek = False
+                self.average_peek_changed.emit(False)
+            if (self.state.negative_peek or self.state.embedded_peek) and not self._peek_shows(self.state.config):
+                self.reset_all_peeks()
 
-        # The strip's patches were printed from the config as it stood, so once the edit
-        # moves they prove something else. Drop them, which also cancels a strip still
-        # building. Zone pins die the same way.
-        if config_override is None:
+            # The strip's patches were printed from the config as it stood, so once the edit
+            # moves they prove something else. Drop them, which also cancels a strip still
+            # building. Zone pins die the same way.
             self._clear_test_strip()
             self._drop_zone_pins()
 
@@ -8704,7 +8721,7 @@ class AppController(QObject):
         interactive = not readback_metrics and not compare_capture
         ir_buffer = self.state.preview_ir
         detect_buffer = self.state.preview_detect
-        crop_preview_full = self.state.active_tool in UNCROPPED_PREVIEW_TOOLS
+        crop_preview_full = self.state.active_tool in UNCROPPED_PREVIEW_TOOLS and not compare_capture
         if (interactive or crop_preview_full) and self.state.preview_proxy is not None:
             preview_raw = self.state.preview_proxy
             # The IR and detection planes must follow the image they are read against.
@@ -8721,7 +8738,9 @@ class AppController(QObject):
         memo_key = ""
         if config_override is None and not ephemeral and not crop_preview_full and not interactive:
             memo_key = self._render_memo_key()
-        self._expected_render_key = memo_key
+        if not compare_capture:
+            self._expected_render_key = memo_key
+        compare_key = self._render_memo_key(config_override) if compare_capture and config_override is not None else ""
 
         dip = self.active_diptych()
         cam_xyz, camera_wb = self._effective_cam_xyz()
@@ -8741,6 +8760,7 @@ class AppController(QObject):
             ephemeral=ephemeral,
             memo_key=memo_key,
             compare=compare_capture,
+            compare_key=compare_key,
             interactive=interactive,
             # Mirrors should_update_thumb, minus its pending-task check.
             wants_thumbnail=(
@@ -8766,9 +8786,40 @@ class AppController(QObject):
             self._dispatched_render_state = self._render_state()
 
         if self._is_rendering:
+            if compare_capture and self._pending_render_task is not None and not self._pending_render_task.compare:
+                return
             self._pending_render_task = task
             return
 
+        self._emit_render_task(task)
+
+    def _render_state_unchanged(self) -> bool:
+        last = self._dispatched_render_state
+        return not self._render_debounce.isActive() and last is not None and all(a is b for a, b in zip(self._render_state(), last))
+
+    def _emit_render_task(self, task: RenderTask) -> None:
+        if task.compare:
+            self._in_flight_compare_key = task.compare_key
+            if task.gpu_enabled and not self.state.gpu_viewport_failed:
+                st = self.state
+                can_keep = (
+                    self._render_state_unchanged()
+                    and st.peek_frame is None
+                    and not st.flat_peek
+                    and not st.average_peek
+                    and not st.test_strip
+                    and not st.test_strip_pending
+                    and not st.pick_better
+                    and not st.pick_better_pending
+                    and st.last_metrics.get("render_identity") == (st.current_file_hash, st.config)
+                    and not st.last_metrics.get("crop_preview_full")
+                    and not st.last_metrics.get("splash")
+                )
+                can_clone = can_keep and not self._gpu_pool_dirty
+                self.compare_render_starting.emit(can_clone, can_keep)
+            if task.gpu_enabled:
+                self._last_render_identity = None
+                self._gpu_pool_dirty = True
         self._is_rendering = True
         self.render_requested.emit(task)
 
@@ -8788,34 +8839,85 @@ class AppController(QObject):
             return
         self.request_render(readback_metrics=False, config_override=self._baseline_compare_config(), compare_capture=True)
 
+    def _drop_compare_before(self, *, redraw: bool = True) -> None:
+        prev = self.state.compare_before
+        if prev is None:
+            return
+        self.state.compare_before = None
+        if redraw:
+            self.compare_frame_ready.emit()
+        else:
+            self.compare_before_staged.emit(False)
+        destroy = getattr(prev, "destroy", None)
+        if callable(destroy):
+            destroy()
+
     def _capture_compare_before(self, metrics: Dict[str, Any]) -> None:
         """Keep the baseline render's pixels for the split. The GPU pool overwrites its
-        textures on the next frame, so read back now rather than holding the texture."""
+        textures on the next frame, so clone in VRAM (or read back on CPU path) now."""
         buffer = metrics.get("base_positive")
-        if isinstance(buffer, GPUTexture):
+        was_gpu_pool = isinstance(buffer, GPUTexture)
+        if was_gpu_pool:
+            assert isinstance(buffer, GPUTexture)
+            if self.state.gpu_enabled and not self.state.gpu_viewport_failed and hasattr(buffer, "clone_gpu"):
+                try:
+                    cloned = buffer.clone_gpu()
+                    prev = self.state.compare_before
+                    self.state.compare_before = cloned
+                    self.state.compare_before_rect = metrics.get("content_rect")
+                    self.state.compare_before_key = self._compare_before_key()
+                    # Stage the GPU baseline: the `compare=True` render just overwrote the shared
+                    # pool output texture that `tex` samples. Full-frame hold presents immediately;
+                    # split waits for the follow-up edit render to restore `tex`.
+                    self.compare_before_staged.emit(True)
+                    destroy = getattr(prev, "destroy", None)
+                    if callable(destroy):
+                        destroy()
+                    return
+                except Exception:
+                    logger.exception("Failed to clone before/after baseline in VRAM; falling back to readback")
             try:
                 readback = buffer.readback()
             except Exception:
                 logger.exception("Failed to read back the before/after baseline frame")
+                self.compare_before_staged.emit(True)
                 return
             buffer = np.ascontiguousarray(readback[:, :, :3]) if readback.ndim == 3 and readback.shape[2] >= 3 else readback
         if not isinstance(buffer, np.ndarray):
             return
+        prev = self.state.compare_before
         self.state.compare_before = buffer
         self.state.compare_before_rect = metrics.get("content_rect")
         self.state.compare_before_key = self._compare_before_key()
+        if was_gpu_pool:
+            self.compare_before_staged.emit(True)
         self.compare_frame_ready.emit()
+        destroy = getattr(prev, "destroy", None)
+        if callable(destroy):
+            destroy()
 
     def exit_compare(self) -> None:
         """Leave the before/after split and drop the stashed baseline frame."""
+        prev = getattr(self.state, "compare_before", None)
+        was_mode = bool(getattr(self.state, "compare_mode", False))
+        was_hold = bool(getattr(self.state, "compare_hold", False))
+        self._card_compare_saved = None
         self.state.compare_before = None
         self.state.compare_before_rect = None
         self.state.compare_before_key = ""
         self.state.compare_reference = None
         self.state.compare_reference_label = ""
-        if self.state.compare_mode:
-            self.state.compare_mode = False
+        self.state.compare_mode = False
+        self.state.compare_hold = False
+        if was_mode:
             self.compare_changed.emit(False)
+        if was_hold:
+            self.compare_hold_changed.emit(False)
+        if prev is not None and not was_mode and not was_hold and hasattr(self, "compare_before_staged"):
+            self.compare_before_staged.emit(False)
+        destroy = getattr(prev, "destroy", None)
+        if callable(destroy):
+            destroy()
 
     def compare_with_history_step(self, index: int) -> None:
         """Open the split against a history step instead of the default conversion."""
@@ -8836,15 +8938,17 @@ class AppController(QObject):
     def _compare_with(self, config: Optional[WorkspaceConfig], label: str) -> None:
         if config is None or self.state.preview_raw is None:
             return
+        if self._card_compare_saved is not None:
+            self.end_card_compare()
         self.state.compare_reference = config
         self.state.compare_reference_label = label
         if not self.state.compare_mode:
             self.toggle_compare()
             return
         # Drop the old reference's pixels, or they show under the new badge until the render lands.
-        self.state.compare_before = None
+        self.state.compare_before_rect = None
         self.state.compare_before_key = ""
-        self.compare_frame_ready.emit()
+        self._drop_compare_before(redraw=True)
         self._request_compare_baseline()
 
     def begin_compare_hold(self) -> None:
@@ -8854,21 +8958,33 @@ class AppController(QObject):
         if (
             st.preview_raw is None
             or st.test_strip
+            or st.test_strip_pending
+            or st.pick_better
+            or st.pick_better_pending
             or st.negative_peek
             or st.flat_peek
+            or st.average_peek
             or st.embedded_peek
             or st.flatfield_peek
             or st.export_size_view
             or st.active_tool in UNCROPPED_PREVIEW_TOOLS
         ):
             return
+        # Kept after release, so the next hold on this frame needs no render. Drop a stale
+        # baseline before raising compare_hold so a rotated/cropped edit never flashes it.
+        need_baseline = not isinstance(st.compare_before, (np.ndarray, GPUTexture)) or st.compare_before_key != self._compare_before_key()
+        if need_baseline and st.compare_before is not None:
+            st.compare_before_rect = None
+            st.compare_before_key = ""
+            self._drop_compare_before(redraw=False)
         st.compare_hold = True
-        # Kept after release, so the next hold on this frame needs no render.
-        if not isinstance(st.compare_before, np.ndarray) or st.compare_before_key != self._compare_before_key():
+        if need_baseline:
             self._request_compare_baseline()
         self.compare_hold_changed.emit(True)
 
     def end_compare_hold(self) -> None:
+        if self._card_compare_saved is not None:
+            return
         if self.state.compare_hold:
             self.state.compare_hold = False
             self.compare_hold_changed.emit(False)
@@ -8883,23 +8999,32 @@ class AppController(QObject):
         st.compare_reference, st.compare_reference_label = config, label
         self.begin_compare_hold()
         if not st.compare_hold:
-            self._restore_card_compare()
+            st.compare_reference, st.compare_reference_label = self._card_compare_saved
+            self._card_compare_saved = None
 
     def end_card_compare(self) -> None:
         if self._card_compare_saved is None:
             return
-        self.end_compare_hold()
+        was_hold = self.state.compare_hold
+        self.state.compare_hold = False
         self._restore_card_compare()
+        if was_hold:
+            self.compare_hold_changed.emit(False)
 
     def _restore_card_compare(self) -> None:
+        if self._card_compare_saved is None:
+            return
         st = self.state
         st.compare_reference, st.compare_reference_label = self._card_compare_saved
         self._card_compare_saved = None
         # The stash holds the card's pixels, never the split's baseline.
-        st.compare_before = None
+        st.compare_before_rect = None
         st.compare_before_key = ""
-        if st.compare_mode:
+        if st.compare_before is not None:
+            self._drop_compare_before(redraw=True)
+        elif st.compare_mode:
             self.compare_frame_ready.emit()
+        if st.compare_mode:
             self._request_compare_baseline()
 
     def toggle_compare(self) -> None:
@@ -8907,6 +9032,8 @@ class AppController(QObject):
         history step or work print set by _compare_with."""
         if self.state.preview_raw is None:
             return
+        if self._card_compare_saved is not None:
+            self.end_card_compare()
         if self.state.compare_mode:
             self.exit_compare()
         else:
@@ -8915,6 +9042,9 @@ class AppController(QObject):
             if self.state.flat_peek:
                 self.state.flat_peek = False
                 self.flat_peek_changed.emit(False)
+            if self.state.average_peek:
+                self.state.average_peek = False
+                self.average_peek_changed.emit(False)
             if self.state.negative_peek:
                 self.state.negative_peek = False
                 self.negative_peek_changed.emit(False)
@@ -8927,10 +9057,20 @@ class AppController(QObject):
                 self.flatfield_peek_changed.emit(False)
             # Same reason the strip and the peek are exclusive: both want the canvas.
             self._clear_test_strip()
+            self._clear_pick_better()
+            need_baseline = (
+                not isinstance(self.state.compare_before, (np.ndarray, GPUTexture))
+                or self.state.compare_before_key != self._compare_before_key()
+            )
+            if need_baseline and self.state.compare_before is not None:
+                self.state.compare_before_rect = None
+                self.state.compare_before_key = ""
+                self._drop_compare_before(redraw=False)
             self.state.compare_mode = True
             self.compare_changed.emit(True)
-            # The edit is already on screen; only the baseline half has to be rendered.
-            self._request_compare_baseline()
+            # Reuses a baseline retained from compare_hold when its key still matches.
+            if need_baseline:
+                self._request_compare_baseline()
 
     def rerender_active_view(self) -> None:
         """Re-render after a rotate or flip. Keeps the flat peek, which a plain request_render()
@@ -10455,14 +10595,55 @@ class AppController(QObject):
         # The baseline half of the split is stashed, never displayed: it must not reach
         # last_metrics, the memo, the thumbnail or the canvas.
         if metrics.get("compare"):
-            if self.state.compare_mode or self.state.compare_hold:
+            in_flight_key = getattr(self, "_in_flight_compare_key", "")
+            self._in_flight_compare_key = ""
+            compare_key = in_flight_key if isinstance(in_flight_key, str) and in_flight_key else (metrics.get("compare_key") or "")
+            if isinstance(metrics.get("base_positive"), GPUTexture) or metrics.get("gpu_fallback"):
+                self._last_render_identity = None
+                self._gpu_pool_dirty = True
+            if metrics.get("gpu_fallback"):
+                if not self._gpu_fallback_notified:
+                    self._gpu_fallback_notified = True
+                    self.set_status(tr("GPU acceleration failed. Using the CPU."), 5000, kind="warning")
+                if isinstance(getattr(self.state, "compare_before", None), GPUTexture):
+                    self.state.compare_before_rect = None
+                    self.state.compare_before_key = ""
+                    self._drop_compare_before(redraw=False)
+                self._spared_texture = None
+                self._render_memo.clear()
+                with self.state.metrics_lock:
+                    for k in ("base_positive", "normalized_log"):
+                        if isinstance(self.state.last_metrics.get(k), GPUTexture):
+                            self.state.last_metrics.pop(k, None)
+                    self.state.last_metrics.pop("render_identity", None)
+                self.gpu_textures_released.emit()
+            key_matches = not compare_key or compare_key == self._compare_before_key()
+            if (self.state.compare_mode or self.state.compare_hold) and key_matches:
                 self._capture_compare_before(metrics)
+            elif isinstance(metrics.get("base_positive"), GPUTexture):
+                self.compare_before_staged.emit(True)
+            if (
+                not key_matches
+                and (self.state.compare_mode or self.state.compare_hold)
+                and self._pending_render_task is None
+                and (
+                    not isinstance(self.state.compare_before, (np.ndarray, GPUTexture))
+                    or self.state.compare_before_key != self._compare_before_key()
+                )
+            ):
+                self._request_compare_baseline()
             if self._pending_render_task is not None:
                 self._dispatch_pending_render()
-            else:
+            elif not self._is_rendering:
                 # The engine pool hands every render the same output texture, so this one
                 # has just overwritten the edit the canvas is sampling. Print it again.
-                self.request_render()
+                unchanged = bool(self._render_state_unchanged())
+                if self.state.average_peek and unchanged:
+                    self._render_average_peek()
+                elif unchanged and getattr(self, "_zone_preview_shown", False) is True:
+                    self._preview_zone_solution()
+                else:
+                    self.request_render(keep_overlays=unchanged)
             AppController._continue_background_work(self)
             return
 
@@ -10495,6 +10676,8 @@ class AppController(QObject):
         record_meters(self.state.auto_meters, self.state.current_file_hash or "", metrics)
 
         result = metrics.get("base_positive")
+        if not metrics.get("ephemeral"):
+            self._gpu_pool_dirty = False
         memoizable = bool(metrics.get("memo_key")) and metrics.get("source_hash") == self.state.current_file_hash
         # The pool overwrites a GPU texture on the next frame, so only its identity is kept
         # here. load_file files the texture itself on the way out.
@@ -10507,6 +10690,14 @@ class AppController(QObject):
         if metrics.get("gpu_fallback") and not self._gpu_fallback_notified:
             self._gpu_fallback_notified = True
             self.set_status(tr("GPU acceleration failed. Using the CPU."), 5000, kind="warning")
+
+        compare_before = getattr(self.state, "compare_before", None)
+        if compare_before is not None and (
+            metrics.get("gpu_fallback") or getattr(self.state, "compare_before_key", "") != self._compare_before_key()
+        ):
+            self.state.compare_before_rect = None
+            self.state.compare_before_key = ""
+            self._drop_compare_before(redraw=False)
 
         # A render already in flight when the peek went on would otherwise repaint over it.
         if self.state.negative_peek:
@@ -10542,7 +10733,11 @@ class AppController(QObject):
 
         # Geometry, process or display changes make the stashed baseline half disagree with
         # the frame beside it; re-capture once the queue is empty.
-        if self.state.compare_mode and self._pending_render_task is None and self.state.compare_before_key != self._compare_before_key():
+        if (
+            (getattr(self.state, "compare_mode", False) or getattr(self.state, "compare_hold", False))
+            and self._pending_render_task is None
+            and self.state.compare_before_key != self._compare_before_key()
+        ):
             self._request_compare_baseline()
             AppController._continue_background_work(self)
             return
@@ -10643,6 +10838,9 @@ class AppController(QObject):
             identity = self.state.last_metrics.get("render_identity")
             if isinstance(identity, tuple) and identity[0] == self.state.current_file_hash and identity[1] is before:
                 self.state.last_metrics["render_identity"] = (identity[0], self.state.config)
+        dispatched = getattr(self, "_dispatched_render_state", None)
+        if isinstance(dispatched, tuple) and dispatched and dispatched[0] is before:
+            self._dispatched_render_state = (self.state.config, *dispatched[1:])
         self._carry_peek(before)
 
     def _peek_shows(self, config: WorkspaceConfig) -> bool:
@@ -10659,8 +10857,21 @@ class AppController(QObject):
         if self._pending_render_task:
             task = self._pending_render_task
             self._pending_render_task = None
-            self._is_rendering = True
-            self.render_requested.emit(task)
+            if task.compare:
+                if not (getattr(self.state, "compare_mode", False) or getattr(self.state, "compare_hold", False)):
+                    if not self._is_rendering and getattr(self, "_gpu_pool_dirty", False):
+                        unchanged = bool(self._render_state_unchanged())
+                        if self.state.average_peek and unchanged:
+                            self._render_average_peek()
+                        elif unchanged and getattr(self, "_zone_preview_shown", False) is True:
+                            self._preview_zone_solution()
+                        else:
+                            self.request_render(keep_overlays=unchanged)
+                    return
+                fresh_key = self._compare_before_key()
+                if task.compare_key != fresh_key:
+                    task = replace(task, config=self._baseline_compare_config(), compare_key=fresh_key)
+            self._emit_render_task(task)
 
     def _on_metrics_updated(self, metrics: Dict[str, Any]) -> None:
         """
@@ -10706,6 +10917,7 @@ class AppController(QObject):
 
         if changes:
             before = self.state.config
+            old_compare_key = self._compare_before_key() if hasattr(self, "_compare_before_key") else ""
             new_process = replace(self.state.config.process, **changes)
             self.session.update_config(
                 replace(self.state.config, process=new_process),
@@ -10725,6 +10937,22 @@ class AppController(QObject):
                     self._render_memo_key(),
                     self._last_render_identity[2],
                 )
+            if old_compare_key and hasattr(self, "_compare_before_key"):
+                new_compare_key = self._compare_before_key()
+                if (
+                    getattr(self.state, "compare_before", None) is not None
+                    and getattr(self.state, "compare_before_key", "") == old_compare_key
+                ):
+                    self.state.compare_before_key = new_compare_key
+                if getattr(self, "_in_flight_compare_key", "") == old_compare_key:
+                    self._in_flight_compare_key = new_compare_key
+                pending = getattr(self, "_pending_render_task", None)
+                if pending is not None and getattr(pending, "compare", False) and getattr(pending, "compare_key", "") == old_compare_key:
+                    self._pending_render_task = replace(
+                        pending,
+                        config=self._baseline_compare_config(),
+                        compare_key=new_compare_key,
+                    )
 
     def _may_persist_measured_bounds(self) -> bool:
         """Whether an auto-measured bounds write may reach the database.
@@ -10755,6 +10983,7 @@ class AppController(QObject):
 
     def _on_render_error(self, message: str) -> None:
         self.state.is_processing = self._is_rendering = False
+        self._in_flight_compare_key = ""
         self._busy_toast = False  # the failure message below replaces the toast
         logger.error(f"Render failure: {message}")
         self.set_status(tr("Failed to load file: {message}", message=message), 5000, kind="error")
@@ -10977,6 +11206,8 @@ class AppController(QObject):
             self.capture_thread.quit()
             self.capture_thread.wait()
         # Memo-owned textures outlive the pool, so they must die before the device.
+        self._drop_compare_before(redraw=False)
+        self.gpu_textures_released.emit()
         self._render_memo.clear()
         self.render_worker.destroy_all()
         if self._export_view_worker is not None:

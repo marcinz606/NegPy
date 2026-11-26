@@ -596,6 +596,11 @@ class MainWindow(QMainWindow):
         """The frame on the canvas as displayed now; the pane keeps it until pinned again."""
         shown = self.state.canvas_value
         buffer = shown("base_positive")
+        if self.state.peek_frame is None:
+            if getattr(self.canvas, "_compare_awaiting_edit", False):
+                return None
+            if isinstance(getattr(self.canvas, "_last_buffer", None), GPUTexture):
+                buffer = self.canvas._last_buffer
         if not self.state.current_file_path or buffer is None or shown("splash"):
             return None
         if isinstance(buffer, GPUTexture):
@@ -773,8 +778,10 @@ class MainWindow(QMainWindow):
         self.controller.canvas_info_changed.connect(lambda _level: self._refresh_image_info())
         self.controller.printing_notes_requested.connect(self._save_printing_notes)
         self.controller.compare_frame_ready.connect(self.canvas.refresh_compare)
+        self.controller.compare_render_starting.connect(self.canvas.preserve_gpu_edit)
+        self.controller.compare_before_staged.connect(self.canvas.stage_compare_before)
         self.controller.compare_changed.connect(lambda _on: self.canvas.refresh_compare())
-        self.controller.compare_hold_changed.connect(lambda _on: self.canvas.overlay.update())
+        self.controller.compare_hold_changed.connect(lambda _on: self.canvas.refresh_compare())
         self.controller.test_strip_changed.connect(lambda _up: self.canvas.overlay.on_test_strip_changed())
         self.canvas.test_strip_picked.connect(self.controller.apply_test_strip_pick)
         self.canvas.paper_strip_kept.connect(self.controller.keep_paper_strip)

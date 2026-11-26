@@ -116,6 +116,8 @@ class RenderTask:
     # These pixels are the before/after baseline, not the edit. Echoed in metrics so
     # the BEFORE badge tracks what is painted, not the pending toggle.
     compare: bool = False
+    # Identity of the baseline config rendered for `compare`, so a superseded card/step capture is ignored.
+    compare_key: str = ""
     # Produced while a gesture is live. Echoed in metrics so the UI thread can skip
     # what only has to be right once the gesture settles.
     interactive: bool = False
@@ -502,6 +504,7 @@ class RenderWorker(QObject):
             metrics["ephemeral"] = task.ephemeral
             metrics["memo_key"] = task.memo_key
             metrics["compare"] = task.compare
+            metrics["compare_key"] = task.compare_key
             metrics["interactive"] = task.interactive
             metrics["crop_preview_full"] = task.crop_preview_full
             metrics["config_override"] = task.config_override

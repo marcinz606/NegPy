@@ -159,6 +159,33 @@ class GPUTexture:
                 self._readback_staging = None
                 raise
 
+    def clone_gpu(self) -> "GPUTexture":
+        """Copies this texture to a new unpooled GPU texture in VRAM (no host round-trip)."""
+        gpu = GPUDevice.get()
+        with self._lock:
+            if not gpu.device or not self.texture:
+                raise RuntimeError("GPU texture unavailable for clone")
+            dst = GPUTexture(
+                self.width,
+                self.height,
+                format=self.format,
+                usage=wgpu.TextureUsage.TEXTURE_BINDING | wgpu.TextureUsage.COPY_DST | wgpu.TextureUsage.COPY_SRC,
+            )
+            try:
+                enc = gpu.device.create_command_encoder()
+                enc.copy_texture_to_texture(
+                    {"texture": self.texture},
+                    {"texture": dst.texture},
+                    (self.width, self.height, 1),
+                )
+                gpu.device.queue.submit([enc.finish()])
+                if hasattr(gpu.device.queue, "on_submitted_work_done_sync"):
+                    gpu.device.queue.on_submitted_work_done_sync()
+                return dst
+            except Exception:
+                dst.destroy()
+                raise
+
     def destroy(self) -> None:
         """Forces hardware resource release."""
         with self._lock:
