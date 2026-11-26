@@ -441,7 +441,7 @@ Removes dust, hairs and scratches. Each repair is rebuilt from the clean film ar
 *   **Overlay**: **Marked** shows what dust removal found, **IR** the scan's infrared channel.
 *   **Optical Removal** (also on the Finish tab's bar): finds dust and hairs by itself. **Spot Threshold** and **Hair Threshold**: lower finds more but can remove real detail; 1 is off. **Size**: the largest dust to remove. To protect an area, right-drag over it or right-click a mark; the cursor button skips the right-click menu.
 *   **IR Removal** (scans with an infrared channel, also on the Finish tab's bar): finds dust in infrared, where the picture does not show. **IR Threshold**: lower finds more. B&W and Kodachrome are skipped: their picture shows in infrared too. The channel comes from 4-channel TIFF and DNG scans or an `_IR.tif` file beside the scan.
-*   **Heal**: click a mark to repair it; a click always repairs. Paint over an area to repair only the marks that stand out, so paint generously.
+*   **Heal**: click a mark, or paint over a hair or scratch, to repair it. NegPy rebuilds the area under the brush from matching film nearby, grain included. Keep the brush close to the defect.
 *   **Scratch**: click points along a scratch or hair, then press Enter.
 *   **Line**: click once on a long straight scratch, and NegPy finds and repairs the whole line. **Line Sensitivity**: lower finds fainter lines.
 *   **Brush Size**: also `Alt`+scroll on the picture.

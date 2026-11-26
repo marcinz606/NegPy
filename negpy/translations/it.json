@@ -1348,6 +1348,7 @@
   "Hashing {current}/{total}: {name}": "Calcolo hash {current}/{total}: {name}",
   "Hatch the clipped pixels in the Clipping Overlay colors": "Tratteggia i pixel tosati con i colori della sovrapposizione tosatura",
   "Heal": "Correttivo",
+  "Heal: click or paint over a defect, and NegPy rebuilds it from matching film nearby.": "Correttivo: fai clic o dipingi sopra un difetto, e NegPy lo ricostruisce con pellicola simile vicina.",
   "Heal: click or paint over dust to remove it, and clean film under the brush stays as it is.": "Correttivo: fai clic o dipingi sopra la polvere per rimuoverla; la pellicola pulita sotto il pennello resta com'è.",
   "Height": "Altezza",
   "Help": "Aiuto",

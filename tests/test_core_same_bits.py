@@ -42,6 +42,18 @@ def _filled(fill):
     return out
 
 
+def _healed():
+    """Two disjoint strokes, one overlapping wave, and a subdivided long hooked stroke."""
+    out = np.ascontiguousarray(_IMG3.copy())
+    dot = np.array([[20, 20]], np.int32)
+    drag = np.array([[10, 30], [24, 34], [38, 30]], np.int32)
+    negpy_core.heal_strokes(out, [((0, 0, 50, 50), dot, 4), ((70, 40, 131, 97), drag, 3), ((10, 10, 90, 80), drag, 5)])
+    big = np.ascontiguousarray(np.tile(_IMG3, (5, 4, 1)))
+    hook = np.array([[40, 40], [420, 220], [430, 250], [60, 260]], np.int32)
+    negpy_core.heal_strokes(big, [((0, 0, big.shape[1], big.shape[0]), hook, 4)])
+    return np.concatenate([out.ravel(), big[::8, ::8].ravel()])
+
+
 _LAB = (_IMG3 * np.array([100.0, 160.0, 160.0], np.float32) - np.array([0.0, 80.0, 80.0], np.float32)).astype(np.float32)
 
 _CASES = {
@@ -174,6 +186,7 @@ _CASES = {
         _IMG1, *np.meshgrid(np.arange(70, dtype=np.float32) * 0.9 - 2, np.arange(90, dtype=np.float32) * 0.95 - 1), "nearest", "constant"
     ),
     "remap_radial": lambda: negpy_core.remap_radial(_IMG3, (65.0, 48.0), 0.93, -0.05, 1.0 / 6600.0),
+    "heal_strokes": lambda: _healed(),
     "uv_grid_fine_rotation": lambda: negpy_core.affine_uv_grid(
         301, 457, np.array([[0.998, 0.047, -10.5], [-0.047, 0.998, 11.25]]), (0.0, 1.0), (0.0021, -0.0001), (0.0003, -0.0033)
     ),
@@ -234,6 +247,7 @@ _HASHES = {
     "remap_nearest": "16ebb2a1c29640f25e4a490f6edd8817d8dc1f652b6aa001f72aa2ca34d33ac0",
     "uv_grid_fine_rotation": "9a648b4385ec386b2d190169b4ee3619d9b9ac54f8bb7cf4903f7f94b99fa762",
     "remap_radial": "a23f3b21f15cb5d9db26cc532ec920dc8b194d73515a786d9febc93ae17370e0",
+    "heal_strokes": "a715c4629ed8f1dd2e2bebf253a6babdfbbca20149bab5160584762a67727ba8",
 }
 
 

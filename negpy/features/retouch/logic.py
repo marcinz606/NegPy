@@ -50,19 +50,12 @@ _DETECT_HAIR_FILL_GAIN = 2.0  # cap on that σ, × the σ with hairs filled, so 
 # Below this normalized density the film is clear base or holder; noise there is not dust.
 _DETECT_PROXY_MIN = 0.15
 
-# Paint gate. A stroke marks a search area: only the marks the optical detector finds under it
-# are repaired. Dust is dense and a scratch thin, so the detector runs on the density and on its
-# negative. One seed bar, no texture ramp: only clean grain has to stay under the bar.
-_PAINT_Z = 5.0
-# Soft edge on the search area, so a defect crossing the brush rim does not repair to a
-# hard line.
+# Soft edge where an exclusion stroke releases the optical score, so a defect crossing the brush
+# rim does not repair to a hard line.
 _MANUAL_RIM_PX = 1.5
-# Cap on the detector size under paint, px at HEAL_SIZE_REF. The size follows the brush so a
-# mark that fills it is not its own background; the cap bounds the windows of a wide brush.
-_PAINT_SIZE_MAX = 16.0
 
 # Transport scratches: a nearly straight mark a few px wide along the film. Per pixel it sits
-# under the paint gate's seed bar, so only integrating along the line finds it.
+# under the spot seed bar, so only integrating along the line finds it.
 #
 # Cross-section band-pass: film grain is finer, image structure broader.
 _SCRATCH_FINE_PX = 1.2
@@ -344,8 +337,7 @@ def drop_exclusions(
     ref = score if score is not None else hair_mask
     cover = exclusion_cover(strokes, ref.shape[:2])  # type: ignore[union-attr]
     if score is not None:
-        # Feather the rim, as the manual heal does its own: the score is a ramp, and cutting
-        # one at the brush edge prints the edge as a step.
+        # Feather the rim: the score is a ramp, and cutting one at the brush edge prints a step.
         score = np.array(score, dtype=np.float32)
         if not negpy_core.release_score(score, cover, _MANUAL_RIM_PX):
             score = None
@@ -363,81 +355,6 @@ def exclusion_token(retouch) -> str:
     if not retouch.dust_exclusion_strokes:
         return ""
     return "|ex" + hashlib.sha1(repr(retouch.dust_exclusion_strokes).encode()).hexdigest()[:12]
-
-
-def paint_to_score(
-    plane: ImageBuffer,
-    strokes: List[Tuple],
-    legacy_spots: List[Tuple[float, float, float]],
-    averaged: Optional[ImageBuffer] = None,
-) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
-    """Painted heal strokes on the detection plane → ``(score, hair_mask)`` at its shape, each
-    None when empty. The scratch pass reads ``averaged``, the same frame without the min-pooling,
-    which erases a thin bright mark. A click that finds nothing takes its own footprint. Strokes
-    carry raw-frame normalized coordinates, so this runs before geometry."""
-    entries: List[Tuple[List, float]] = [(list(s[0]), float(s[1])) for s in strokes]
-    entries += [([[nx, ny]], float(size)) for nx, ny, size in legacy_spots]
-    if not entries:
-        return None, None
-
-    h, w = plane.shape[:2]
-    score = np.ones((h, w), dtype=np.float32)
-    hair = np.zeros((h, w), dtype=np.uint8)
-    # Brush size is a diameter at HEAL_SIZE_REF, so the footprint matches the cursor at any
-    # resolution (overlay._brush_screen_radius draws size/(2*REF)).
-    scale = max(w, h) / HEAL_SIZE_REF
-    film = film_scale((h, w))
-
-    for points, size in entries:
-        radius = max(1.0, size * scale * 0.5)
-        chain = [(float(p[0]) * w, float(p[1]) * h) for p in points]
-        if len(chain) >= 3:
-            chain = smooth_polyline(chain, closed=False)
-        pts = np.array(chain, dtype=np.float32)
-
-        base = max(1.0, min(2.0 * radius, _PAINT_SIZE_MAX * film))
-        pad = int(radius) + _texture_win(base) // 2 + 1
-        x0 = max(0, int(pts[:, 0].min()) - pad)
-        y0 = max(0, int(pts[:, 1].min()) - pad)
-        x1 = min(w, int(pts[:, 0].max()) + pad + 1)
-        y1 = min(h, int(pts[:, 1].max()) + pad + 1)
-        if x1 <= x0 or y1 <= y0:
-            continue
-
-        local = np.ascontiguousarray(np.round(pts - (x0, y0)).astype(np.int32))
-        r = max(1, int(round(radius)))
-        cover = negpy_core.stroke_cover((y1 - y0, x1 - x0), [(local, r, max(1, int(round(2.0 * radius))))])
-        if not cover.any():
-            continue
-
-        thin = plane if averaged is None else averaged
-        dust = np.ascontiguousarray(_density(plane[y0:y1, x0:x1]), dtype=np.float32)
-        scratch = np.ascontiguousarray(-_density(thin[y0:y1, x0:x1]), dtype=np.float32)
-        marks = np.zeros(cover.shape, dtype=bool)
-        for side in (dust, scratch):
-            s, hm = _detect_from_stats(_dust_stats_px(side, base), _PAINT_Z, _PAINT_Z, base, film, texture=False, proxy_min=-1.0)
-            if s is not None:
-                marks |= s <= _IR_SCORE_FLOOR + 1e-6
-            if hm is not None:
-                marks |= hm > 0
-        # Shape is read after the cut: the span of a long mark under a small brush is a speck.
-        marks &= cover > 0
-        compact, hm = split_hairs(marks.astype(np.uint8))
-        # Feather the rim inside the footprint: a mark that crosses it must not repair to a step.
-        rim = np.clip(negpy_core.distance_transform(cover, 2, 3) / _MANUAL_RIM_PX, 0.0, 1.0)
-        # The inpaint dilates its mask, so a hair stops short of the rim.
-        hairs = (hm > 0) & (rim >= 1.0) if hm is not None else np.zeros(cover.shape, dtype=bool)
-        if not compact.any() and not hairs.any():
-            # A click whose pointer moved arrives as a short stroke; past the radius it is a drag.
-            if float(np.ptp(pts, axis=0).max()) > radius:
-                continue
-            compact = cover
-        if compact.any():
-            found = (1.0 - rim * (1.0 - _mask_to_score(compact, _DETECT_PAD_PX * film))).astype(np.float32)
-            np.minimum(score[y0:y1, x0:x1], found, out=score[y0:y1, x0:x1])
-        hair[y0:y1, x0:x1][hairs] = 1
-
-    return (score if (score < 1.0).any() else None), (hair if hair.any() else None)
 
 
 def manual_bake_token(retouch) -> str:
@@ -545,9 +462,8 @@ def trace_scratch(img: ImageBuffer, nx: float, ny: float, threshold: float = 0.5
 def _grow_band(sheared: np.ndarray, row: int, xs: np.ndarray, max_half: int, sign: float, bar: float) -> np.ndarray:
     """Per-column extent of the scratch either side of the line, by hysteresis on the ridge.
 
-    The rule the brush already uses: grow outward from the centre while the response holds,
-    stop where it breaks. On the normalized response, so it follows a scratch of any width
-    without a pixel measurement that would disagree with itself between preview and export.
+    Grow outward from the center while the response holds, and stop where it breaks. On the
+    normalized response, this follows a scratch of any width across preview and export.
     """
     h = sheared.shape[0]
     band = np.zeros((2 * max_half + 1, xs.size), dtype=bool)
@@ -569,8 +485,7 @@ def lines_to_score(img: ImageBuffer, lines: List[Tuple], threshold: float = 0.5)
     """Traced scratch lines → a defect score for the shared repair.
 
     The line says where to look; presence and width are re-measured here, so stretches that
-    carry no scratch are left alone. Same contract as a painted stroke: the geometry is a
-    search area, the evidence decides.
+    carry no scratch stay untouched.
     """
     if not lines:
         return None
@@ -776,13 +691,12 @@ def apply_score_repair(
     score is upsampled; the fill convolutions rerun at the buffer's own resolution with
     rescaled supports — filled pixels are never upsampled.
 
-    One repair for every defect source: an IR score, a luma-detected speck or a painted
-    stroke all arrive here as a score map. ``floor`` keeps the original-floor rule, which
-    only holds where the defect is known to be dark in transmittance (dust). A painted
-    stroke turns it off: a scratch has lost emulsion and reads *brighter* than the film
-    around it, so its repair has to be free to darken. ``long_edge`` overrides the film
-    footprint the support ladder is derived from, so repairing a crop picks the same
-    supports as the whole frame would (see ``repair_components``).
+    One repair for every score-based defect source: an IR score, a luma-detected speck or a
+    traced scratch line all arrive here as a score map. ``floor`` keeps the original-floor rule,
+    which only holds where the defect is dark in transmittance (dust). A scratch line turns it
+    off: lost emulsion reads brighter than the surrounding film, so its repair must darken.
+    ``long_edge`` overrides the film footprint the support ladder derives from, so repairing a
+    crop picks the same supports as the whole frame (see ``repair_components``).
     """
     h, w = img.shape[:2]
     src = np.ascontiguousarray(img, dtype=np.float32)
@@ -811,24 +725,13 @@ def repair_components(
     *,
     floor: bool = True,
     factor: Optional[float] = None,
-    base_out: Optional[np.ndarray] = None,
-    dirty: Optional[np.ndarray] = None,
 ) -> ImageBuffer:
     """``apply_score_repair`` per defect, each in its own padded crop.
 
-    The fill is four convolutions over whatever buffer it is handed. That is right for an
-    IR score, where defects are spread over the frame, and wasteful for the handful of
-    painted strokes or detected specks this serves — at export resolution it would filter
-    a hundred megapixels to repair a dozen. The support ladder and the mask's upsample
-    factor still come from the whole frame, so a crop repairs exactly as it would there.
-
-    ``base_out``/``dirty`` support an incremental re-bake, for a session that adds one
-    stroke at a time: with both given, a component that contains no ``dirty`` pixel is
-    copied from ``base_out`` unchanged rather than re-filled, since neither its score nor
-    its source pixels moved since that buffer was made. ``dirty=None`` (every caller but
-    the painted-strokes bake) fills every component, matching the non-incremental result
-    exactly — the manual-bake caller reads ``base_out`` itself when nothing is dirty at
-    all, so an all-False mask never has to be passed in here.
+    The fill runs four convolutions over its input buffer. Cropping per component avoids
+    filtering a full-frame export buffer to repair a handful of detected specks or traced
+    scratch lines. The support ladder and upsample factor come from the whole frame, so each
+    crop repairs identically to the full frame.
     """
     h, w = img.shape[:2]
     if score_det.shape[:2] == (h, w):
@@ -837,17 +740,12 @@ def repair_components(
     else:
         factor = max(h / score_det.shape[0], w / score_det.shape[1])
         score = negpy_core.resize_linear(np.ascontiguousarray(score_det, dtype=np.float32), (w, h))
-        if dirty is not None and dirty.shape[:2] != (h, w):
-            dirty = negpy_core.resize_nearest(dirty.astype(np.uint8), (w, h)) > 0
     src = np.ascontiguousarray(img, dtype=np.float32)
-    out = np.ascontiguousarray(base_out, dtype=np.float32).copy() if base_out is not None else src.copy()
+    out = src.copy()
     supports = _fill_supports(max(h, w), factor)
     constants = (_IR_SCORE_FLOOR, _IR_FILL_TAU, _IR_WRITE_HI, _IR_WRITE_HI - _IR_WRITE_LO)
-    # Past the cap, cropping costs more than the whole-frame convolutions it avoids. The pad is
-    # the coarsest support's reach, so every crop holds the clean film the fill averages.
-    dirty_mask = None if dirty is None else np.ascontiguousarray(dirty, dtype=bool)
     args = (list(supports), bool(floor), max(1.0, factor), constants, max(supports), _REPAIR_MAX_COMPONENTS)
-    if not negpy_core.repair_components(src, score, out, *args, dirty_mask):
+    if not negpy_core.repair_components(src, score, out, *args, None):
         return img
     return ensure_image(out)
 
@@ -1050,7 +948,7 @@ def apply_hair_inpaint(
     )
     # Navier-Stokes propagates a smooth field, so the fill lands grainless. See
     # apply_score_repair, which fills the same kind of hole by a different route.
-    negpy_core.add_clean_grain(out, np.ascontiguousarray(src, dtype=np.float32), m == 0, max(1.0, factor))
+    negpy_core.add_clean_grain(out, src, m == 0, max(1.0, factor))
     return out
 
 

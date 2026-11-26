@@ -75,7 +75,7 @@ class RetouchSidebar(BaseSidebar):
         self.pick_dust_btn = self._tool_toggle(
             "fa5s.eye-dropper",
             tr("Heal"),
-            tr("Heal: click or paint over dust to remove it, and clean film under the brush stays as it is."),
+            tr("Heal: click or paint over a defect, and NegPy rebuilds it from matching film nearby."),
         )
         self.pick_scratch_btn = self._tool_toggle(
             "fa5s.pen-nib",

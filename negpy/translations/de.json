@@ -1348,6 +1348,7 @@
   "Hashing {current}/{total}: {name}": "Hashing {current}/{total}: {name}",
   "Hatch the clipped pixels in the Clipping Overlay colors": "Die beschnittenen Pixel in den Farben der Beschneidungsüberlagerung schraffieren",
   "Heal": "Heilen",
+  "Heal: click or paint over a defect, and NegPy rebuilds it from matching film nearby.": "Heilen: Klicke oder male über einen Defekt, und NegPy baut ihn aus passendem Film in der Nähe neu auf.",
   "Heal: click or paint over dust to remove it, and clean film under the brush stays as it is.": "Heilen: Klicke oder male über Staub, um ihn zu entfernen. Sauberer Film unter dem Pinsel bleibt unverändert.",
   "Height": "Höhe",
   "Help": "Hilfe",
