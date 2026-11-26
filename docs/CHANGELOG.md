@@ -2,6 +2,10 @@
 
 ## 0.71.0
 
+- Bump nkscan to 0.21.0 which fixes some bugs for Nikon Coolscan users.
+
+## 0.71.0
+
 - New: **Slider step arrows and card compare** — arrows beside a slider's value step it by one (Shift by ten), and a held eye on the edited Exposure, Look and Finish cards shows the frame without that card's edits.
 - Change: **Plustek** — pyopticfilm 1.3.11; the OpticFilm 8200i is supported for scanning, with infrared and Adaptive Multi-Exposure. @jboneng
 - Fix: **Large rolls** — a frame step or an edit no longer freezes the window on a long roll. A new Preferences toggle, Measure Roll Average Automatically, turns the background roll average off.
