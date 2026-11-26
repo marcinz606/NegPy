@@ -1,6 +1,6 @@
 # Change Log
 
-## 0.71.0
+## 0.71.1
 
 - Bump nkscan to 0.21.0 which fixes some bugs for Nikon Coolscan users.
 
