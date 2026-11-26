@@ -791,7 +791,7 @@ ROLL_DEFAULT_FIELDS: Dict[str, tuple] = {
     "metadata_gear": ("metadata", GEAR_FIELDS),
     "metadata_capture": (
         "metadata",
-        ("capture_date", "gps_latitude", "gps_longitude", "location_city", "location_state", "location_country"),
+        ("capture_date", "gps_latitude", "gps_longitude", "location_city", "location_state", "location_country", "capture_timezone"),
     ),
     "metadata_process": ("metadata", PROCESS_FIELDS),
     "metadata_scanning": ("metadata", SCANNING_FIELDS + ("capture_roll",)),

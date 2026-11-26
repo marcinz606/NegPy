@@ -647,11 +647,34 @@ I dettagli su come hai scattato e sviluppato l'immagine: fotocamera, obiettivo, 
 *   **Cancella**: svuota tutti e tre.
 *   **Deduci dal nome della cartella**: compila i campi vuoti (fotocamera, pellicola, ISO, data) dal nome della cartella.
 
-<!-- panel:metadata_capture src:a84922a9 -->
+<!-- panel:metadata_capture src:59255ba5 -->
 ### Ripresa
 
 *   **Data**: quando hai scattato l'immagine, come `1998`, `1998-07`, `1998-07-14` o `1998-07-14 16:30`.
 *   **Luogo**: il pulsante del segnaposto apre una mappa. Puoi anche incollare coordinate o un link di mappa. La mappa usa OpenStreetMap.
+*   **Fuso orario**: il fuso dell'orologio al momento della ripresa. Vuoto usa il fuso del luogo, mostrato nel campo. Digita un fuso come `Europe/Berlin` per sceglierne un altro. L'esportazione scrive lo scostamento UTC per la data di ripresa, così le app di foto ordinano il fotogramma accanto alle foto del telefono.
+*   **Assegna orari…**: dà ai fotogrammi selezionati, o all'intero rullino, un giorno, un orario nell'ordine della pellicola, un fuso orario e un luogo. Gli orari possono venire dalle foto che hai scattato con il telefono lo stesso giorno.
+
+<!-- panel:assign_capture_times src:6ee5fcea -->
+### Assegna orari di ripresa
+
+Dà a ogni fotogramma giorno, orario, fuso orario e luogo, così le app di foto ordinano i fotogrammi accanto alle foto del telefono.
+
+*   **Fotogrammi selezionati** o **Intero rullino**: i fotogrammi che **Applica** scrive. Gli altri appaiono attenuati, ma contano comunque.
+*   **Fotogrammi e foto** o **Confronta**: modifica i fotogrammi, oppure confronta in grande ogni foto del telefono con i fotogrammi intorno.
+*   **Diretto** o **Inverso**: usa **Inverso** quando lo scanner ha caricato la pellicola dall'ultimo fotogramma.
+*   **Foto in B/N**: le foto del telefono in bianco e nero, come la pellicola.
+*   **Striscia pellicola**: i fotogrammi nell'ordine della pellicola. Fai clic su una foto in **Foto di riferimento**, poi sul **+** tra i due fotogrammi tra cui l'hai scattata, oppure trascinala lì. Una foto va solo dopo le foto più vecchie e prima di quelle più recenti. **Dimensione fotogrammi** imposta l'altezza dei fotogrammi.
+*   Seleziona una foto nella striscia per usare **Sposta** o **Togli dalla striscia**. Fai clic su una linea per dividere il rullino dove hai smesso di scattare.
+*   **Confronta**: la foto in grande tra due fotogrammi. Le frecce, **Spazio precedente** e **Spazio successivo** la spostano. **Inserisci qui** o `Invio` la inserisce lì e mostra la foto successiva, oppure toglie una foto già inserita. **Salta** la lascia fuori.
+*   La `barra spaziatrice` o un doppio clic mostra un'immagine in grande; le frecce scorrono la striscia.
+*   Fai clic su un fotogramma per modificarlo. Un valore impostato su un fotogramma vale anche per i fotogrammi successivi nel segmento, fino a un fotogramma con un valore proprio. **×** lo toglie.
+*   **Tempo**: un orario solo per questo fotogramma. **Giorno** e **Intervallo** danno l'orario ai fotogrammi senza una foto vicina.
+*   **Luogo** e **Fuso orario**: un valore scelto ha la precedenza. Altrimenti un fotogramma mantiene il suo luogo, oppure prende luogo e fuso della foto più vicina.
+*   **Aggiungi foto…**: aggiunge foto del telefono (HEIC o JPEG), oppure trascinale sulla finestra. **Rimuovi foto** toglie la foto selezionata.
+*   **Anteprima**: orario, luogo e fonte di ogni fotogramma. **Con foto del telefono** aggiunge le tue foto nell'ordine usato dalle app di foto.
+
+Un messaggio rosso blocca **Applica**: imposta il giorno mancante, oppure controlla le foto e la direzione. Annulla toglie un **Applica** in un solo passo.
 
 <!-- panel:metadata_process src:9dd71862 -->
 ### Processo

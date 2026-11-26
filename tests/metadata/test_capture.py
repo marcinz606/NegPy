@@ -47,9 +47,14 @@ class TestParseCaptureDate:
         assert parse_capture_date("1998-07-14").tz_offset == ""
 
     def test_exif_pads_the_unknown_parts(self) -> None:
-        assert parse_capture_date("1998").exif_text() == "1998:01:01 00:00:00"
-        assert parse_capture_date("1998-07").exif_text() == "1998:07:01 00:00:00"
+        assert parse_capture_date("1998").exif_text() == "1998:01:01 12:00:00"
+        assert parse_capture_date("1998-07").exif_text() == "1998:07:01 12:00:00"
+        assert parse_capture_date("1998-07-14").exif_text() == "1998:07:14 12:00:00"
         assert parse_capture_date("1998-07-14 16:30").exif_text() == "1998:07:14 16:30:00"
+
+    def test_a_known_midnight_is_not_padded(self) -> None:
+        assert parse_capture_date("1998-07-14 00:00").exif_text() == "1998:07:14 00:00:00"
+        assert parse_capture_date("1998-07-14 00:15:30").exif_text() == "1998:07:14 00:15:30"
 
     def test_xmp_keeps_the_truncation(self) -> None:
         assert parse_capture_date("1998-07").xmp_text() == "1998-07"

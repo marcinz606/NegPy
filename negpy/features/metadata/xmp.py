@@ -64,6 +64,12 @@ def build_xmp_xml(payload: MetadataPayload, *, standalone: bool = True) -> str:
         # "1998" meant a year or the first of January.
         _sub(desc, "photoshop", "DateCreated", payload.capture_date.xmp_text())
         _sub(desc, "negpy", "CaptureDatePrecision", payload.capture_date.precision)
+        if payload.capture_timezone:
+            _sub(desc, "negpy", "CaptureTimeZone", payload.capture_timezone)
+        if payload.capture_time_source:
+            _sub(desc, "negpy", "CaptureTimeSource", payload.capture_time_source)
+        if payload.capture_anchor_ref:
+            _sub(desc, "negpy", "CaptureAnchorRef", payload.capture_anchor_ref)
     if payload.iso is not None:
         _sub(desc, "negpy", "CaptureFilmISO", str(payload.iso))
     if payload.film_stock:

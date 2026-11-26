@@ -653,6 +653,29 @@ Details about how you took and developed the picture: camera, lens, film and pro
 
 *   **Date**: when you took the picture, as `1998`, `1998-07`, `1998-07-14` or `1998-07-14 16:30`.
 *   **Place**: the pin button opens a map. You can also paste coordinates or a map link. The map uses OpenStreetMap.
+*   **Time zone**: where the clock of the capture was set. Empty takes the zone of the place, shown in the field. Type a zone such as `Europe/Berlin` to choose another. The export writes the UTC offset for the capture date, so photo apps sort the frame with photos from a phone.
+*   **Assign Times…**: gives the selected frames, or the whole roll, a day, a time in film order, a time zone and a place. The times can come from photos that you took with your phone on the same day.
+
+<!-- panel:assign_capture_times -->
+### Assign Capture Times
+
+Gives each frame a day, time, time zone and place, so photo apps sort the frames beside your phone photos.
+
+*   **Selected Frames** or **Whole Roll**: the frames that **Apply** writes. The others show dimmed but still count.
+*   **Frames and Photos** or **Compare**: edit the frames, or compare each phone photo with the frames around it, large.
+*   **Forward** or **Reverse**: use **Reverse** when the scanner fed the film last frame first.
+*   **Photos in B&W**: your phone photos in black and white, like the film.
+*   **Film Strip**: the frames in film order. Click a photo under **Reference Photos**, then the **+** between the two frames that you took it between, or drag it there. A photo goes only after older photos and before newer ones. **Frame Size** sets the frame height.
+*   Select a photo in the strip to **Move** it or **Remove from Strip**. Click a line to split the roll where you stopped shooting.
+*   **Compare**: the photo between two frames, large. The arrow keys, **Earlier Gap** and **Later Gap** move it. **Place Here** or `Enter` puts it there and shows the next photo, or takes a placed photo out. **Skip** leaves it out.
+*   `Space` or a double-click shows a picture large; the arrow keys step along the strip.
+*   Click a frame to edit it. A value set on a frame also applies to the next frames in its segment, up to a frame with its own value. **×** removes it.
+*   **Time**: a time for this frame only. **Day** and **Time step** time the frames with no photo nearby.
+*   **Place** and **Time zone**: a chosen value wins. Else a frame keeps its place, or takes the place and zone of the nearest photo.
+*   **Add Photos…**: adds phone photos (HEIC or JPEG), or drop them on the dialog. **Remove Photo** takes the selected photo out.
+*   **Preview**: each frame's time, place and source. **With Phone Photos** adds your photos in the order that photo apps sort them.
+
+A red message blocks **Apply**: set the missing day, or check the photos and direction. Undo takes back an **Apply** in one step.
 
 <!-- panel:metadata_process -->
 ### Process

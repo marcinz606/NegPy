@@ -441,11 +441,34 @@ Høyreklikk en halvdel for **Juster delingen for dette bildet…** og **Tilbakes
 *   **Tøm**: tømmer alle tre.
 *   **Utled fra mappenavnet**: fyller ut tomme felt (kamera, film, ISO, dato) ut fra mappenavnet.
 
-<!-- panel:metadata_capture src:a84922a9 -->
+<!-- panel:metadata_capture src:59255ba5 -->
 ### Opptak
 
 *   **Dato**: når du tok bildet, som `1998`, `1998-07`, `1998-07-14` eller `1998-07-14 16:30`.
 *   **Sted**: nålknappen åpner et kart. Du kan også lime inn koordinater eller en kartlenke. Kartet bruker OpenStreetMap.
+*   **Tidssone**: sonen klokken var stilt på da bildet ble tatt. Tom bruker sonen til stedet, som feltet viser. Skriv inn en sone som `Europe/Berlin` for å velge en annen. Eksporten skriver UTC-forskyvningen for opptaksdatoen, slik at bildeapper sorterer bildet sammen med bilder fra telefonen.
+*   **Tildel tider…**: gir de valgte bildene, eller hele rullen, en dag, et tidspunkt i filmrekkefølge, en tidssone og et sted. Tidene kan komme fra foto du tok med telefonen samme dag.
+
+<!-- panel:assign_capture_times src:6ee5fcea -->
+### Tildel opptakstider
+
+Gir hvert bilde dag, tid, tidssone og sted, slik at bildeapper sorterer bildene ved siden av telefonfotoene dine.
+
+*   **Valgte bilder** eller **Hele rullen**: bildene som **Bruk** skriver til. De andre vises dempet, men teller fortsatt med.
+*   **Bilder og foto** eller **Sammenlign**: rediger bildene, eller sammenlign hvert telefonfoto stort med bildene rundt det.
+*   **Forover** eller **Bakover**: bruk **Bakover** når skanneren trakk inn filmen med det siste bildet først.
+*   **Foto i S/H**: telefonfotoene dine i svart-hvitt, som filmen.
+*   **Filmstripe**: bildene i filmrekkefølge. Klikk på et foto under **Referansefoto**, og deretter på **+** mellom de to bildene du tok det mellom, eller dra det dit. Et foto kan bare stå etter eldre foto og før nyere foto. **Bildestørrelse** angir høyden på bildene.
+*   Velg et foto i stripen for å bruke **Flytt** eller **Ta ut av stripen**. Klikk på en linje for å dele rullen der du sluttet å fotografere.
+*   **Sammenlign**: fotoet stort mellom to bilder. Piltastene, **Forrige luke** og **Neste luke** flytter det. **Sett inn her** eller `Enter` setter det inn der og viser neste foto, eller tar ut et foto som er satt inn. **Hopp over** lar det stå utenfor.
+*   `Mellomrom` eller et dobbeltklikk viser et bilde stort; piltastene går langs stripen.
+*   Klikk på et bilde for å redigere det. En verdi satt på et bilde gjelder også for de neste bildene i segmentet, fram til et bilde med egen verdi. **×** fjerner den.
+*   **Tid**: en tid bare for dette bildet. **Dag** og **Tidstrinn** gir tid til bildene uten foto i nærheten.
+*   **Sted** og **Tidssone**: en valgt verdi går foran. Ellers beholder et bilde stedet sitt, eller tar sted og sone fra nærmeste foto.
+*   **Legg til foto…**: legger til telefonfoto (HEIC eller JPEG), eller slipp dem på dialogen. **Fjern foto** tar ut det valgte fotoet.
+*   **Forhåndsvisning**: tid, sted og kilde for hvert bilde. **Med telefonfoto** legger til fotoene dine i rekkefølgen fotoapper sorterer dem i.
+
+En rød melding sperrer **Bruk**: angi dagen som mangler, eller sjekk fotoene og retningen. Angre tar tilbake en **Bruk** i ett trinn.
 
 <!-- panel:metadata_process src:9dd71862 -->
 ### Prosess

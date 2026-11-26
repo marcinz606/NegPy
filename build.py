@@ -49,6 +49,7 @@ params = [
     "--hidden-import=imageio.v3",
     "--hidden-import=tifffile",
     "--hidden-import=imagecodecs",
+    "--hidden-import=tzdata",
     "--hidden-import=jinja2",
     "--hidden-import=PyQt6",
     "--hidden-import=qtawesome",

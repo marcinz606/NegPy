@@ -8,7 +8,8 @@ from negpy.desktop.view.widgets.section_help_dialog import _guides
 ROOT = Path(__file__).resolve().parents[1]
 DESKTOP = ROOT / "negpy" / "desktop" / "view"
 
-# Keys built with an f-string (metadata cards), and the help buttons of the strip-preview and Contact Sheet dialogs and the Roll row.
+# Keys built with an f-string (metadata cards), and the help buttons of the strip-preview,
+# Contact Sheet and Assign Capture Times dialogs and the Roll row.
 DYNAMIC_KEYS = {
     "metadata_gear",
     "metadata_capture",
@@ -17,6 +18,7 @@ DYNAMIC_KEYS = {
     "metadata_exposure",
     "metadata_preview",
     "scan_strip",
+    "assign_capture_times",
     "frames",
     "contact_sheet",
 }

@@ -422,7 +422,7 @@ class TestCaptureDateAndPlace:
 
     def test_partial_date_is_padded_for_exif_and_kept_in_xmp(self) -> None:
         out = embed_metadata(_jpeg_bytes(), MetadataConfig(capture_date="1998"), _source_exif())
-        assert piexif.load(out)["Exif"][piexif.ExifIFD.DateTimeOriginal] == b"1998:01:01 00:00:00"
+        assert piexif.load(out)["Exif"][piexif.ExifIFD.DateTimeOriginal] == b"1998:01:01 12:00:00"
         assert b"<photoshop:DateCreated>1998</photoshop:DateCreated>" in out
         assert b"<negpy:CaptureDatePrecision>year</negpy:CaptureDatePrecision>" in out
 

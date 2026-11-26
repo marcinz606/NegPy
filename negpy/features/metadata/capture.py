@@ -6,10 +6,12 @@ from negpy.kernel.system.i18n import mark
 import math
 import re
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import piexif
+
+from negpy.features.metadata.timezone import offset_text, resolve_local
 
 PRECISIONS = ("year", "month", "day", "minute", "second")
 
@@ -26,6 +28,9 @@ _DATE_RE = re.compile(
 
 _MIN_YEAR = 1800
 _MAX_YEAR = 2999
+
+# A date without a time pads to noon, so a timezone shift of up to 12 hours keeps it on its day.
+_PAD_HOUR = 12
 
 
 @dataclass(frozen=True)
@@ -44,7 +49,7 @@ class CaptureDate:
         return f"{self.text}{self.tz_offset}"
 
     def exif_text(self) -> str:
-        """EXIF cannot hold a partial date, so the unknown parts are padded."""
+        """EXIF cannot hold a partial date. A missing month or day pads to 1, a missing time to noon."""
         y, mo, d, h, mi, s = _parts(self)
         return f"{y:04d}:{mo:02d}:{d:02d} {h:02d}:{mi:02d}:{s:02d}"
 
@@ -52,17 +57,44 @@ class CaptureDate:
         y, mo, d, _h, _mi, _s = _parts(self)
         return f"{y:04d}{mo:02d}{d:02d}"
 
+    def local(self) -> Optional[datetime]:
+        """The local date and time, when the time of day is known."""
+        if self.precision not in ("minute", "second"):
+            return None
+        return datetime(*_parts(self))
+
+    def utc(self) -> Optional[datetime]:
+        """The absolute moment, when the time of day and the offset are both known."""
+        local = self.local()
+        if local is None or not self.tz_offset:
+            return None
+        sign = -1 if self.tz_offset[0] == "-" else 1
+        delta = sign * timedelta(hours=int(self.tz_offset[1:3]), minutes=int(self.tz_offset[4:6]))
+        return (local - delta).replace(tzinfo=timezone.utc)
+
+    def in_zone(self, zone: str) -> CaptureDate:
+        """This date with the offset of the zone. A typed offset or a date without a time stays as it is."""
+        local = self.local()
+        if self.tz_offset or local is None or not zone:
+            return self
+        aware = resolve_local(local, zone)
+        delta = aware.utcoffset()
+        if delta is None:
+            return self
+        fmt = "%Y-%m-%d %H:%M:%S" if self.precision == "second" else "%Y-%m-%d %H:%M"
+        return CaptureDate(aware.strftime(fmt), self.precision, offset_text(delta))
+
 
 def _parts(cd: CaptureDate) -> tuple[int, int, int, int, int, int]:
     m = _DATE_RE.match(cd.text)
     if m is None:
-        return int(cd.text[:4]), 1, 1, 0, 0, 0
+        return int(cd.text[:4]), 1, 1, _PAD_HOUR, 0, 0
 
     def num(key: str, default: int) -> int:
         raw = m.group(key)
         return int(raw) if raw else default
 
-    return num("y", 1), num("mo", 1), num("d", 1), num("h", 0), num("mi", 0), num("s", 0)
+    return num("y", 1), num("mo", 1), num("d", 1), num("h", _PAD_HOUR), num("mi", 0), num("s", 0)
 
 
 def _normalize_offset(raw: str) -> str:
