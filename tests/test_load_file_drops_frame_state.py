@@ -6,7 +6,7 @@ from negpy.desktop.controller import AppController
 from negpy.domain.models import WorkspaceConfig
 
 
-def test_load_file_drops_marked_keystone_lines_and_the_flat_peek():
+def test_load_file_drops_marked_keystone_lines_and_keeps_flat_scan():
     ctrl = MagicMock()
     ctrl._prefetch_gen = 0
     ctrl._keystone_lines = {"left": ((0.1, 0.1), (0.1, 0.9)), "right": ((0.9, 0.1), (0.9, 0.9))}
@@ -18,8 +18,9 @@ def test_load_file_drops_marked_keystone_lines_and_the_flat_peek():
 
     assert ctrl._keystone_lines == {}
     ctrl.keystone_lines_cleared.emit.assert_called_once()
-    assert ctrl.state.flat_peek is False
-    ctrl.flat_peek_changed.emit.assert_called_once_with(False)
+    # Flat Scan is a view of whichever frame is open, so it carries over.
+    assert ctrl.state.flat_peek is True
+    ctrl.flat_peek_changed.emit.assert_not_called()
 
 
 def test_the_diptych_view_refuses_canvas_tools_and_edits():

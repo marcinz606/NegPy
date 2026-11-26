@@ -691,7 +691,7 @@ class ActionToolbar(QWidget):
         self._ov_flat_peek_action.setCheckable(True)
         self._menu_tip(
             self._ov_flat_peek_action,
-            tr("Peek flat scan: show the flat master for a moment, with no change to your edit"),
+            tr("Peek flat scan: show the flat master, with no change to your edit"),
             "toggle_flat_peek",
         )
         self._ov_negative_peek_action = view_menu.addAction(tr("Peek Negative"))
@@ -1465,6 +1465,10 @@ class ActionToolbar(QWidget):
         for flag, action in self._ov_view_actions.items():
             action.setChecked(bool(getattr(state, flag)))
         self._info_actions[state.canvas_info_level].setChecked(True)
+        # The flat view draws neither overlay, so their toggles wait for the print.
+        for flag in ("zones_overlay", "clipping_overlay"):
+            self._overlay_actions[flag].setEnabled(not state.flat_peek)
+            self._ov_view_actions[flag].setEnabled(not state.flat_peek)
 
     def _show_source(self, index: int) -> None:
         _flag, icon, label, _key, _tip = _VIEW_SOURCES[index]

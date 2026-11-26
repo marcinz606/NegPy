@@ -585,7 +585,10 @@ class ProcessSidebar(BaseSidebar):
             has_roll = bool(self.controller.state.active_roll_id)
             self.use_luma_avg_btn.setEnabled(has_roll or conf.use_luma_average)
             self.use_color_avg_btn.setEnabled(has_roll or conf.use_color_average)
-            self.use_cast_avg_btn.setEnabled((has_roll and self._cast_baseline_ready(conf)) or conf.use_cast_average)
+            self.use_cast_avg_btn.setEnabled(
+                ((has_roll and self._cast_baseline_ready(conf)) or conf.use_cast_average)
+                and not self.flat_blocked("process", "use_cast_average")
+            )
             self._update_baseline_source_hint(conf, transfer)
 
             idx = self._channel_index()

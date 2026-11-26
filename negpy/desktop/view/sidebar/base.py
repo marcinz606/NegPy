@@ -2,6 +2,7 @@ from typing import Any
 from dataclasses import dataclass, replace
 from PyQt6.QtWidgets import QPushButton, QWidget, QVBoxLayout
 from negpy.desktop.controller import AppController
+from negpy.domain.models import reaches_flat_master
 from negpy.desktop.view.styles.templates import ICON_BUTTON_WIDTH, icon_button, labeled_action, labeled_toggle, tool_toggle
 from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.segmented_choice import SegmentedChoice
@@ -77,6 +78,10 @@ class BaseSidebar(QWidget):
 
     def _labeled_toggle(self, icon_name: str, label: str, checked: bool, tooltip: str) -> QPushButton:
         return labeled_toggle(icon_name, label, checked, tooltip)
+
+    def flat_blocked(self, section: str, *fields: str) -> bool:
+        """Flat Scan is on and none of these fields changes the flat master."""
+        return self.state.flat_peek and not reaches_flat_master(section, *fields)
 
     def update_config_section(
         self,

@@ -93,6 +93,19 @@ class ToolMode(Enum):
 UNCROPPED_PREVIEW_TOOLS = frozenset(
     {ToolMode.CROP_MANUAL, ToolMode.ANALYSIS_DRAW, ToolMode.KEYSTONE_LINES, ToolMode.FILM_BASE, ToolMode.DMIN_PICK, ToolMode.DMAX_PICK}
 )
+# Tools whose marks change only the print: Flat Scan grays out the cards that own them.
+PRINT_ONLY_TOOLS = frozenset(
+    {
+        ToolMode.DUST_PICK,
+        ToolMode.SCRATCH_PICK,
+        ToolMode.SCRATCH_LINE,
+        ToolMode.CLONE,
+        ToolMode.LOCAL_DRAW,
+        ToolMode.LOCAL_OVAL,
+        ToolMode.LOCAL_GRADIENT,
+        ToolMode.ZONE_PLACE,
+    }
+)
 # Esc puts back what these changed since they opened: each adjusts one thing as often as it likes.
 REVERTIBLE_TOOLS = frozenset({ToolMode.CROP_MANUAL, ToolMode.ANALYSIS_DRAW})
 

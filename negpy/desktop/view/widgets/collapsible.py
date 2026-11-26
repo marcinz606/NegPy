@@ -24,6 +24,9 @@ import qtawesome as qta
 # control carries the reason once rather than each sidebar wording it again.
 NO_ROLL_SCOPE_HINT = tr("These frames are not one roll, so save them as a roll to give them a shared value.")
 
+# Shown under each tab that has a grayed control while Flat Scan is on.
+FLAT_SCAN_HINT = tr("Flat Scan is on. The grayed controls change only the print. Turn Flat Scan off to use them.")
+
 
 def roll_revert_icon(color: str, cutout: str = THEME.bg_header) -> QIcon:
     """Reset to Roll's icon, shared by the section headers and the frame-wide menu items:
