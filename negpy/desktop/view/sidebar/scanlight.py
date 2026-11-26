@@ -13,6 +13,7 @@ from negpy.kernel.system.text import count_of
 import json
 import os
 import re
+import sys
 from dataclasses import asdict, dataclass, fields, replace
 from typing import Optional
 
@@ -66,9 +67,8 @@ from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.segmented_choice import SegmentedChoice
 from negpy.desktop.view.widgets.sliders import CompactSlider, LogSlider, SliderGroup
 from negpy.desktop.view.widgets.step_combo import StepCombo
-from negpy.infrastructure import simulated
 from negpy.infrastructure.capture.base import BulbRelease
-from negpy.infrastructure.capture.gphoto import default_settings_path
+from negpy.infrastructure.capture.gphoto import camera_backend_available, default_settings_path
 from negpy.infrastructure.capture.settings import ScanlightSettings, WhiteCaptureMode
 from negpy.features.exposure.analysis import output_histogram
 from negpy.services.capture.focus_meter import FocusMeter
@@ -336,14 +336,10 @@ class ScanlightSidebar(QWidget):
         self.controller.session.repo.save_global_setting("scanlight_settings", asdict(self._settings))
 
     def _gphoto_available(self) -> bool:
-        """True when python-gphoto2 is importable. It is an optional dependency (and has no
-        Windows build), so this drives the one-time setup hint."""
-        import importlib.util
-
-        return simulated.enabled() or importlib.util.find_spec("gphoto2") is not None
+        return camera_backend_available()
 
     def _refresh_setup_hint(self) -> None:
-        """Show the setup note only while python-gphoto2 is missing."""
+        """Show the setup note while the camera backend is unavailable."""
         self._setup_hint.setVisible(not self._gphoto_available())
 
     def _light_slider(self, name: str, letter: str, value: int, default: int) -> CompactSlider:
@@ -362,10 +358,8 @@ class ScanlightSidebar(QWidget):
         cam = QVBoxLayout(self.camera_body)
         cam.setContentsMargins(0, 0, 0, 0)
         cam.setSpacing(THEME.space_md)
-        # python-gphoto2 is optional, so show a setup note while it is missing. It hides once
-        # installed and never nags an equipped user.
         self._setup_hint = hint_label(
-            tr("Camera scanning needs python-gphoto2 (`pip install gphoto2`), which has no Windows build. See docs/CAMERA_SCANNING.md."),
+            tr("Camera scanning needs libgphoto2: MSYS2 on Windows, python-gphoto2 on macOS or Linux. See docs/CAMERA_SCANNING.md."),
             "warning",
         )
         cam.addWidget(self._setup_hint)
@@ -677,7 +671,7 @@ class ScanlightSidebar(QWidget):
 
     def on_activated(self) -> None:
         """Called when the Scan tab is switched to — kick an immediate connection poll."""
-        self._refresh_setup_hint()  # re-check whether python-gphoto2 is installed
+        self._refresh_setup_hint()
         self._apply_gating()  # refresh the "what's still missing to scan" hint
         self._poll_connection_tick()
 
@@ -2415,6 +2409,13 @@ class ScanlightSidebar(QWidget):
         enumeration behind the dot cannot see a claim, so without this state the dot showed a
         healthy green while every live-view/scan attempt failed."""
         if claimed_elsewhere:
+            if sys.platform == "win32":
+                advice = tr("Close other camera apps and check the camera's WinUSB driver. See docs/CAMERA_SCANNING.md.")
+                self._set_conn_status(self.cam_status, False, tr("Camera (USB blocked)"), advice)
+                self._conn_hint.setText(advice)
+                set_hint_kind(self._conn_hint, "warning")
+                self._conn_hint.setVisible(True)
+                return
             self._set_conn_status(self.cam_status, False, tr("Camera (in use)"), tr("Another app is using the camera"))
             # The advice must be readable in the tab, not buried in a tooltip. The connection
             # hint line turns amber and says what to do, instead of the "plug it in" nudge, which

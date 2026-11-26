@@ -30,6 +30,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import sys
 import tempfile
 import threading
 import time
@@ -214,12 +215,7 @@ class LiveViewUnsupported(GphotoError):
 
 
 class CameraClaimedError(GphotoError):
-    """The body is on the bus but another program holds its USB claim (gphoto -53).
-
-    On macOS the ImageCapture daemons hand the camera to Preview, Photos or Image Capture
-    the moment one of them opens; only one program may claim it. Typed so the UI can show
-    a persistent "in use by another app" state on the camera dot — enumeration alone
-    cannot see this (the bus listing still succeeds while the claim fails)."""
+    """The USB claim is blocked by another app or an incompatible Windows driver."""
 
 
 def _pin_locale() -> None:
@@ -233,20 +229,37 @@ def _pin_locale() -> None:
 
 
 def _gp() -> Any:
-    """Import python-gphoto2 lazily, so NegPy runs fine without it."""
+    """Load the optional camera backend without opening a camera."""
     _pin_locale()
     if simulated.enabled():
         from negpy.infrastructure.simulated.gphoto import module
 
         return module()
+    if sys.platform == "win32":
+        from negpy.infrastructure.capture import gphoto_windows
+
+        try:
+            gphoto_windows.ensure_available()
+        except (OSError, AttributeError) as exc:
+            raise CameraUnavailable(f"Camera scanning could not load MSYS2 libgphoto2: {exc}") from exc
+        return gphoto_windows
     try:
         import gphoto2  # noqa: PLC0415 — optional dependency, imported on demand
     except ImportError as exc:  # pragma: no cover — depends on the install
         raise CameraUnavailable(
-            "Camera scanning needs python-gphoto2. Install it with `pip install gphoto2` "
-            "(macOS and Linux only — libgphoto2 has no Windows build)."
+            "Camera scanning needs python-gphoto2. Install it with `pip install gphoto2` See docs/CAMERA_SCANNING.md."
         ) from exc
     return gphoto2
+
+
+def camera_backend_available() -> bool:
+    """Check the backend without claiming a USB device."""
+    try:
+        _gp()
+    except CameraUnavailable as exc:
+        logger.debug("Camera backend unavailable: %s", exc)
+        return False
+    return True
 
 
 def default_jpeg_path() -> str:
@@ -411,6 +424,11 @@ class GphotoCamera:
                     # Only one program may hold a PTP body. Typed (GP_ERROR_IO_USB_CLAIM) so the
                     # connection poll can pin an "in use by another app" state on the camera dot,
                     # which enumeration alone cannot see.
+                    if sys.platform == "win32":
+                        raise CameraClaimedError(
+                            f"could not open the camera: {exc}. Close other camera apps and check the camera's "
+                            "WinUSB driver. See docs/CAMERA_SCANNING.md."
+                        ) from exc
                     raise CameraClaimedError(
                         f"could not open the camera: {exc}. Another program holds it. On macOS that is usually "
                         "the system's own camera daemon rather than a window you can see; it releases the camera "

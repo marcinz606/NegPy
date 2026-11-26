@@ -584,10 +584,10 @@ NegPy는 필름 스캔을 포지티브 이미지로 만드는 가상 암실입�
 - **프레임 측광…**(Coolscan): 한 프레임에서 노출을 재고 이후 모든 스캔에 써서 롤의 프레임을 고르게 합니다. **잠금 해제**로 끝냅니다. 롤마다 다시 측광하세요.
 - **미리 스캔…**(Plustek): 전체를 빠르게 미리 봅니다. 자르기를 드래그하면 다음 스캔은 그 영역만 읽습니다.
 
-<!-- panel:scan_camera src:0145e5d1 -->
+<!-- panel:scan_camera src:0815368e -->
 ## 카메라
 
-복사대의 카메라를 USB의 **PC 리모트** 모드로 연결해 스캔합니다(macOS와 Linux, `python-gphoto2` 필요). NegPy **Scanlight**가 있으면 광원도 제어합니다. 설정 방법은 CAMERA_SCANNING.md에 있습니다.
+복사대의 카메라를 USB의 **PC 리모트** 모드로 연결해 스캔합니다. Windows에서는 MSYS2 libgphoto2를 사용하며, macOS와 Linux에서는 `python-gphoto2`가 필요합니다. NegPy **Scanlight**가 있으면 광원도 제어합니다. 설정 방법은 CAMERA_SCANNING.md에 있습니다.
 
 - **카메라** / **광원**: 연결 상태입니다. 광원이 뜨거워지면 호박색이 됩니다. Linux에서 Scanlight를 쓰려면 사용자가 `dialout` 그룹에 있어야 합니다.
 - **라이브뷰**: 카메라의 실시간 화면입니다. 클릭해 확대 위치를 정하고 **초점 측정기**가 **최고점**이 될 때까지 초점을 맞춥니다. ISO, 셔터, 조리개는 여기서도 카메라에서도 정할 수 있습니다. 닫으면 Scanlight가 열기 전 상태로 돌아갑니다.

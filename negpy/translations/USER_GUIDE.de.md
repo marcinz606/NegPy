@@ -580,10 +580,10 @@ NegPy hält macOS und Windows während des Scans wach. Schalte unter Linux vor e
 *   **Bild messen…** (Coolscan): misst die Belichtung an einem Bild und nutzt sie für jeden späteren Scan, damit alle Bilder einer Rolle zusammenpassen. **Entsperren** beendet das. Miss für jede Rolle neu.
 *   **Prescan…** (Plustek): eine schnelle Vorschau des ganzen Bereichs. Ziehe einen Zuschnitt auf, dann liest der nächste Scan nur diesen Bereich.
 
-<!-- panel:scan_camera src:0145e5d1 -->
+<!-- panel:scan_camera src:0815368e -->
 ### Kamera
 
-Scannt mit einer Kamera auf einem Reprostativ, per USB im Modus **PC Remote** verbunden (macOS und Linux; sie braucht `python-gphoto2`). Mit einem NegPy-**Scanlight** steuert NegPy auch das Licht. CAMERA_SCANNING.md beschreibt die Einrichtung.
+Scannt mit einer Kamera auf einem Reprostativ, per USB im Modus **PC Remote** verbunden. Windows verwendet MSYS2 libgphoto2; macOS und Linux brauchen `python-gphoto2`. Mit einem NegPy-**Scanlight** steuert NegPy auch das Licht. CAMERA_SCANNING.md beschreibt die Einrichtung.
 
 *   **Kamera** / **Licht**: der Verbindungsstatus. Das Licht wird bernsteinfarben, wenn es warm läuft. Unter Linux muss dein Benutzer für das Scanlight in der Gruppe `dialout` sein.
 *   **Live-Ansicht**: ein Livebild der Kamera. Klicke, um die Fokuslupe zu setzen, und fokussiere, bis die **Fokusanzeige** **am Maximum** zeigt. Stelle ISO, Verschlusszeit und Blende hier oder an der Kamera ein. Beim Schließen kehrt das Scanlight in den vorherigen Zustand zurück.

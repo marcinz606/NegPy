@@ -127,7 +127,9 @@ To build the DMG, set `NEGPY_MACOS_ARCH=x86_64` (Intel) or `NEGPY_MACOS_ARCH=arm
 
 Run the installer past the warnings.
 
-Plustek OpticFilm scanners need the WinUSB driver, installed with [Zadig](https://zadig.akeo.ie/) in place of the SilverFast driver. See [PLUSTEK_WINDOWS.md](docs/PLUSTEK_WINDOWS.md). Camera scanning is not available on Windows.
+Plustek OpticFilm scanners need the WinUSB driver, installed with [Zadig](https://zadig.akeo.ie/) in place of the SilverFast driver. See [PLUSTEK_WINDOWS.md](docs/PLUSTEK_WINDOWS.md).
+
+Camera scanning uses bundled MSYS2 libgphoto2. The camera USB interface needs a libusb-compatible driver. See [CAMERA_SCANNING.md](docs/CAMERA_SCANNING.md#windows).
 
 ## Data location
 

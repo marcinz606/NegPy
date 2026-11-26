@@ -1009,6 +1009,7 @@ def test_poll_finds_usb_camera_marks_green():
 
 
 def test_poll_camera_claimed_by_another_app_says_so_and_gates(monkeypatch):
+    monkeypatch.setattr("negpy.desktop.view.sidebar.scanlight.sys.platform", "darwin")
     # macOS hands the body to Preview/Photos/Image Capture the moment one opens; the bus
     # listing still succeeds, so the dot used to show a healthy green while every open failed
     # with -53 and the only clue was a transient error line. The dot must say what to do,
@@ -1025,6 +1026,16 @@ def test_poll_camera_claimed_by_another_app_says_so_and_gates(monkeypatch):
     # open, which is exactly what happened in issue #949 before the trigger was traced.
     assert "camera daemon" in w._conn_hint.text()
     assert "background app" in w._conn_hint.text()
+
+
+def test_windows_usb_claim_failure_explains_the_driver(monkeypatch):
+    monkeypatch.setattr("negpy.desktop.view.sidebar.scanlight.sys.platform", "win32")
+    w = _sidebar()
+    w._on_poll_status(_poll(usb_ok=True, usb_model="Nikon Zf", usb_claimed_elsewhere=True))
+    assert not w._camera_verified
+    assert "USB blocked" in w.cam_status.text()
+    assert "WinUSB" in w._conn_hint.text()
+    assert "macOS" not in w._conn_hint.text()
     assert "Preview" not in w._conn_hint.text()
     assert w._conn_hint.property("hint") == "warning"
     # The claim clearing (next successful open / re-plug) restores the normal green dot
@@ -1162,12 +1173,12 @@ def test_temp_label_hides_when_no_reading():
     assert w.light_temp.isHidden() and w.light_temp.text() == ""  # no lingering placeholder box
 
 
-def test_setup_hint_toggles_with_gphoto2_availability(monkeypatch):
+def test_setup_hint_toggles_with_camera_backend_availability(monkeypatch):
     w = _sidebar()
-    monkeypatch.setattr("importlib.util.find_spec", lambda _name: None)
+    monkeypatch.setattr("negpy.desktop.view.sidebar.scanlight.camera_backend_available", lambda: False)
     w._refresh_setup_hint()
     assert not w._setup_hint.isHidden()  # python-gphoto2 missing → the setup hint shows
-    monkeypatch.setattr("importlib.util.find_spec", lambda _name: object())
+    monkeypatch.setattr("negpy.desktop.view.sidebar.scanlight.camera_backend_available", lambda: True)
     w._refresh_setup_hint()
     assert w._setup_hint.isHidden()  # installed → hint hidden (never nags an equipped user)
 

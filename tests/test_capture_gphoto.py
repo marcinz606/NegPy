@@ -268,8 +268,8 @@ def fake():
 
 
 @pytest.fixture
-def cam(fake):
-    camera = GphotoCamera(gp_module=fake, jpeg_path="/tmp/negpy_t.jpg", settings_path="/tmp/negpy_t.json")
+def cam(fake, tmp_path):
+    camera = GphotoCamera(gp_module=fake, jpeg_path=str(tmp_path / "preview.jpg"), settings_path=str(tmp_path / "settings.json"))
     camera.open()
     yield camera
     camera.close()

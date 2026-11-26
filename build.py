@@ -131,7 +131,8 @@ def collect_gphoto2_plugins() -> None:
     packaged app simply shows its setup hint.
     """
     if is_windows:
-        return  # libgphoto2 has no Windows build
+        collect_windows_gphoto2()
+        return
     try:
         import gphoto2
     except ImportError:
@@ -143,6 +144,52 @@ def collect_gphoto2_plugins() -> None:
         return
     params.append(f"--add-data={plugins}:gphoto2/libgphoto2")
     print(f"Bundling libgphoto2 drivers from {plugins}")
+
+
+def collect_windows_gphoto2() -> None:
+    """Bundle MSYS2 camera drivers and their native dependency closure."""
+    from pathlib import Path
+
+    from PyInstaller.depend.bindepend import get_imports
+
+    from negpy.infrastructure.capture.gphoto_windows import plugin_directory, runtime_prefix
+
+    try:
+        prefix = runtime_prefix()
+    except FileNotFoundError:
+        if os.environ.get("NEGPY_GPHOTO2_PREFIX"):
+            raise
+        print("MSYS2 libgphoto2 not installed; packaging without camera scanning")
+        return
+    binary_dir = prefix / "bin"
+    pending = [binary_dir / "libgphoto2-6.dll", binary_dir / "libgphoto2_port-12.dll"]
+    for name in ("libgphoto2", "libgphoto2_port"):
+        drivers = plugin_directory(prefix, name)
+        for driver in drivers.glob("*.dll"):
+            params.append(f"--add-data={driver}:gphoto2_runtime/{driver.parent.relative_to(prefix).as_posix()}")
+            pending.append(driver)
+    visited = set()
+    while pending:
+        library = pending.pop()
+        if library in visited:
+            continue
+        visited.add(library)
+        if library.parent == binary_dir:
+            params.append(f"--add-data={library}:gphoto2_runtime/bin")
+        for name, resolved in get_imports(str(library), search_paths=[str(binary_dir)]):
+            dependency = binary_dir / Path(name).name
+            if dependency.is_file():
+                pending.append(dependency)
+            elif resolved is None and not name.lower().startswith(("api-ms-win-", "ext-ms-win-")):
+                raise RuntimeError(f"Missing camera runtime dependency {name} required by {library}")
+    licenses = prefix / "share" / "licenses"
+    if licenses.is_dir():
+        params.append(f"--add-data={licenses}:gphoto2_runtime/licenses")
+    copying = prefix / "share" / "doc" / "libgphoto2" / "COPYING"
+    if copying.is_file():
+        params.append(f"--add-data={copying}:gphoto2_runtime/licenses/libgphoto2")
+    params.append("--add-data=NOTICE.md:.")
+    print(f"Bundling MSYS2 libgphoto2 from {prefix}")
 
 
 collect_gphoto2_plugins()

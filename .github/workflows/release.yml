@@ -97,6 +97,20 @@ jobs:
             echo "$nsisPath" >> $GITHUB_PATH
           }
 
+      - name: Install Camera Libraries (Windows)
+        id: camera-libraries
+        if: matrix.os == 'windows-latest'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          install: mingw-w64-ucrt-x86_64-libgphoto2
+
+      - name: Set Camera Library Path (Windows)
+        if: matrix.os == 'windows-latest'
+        env:
+          MSYS2_LOCATION: ${{ steps.camera-libraries.outputs.msys2-location }}
+        run: echo "NEGPY_GPHOTO2_PREFIX=$env:MSYS2_LOCATION\ucrt64" >> $env:GITHUB_ENV
+
       - name: Install Dependencies (Linux)
         if: matrix.os == 'ubuntu-24.04'
         run: uv sync --all-groups

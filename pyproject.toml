@@ -64,8 +64,7 @@ plustek = [
     "pyopticfilm>=1.3.10",
 ]
 camera = [
-    # Tethered camera scanning. libgphoto2 has no Windows build, so the wheels — and the
-    # Camera Scanning tab with them — are macOS and Linux only.
+    # Windows uses MSYS2 UCRT64 DLLs through ctypes, not the Python extension.
     "gphoto2>=2.5 ; sys_platform != 'win32'",
 ]
 pieusb = [

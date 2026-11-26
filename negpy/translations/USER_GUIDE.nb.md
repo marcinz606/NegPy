@@ -580,10 +580,10 @@ NegPy holder macOS og Windows våkne mens den skanner. På Linux slår du av aut
 *   **Mål bilde…** (Coolscan): måler eksponeringen på ett bilde og bruker den for hver senere skanning, så alle bildene i en rull samsvarer. **Lås opp** avslutter det. Mål på nytt for hver rull.
 *   **Forhåndsskann…** (Plustek): en rask forhåndsvisning av hele området. Dra en beskjæring, så leser neste skanning bare det området.
 
-<!-- panel:scan_camera src:0145e5d1 -->
+<!-- panel:scan_camera src:0815368e -->
 ### Kamera
 
-Skanner med et kamera på et reprostativ, koblet til med USB i **PC Remote**-modus (macOS og Linux; det krever `python-gphoto2`). Med en NegPy **Scanlight** styrer NegPy også lyset. CAMERA_SCANNING.md forklarer oppsettet.
+Skanner med et kamera på et reprostativ, koblet til med USB i **PC Remote**-modus. Windows bruker MSYS2 libgphoto2; macOS og Linux krever `python-gphoto2`. Med en NegPy **Scanlight** styrer NegPy også lyset. CAMERA_SCANNING.md forklarer oppsettet.
 
 *   **Kamera** / **Lys**: tilkoblingsstatusen. Lyset blir gult når det går varmt. På Linux krever Scanlight at brukeren din er i gruppen `dialout`.
 *   **Direktevisning**: et levende bilde fra kameraet. Klikk for å plassere fokusluppen, og fokuser til **Fokusmåler** viser **på topp**. Angi ISO, lukkertid og blender her eller på kameraet. Når den lukkes, går Scanlight tilbake til slik den var før.

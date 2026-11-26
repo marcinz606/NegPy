@@ -584,10 +584,10 @@ NegPy 通过虚拟暗房将胶片扫描制作为正像。源图像保持原样�
 - **单帧测光…**（Coolscan）：在一帧上测量曝光，并用于之后的每次扫描，让整卷一致。**解锁**结束。每卷请重新测光。
 - **预扫描…**（Plustek）：快速的整体预览。拖出裁切后，下次扫描只读取该区域。
 
-<!-- panel:scan_camera src:0145e5d1 -->
+<!-- panel:scan_camera src:0815368e -->
 ## 相机
 
-用翻拍架上的相机扫描，通过 USB 以 **PC 遥控**模式连接（macOS 和 Linux，需要 `python-gphoto2`）。有 NegPy **Scanlight** 时还会控制光源。设置方法见 CAMERA_SCANNING.md。
+用翻拍架上的相机扫描，通过 USB 以 **PC 遥控**模式连接。Windows 使用 MSYS2 libgphoto2；macOS 和 Linux 需要 `python-gphoto2`。有 NegPy **Scanlight** 时还会控制光源。设置方法见 CAMERA_SCANNING.md。
 
 - **相机** / **光源**：连接状态。光源发热时变为琥珀色。在 Linux 上，使用 Scanlight 需要把你的用户加入 `dialout` 组。
 - **实时取景**：相机的实时画面。点击放置对焦放大镜，对焦直到**对焦测量**显示**达到峰值**。ISO、快门和光圈可在这里或相机上设置。关闭后，Scanlight 恢复到打开前的状态。

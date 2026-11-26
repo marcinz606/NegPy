@@ -31,17 +31,16 @@ Exposure frame does. Each LED still reaches every sensor channel, so Blend needs
 | | |
 |---|---|
 | **Camera** | Any body [libgphoto2 can drive](http://gphoto.org/proj/libgphoto2/support.php) with live view and remote capture. A body missing from that list often works through the generic PTP driver (an a7C II does). |
-| **python-gphoto2** | Optional dependency, LGPL. `pip install gphoto2`. No vendor SDK is bundled, linked or required. |
+| **libgphoto2** | Optional camera library, LGPL. Windows uses MSYS2 UCRT64; macOS and Linux use `python-gphoto2`. No vendor SDK is required. |
 | **Scanlight** *(optional)* | Needed for narrowband light only. |
 | **Lento Dock** *(optional)* | Used in place of a Scanlight. See [Lento Dock](#lento-dock). |
 
-Without python-gphoto2, the Scan tab's Camera scanner shows a one-line setup hint and the rest
+Without the camera library, the Scan tab's Camera scanner shows a one-line setup hint and the rest
 of NegPy works as usual.
 
-> **macOS and Linux only.** libgphoto2 has no Windows build, so there are no Windows
-> wheels and the tab cannot connect there.
-
 ## Setup
+
+### macOS and Linux
 
 ```bash
 uv sync --group camera     # or: pip install gphoto2
@@ -52,6 +51,35 @@ before `make build` to bundle libgphoto2's camera drivers; without it, the packa
 shows the setup hint.
 
 Put the camera in **PC Remote** mode and plug it in over USB. NegPy detects it.
+
+### Windows
+
+The Windows release bundles MSYS2 libgphoto2 and its camera drivers.
+For a source run, install [MSYS2](https://www.msys2.org/) and run this command in its **UCRT64** terminal:
+
+```bash
+pacman -S mingw-w64-ucrt-x86_64-libgphoto2
+```
+
+NegPy checks `C:\msys64\ucrt64` by default. For another installation, set the prefix in PowerShell before running or building:
+
+```powershell
+$env:NEGPY_GPHOTO2_PREFIX = 'D:\msys64\ucrt64'
+uv run python desktop.py
+uv run python build.py
+```
+
+Use the 64-bit UCRT64 package, not an MSYS DLL or the MSYS2 Python interpreter.
+The build bundles the camera DLLs, their dependencies and both driver directories.
+
+Use **PC Remote** when the camera offers it. A Nikon Z f works through its standard USB connection.
+Set the camera to RAW-only on the body. Some Nikon models report incorrect quality names through libgphoto2.
+Windows must give libusb access to the camera's USB interface.
+If the camera does not connect, use [Zadig](https://zadig.akeo.ie/) to install **WinUSB** for that camera interface.
+Check the device name and USB ID before replacing a driver. Do not change a hub, keyboard or another interface.
+This replaces Windows photo-import access and can prevent vendor software from using the camera.
+Restore the original driver in Device Manager when you need that software.
+Close other tethering software, reconnect the camera, then select **Camera** in the **Scan** tab.
 
 > On macOS the system camera daemon claims a free PTP camera and keeps it for minutes, so
 > NegPy claims the body as soon as the Scan tab's Camera scanner sees it. While that scanner is

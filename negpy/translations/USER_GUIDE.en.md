@@ -819,7 +819,7 @@ NegPy keeps macOS and Windows awake while it scans. On Linux, turn off automatic
 <!-- panel:scan_camera -->
 ### Camera
 
-Scans with a camera on a copy stand, connected over USB in **PC Remote** mode (macOS and Linux; it needs `python-gphoto2`). With a NegPy **Scanlight**, NegPy also controls the light. CAMERA_SCANNING.md explains the setup.
+Scans with a camera on a copy stand, connected over USB in **PC Remote** mode. Windows uses MSYS2 libgphoto2; macOS and Linux need `python-gphoto2`. With a NegPy **Scanlight**, NegPy also controls the light. CAMERA_SCANNING.md explains the setup.
 
 *   **Camera** / **Light**: the connection status. The light turns amber when it runs warm. On Linux, the Scanlight needs your user in the `dialout` group.
 *   **Live View**: a live picture from the camera. Click to place the focus magnifier, and focus until the **Focus meter** reads **at peak**. Set ISO, shutter and aperture here or on the camera. When it closes, the Scanlight goes back to how it was before.

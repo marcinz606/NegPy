@@ -4,6 +4,14 @@ original-floor writer rule, interior-radius routing with feathered compositing)
 from digital-fauxice, Copyright (c) 2026 Rohan Pandula, MIT License.
 https://github.com/rohanpandula/digital-fauxice
 
+Windows camera capture loads libgphoto2 and its drivers from MSYS2 UCRT64
+(LGPL-2.1-or-later). Windows builds include the native dependency DLLs and
+license texts in gphoto2_runtime/licenses. MSYS2 publishes each package's
+license and corresponding source archive on its package page:
+
+  https://github.com/gphoto/libgphoto2
+  https://packages.msys2.org/packages/mingw-w64-ucrt-x86_64-libgphoto2
+
 The crossover table of Fade Restoration (`measure_crossover`, `crossover_offsets`,
 `_shape_cubic` and `tone_band_refs` in negpy/features/process/fade.py, `neutral_bands`
 in negpy_core/src/fade.rs) ports the per-band neutral lean, the mean-shift cluster,
