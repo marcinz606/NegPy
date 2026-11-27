@@ -142,6 +142,31 @@ def test_a_failed_placement_still_ends_the_batch():
     assert seen == [{"paths": ("/a", "/b", "/c"), "triplet": None, "reason": "channels"}]
 
 
+def test_triplet_probe_worker_reads_three_files_in_parallel():
+    import threading
+
+    from negpy.desktop.workers.triplet_probe import TripletProbeWorker
+
+    worker = TripletProbeWorker()
+    barrier = threading.Barrier(3, timeout=5)
+    placed: list = []
+    progress: list = []
+    worker.placed.connect(placed.append)
+    worker.progress.connect(lambda cur, tot, p: progress.append((cur, tot, p)))
+    probes = {"/a": _probe(0), "/b": _probe(1), "/c": _probe(2)}
+
+    def _concurrent_probe(path: str):
+        barrier.wait()
+        return probes[path]
+
+    with patch("negpy.desktop.workers.triplet_probe.probe_frame", side_effect=_concurrent_probe):
+        worker.run(("/a", "/b", "/c"))
+
+    assert progress == [(0, 3, "/a"), (1, 3, "/b"), (2, 3, "/c")]
+    assert len(placed) == 1
+    assert (placed[0]["triplet"].red, placed[0]["triplet"].green, placed[0]["triplet"].blue) == ("/a", "/b", "/c")
+
+
 def test_a_stitch_is_never_rebuilt_as_a_triplet(scans):
     a, b, g, bl = scans("a", "b", "g", "bl")
     stitch = {**_plain(a), "hash": "s#stitch", "stitch_paths": (b,)}

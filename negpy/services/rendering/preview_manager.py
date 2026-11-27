@@ -734,15 +734,14 @@ class PreviewManager:
             if hit is not None:
                 return hit  # cache hit — caller must not mutate this buffer
 
-        red_out, dims, meta = self.load_linear_preview(
-            red_path, color_space, False, full_resolution, file_hash, demosaic=demosaic, should_cancel=should_cancel
-        )
-        green_out, _, _ = self.load_linear_preview(
-            green_path, color_space, False, full_resolution, None, demosaic=demosaic, should_cancel=should_cancel
-        )
-        blue_out, _, _ = self.load_linear_preview(
-            blue_path, color_space, False, full_resolution, None, demosaic=demosaic, should_cancel=should_cancel
-        )
+        from concurrent.futures import ThreadPoolExecutor
+
+        def _decode_channel(path: str) -> Tuple[ImageBuffer, Dimensions, dict]:
+            return self.load_linear_preview(path, color_space, False, full_resolution, None, demosaic=demosaic, should_cancel=should_cancel)
+
+        with ThreadPoolExecutor(max_workers=3) as pool:
+            futs = [pool.submit(_decode_channel, p) for p in (red_path, green_path, blue_path)]
+            (red_out, dims, meta), (green_out, _, _), (blue_out, _, _) = (f.result() for f in futs)
 
         red = np.asarray(red_out, dtype=np.float32)
 
