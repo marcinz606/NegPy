@@ -221,6 +221,30 @@ def _toggle_tool_button(window, tab_key: str | None, button) -> None:
         window.controller.set_status(tr("{value} not available", value=name), 1500, kind="warning")
 
 
+def _toggle_local_tool(window, button) -> None:
+    """A Dodge & Burn tool, with its card in front. In Simple mode the card is not on the Edit
+    page, so this shows the Exposure tab that holds it."""
+    window.right_panel.reveal_section("local_section")
+    _toggle_tool_button(window, None, button)
+
+
+def _toggle_fit_zoom(canvas) -> None:
+    """Lightroom's Z: fit to window, or 100% from fit."""
+    if abs(canvas.zoom_level - 1.0) > 1e-3:
+        canvas.fit_to_window()
+    else:
+        canvas.zoom_to_original()
+
+
+def _show_develop(window) -> None:
+    """Lightroom's D: the single frame, with the controls for editing it in front."""
+    window.set_light_table(False)
+    if not window.drawer.isVisible():
+        window.toggle_controls_dock()
+    right = window.right_panel
+    right.show_tab_by_key("edit" if right.simple_mode else "tone")
+
+
 def _slider_name(slider: object, group: SliderShortcutGroup) -> str:
     label = getattr(slider, "label", None)
     return label.text() if label is not None else group.label.replace(" ↑/↓", "")
@@ -623,9 +647,9 @@ class ShortcutManager:
             "pick_scratch": lambda: _toggle_tool_button(self.window, "finish", controls.retouch_sidebar.pick_scratch_btn),
             "clone_tool": lambda: _toggle_tool_button(self.window, "finish", controls.retouch_sidebar.clone_btn),
             "pick_scratch_line": lambda: _toggle_tool_button(self.window, "finish", controls.retouch_sidebar.pick_line_btn),
-            "local_draw": lambda: _toggle_tool_button(self.window, "tone", controls.local_sidebar.draw_btn),
-            "local_oval": lambda: _toggle_tool_button(self.window, "tone", controls.local_sidebar.oval_btn),
-            "local_gradient": lambda: _toggle_tool_button(self.window, "tone", controls.local_sidebar.gradient_btn),
+            "local_draw": lambda: _toggle_local_tool(self.window, controls.local_sidebar.draw_btn),
+            "local_oval": lambda: _toggle_local_tool(self.window, controls.local_sidebar.oval_btn),
+            "local_gradient": lambda: _toggle_local_tool(self.window, controls.local_sidebar.gradient_btn),
             "analysis_draw": lambda: _toggle_tool_button(self.window, "roll", controls.process_sidebar.analysis_region_btn),
             "film_base": lambda: _toggle_tool_button(self.window, None, self.window.right_panel.film_base_btn),
             "dmin_pick": lambda: _toggle_tool_button(self.window, "roll", controls.process_sidebar.dmin_btn),
@@ -673,6 +697,14 @@ class ShortcutManager:
             "toggle_right_panel": self.window.toggle_controls_dock,
             "reset_panel_layout": self.window.reset_panel_layout,
             "edit_toolbar": toolbar.open_toolbar_editor,
+            # The mode and its pop-ups are built after this manager, so these look them up when run.
+            "toggle_simple_mode": lambda: self.window.ui_mode.toggle(),
+            "show_loupe": lambda: self.window.set_light_table(False),
+            "show_develop": lambda: _show_develop(self.window),
+            "toggle_zoom": lambda: _toggle_fit_zoom(self.window.canvas),
+            "export_selected": lambda: right.export_sidebar.run_export("selected"),
+            "export_roll": lambda: right.export_sidebar.run_export("all"),
+            "export_preferences": lambda: self.window.ui_mode.open_export_preferences(),
             "tab_favourites": lambda: right.show_tab_by_key("favourites"),
             "tab_roll": lambda: right.show_tab_by_key("roll"),
             "tab_geometry": lambda: right.show_tab_by_key("geometry"),
@@ -688,7 +720,8 @@ class ShortcutManager:
             "fit_view": self.window.canvas.fit_to_window,
             "zoom_100": self.window.canvas.zoom_to_original,
             "zoom_200": lambda: self.window.canvas.zoom_to_percent(200.0),
-            "export": controller.request_export,
+            # The Export button's own choice (Frame, Selected or Roll), so the key and the button agree.
+            "export": lambda: right.export_sidebar.export_chosen_scope(),
             "export_linear_output": controller.request_linear_output_export,
             "merge_frame": lambda: merge_to_tiff(self.window, controller, SCOPE_FRAME),
             "merge_selected": lambda: merge_to_tiff(self.window, controller, SCOPE_SELECTION),
@@ -803,6 +836,9 @@ class ShortcutManager:
         menus = getattr(self.window, "mac_menus", None)
         if menus is not None:
             menus.sync_shortcuts()
+        ui_mode = getattr(self.window, "ui_mode", None)
+        if ui_mode is not None:
+            ui_mode.sync_shortcuts()
 
     def update_bindings(self, bindings: dict[str, str]) -> None:
         save_bindings(self.window.controller.session.repo, bindings)

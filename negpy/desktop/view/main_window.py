@@ -178,6 +178,10 @@ class MainWindow(QMainWindow):
         # macOS only: the global menu bar costs no window space, and elsewhere this is a
         # no-op. After the shortcut manager, whose actions the menu items dispatch through.
         self.mac_menus = install_mac_menus(self)
+        # Simple/Advanced mode, and the Roll and Export menus (on macOS, inside the bar above).
+        from negpy.desktop.view.simple_mode import install_ui_mode
+
+        self.ui_mode = install_ui_mode(self)
         self._update_title()
 
         from negpy.desktop.view.widgets.tutorial_overlay import TutorialOverlay
@@ -206,6 +210,9 @@ class MainWindow(QMainWindow):
             self.setWindowState(Qt.WindowState.WindowMaximized)
 
     def closeEvent(self, event) -> None:
+        ui_mode = getattr(self, "ui_mode", None)
+        if ui_mode is not None:
+            ui_mode.close_popups()
         space_pan_filter = getattr(self, "space_pan_filter", None)
         if space_pan_filter is not None:
             space_pan_filter.uninstall()

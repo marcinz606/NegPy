@@ -1091,8 +1091,8 @@ class ExportSidebar(BaseSidebar):
         ),
     }
 
-    # Only the current-frame scope has a binding; the others fall through to the plain tooltip.
-    _EXPORT_SCOPE_SHORTCUTS = {"current": "export"}
+    # The export key runs whichever scope the button is set to, so every scope names it.
+    _EXPORT_SCOPE_SHORTCUTS = {"current": "export", "selected": "export", "all": "export"}
 
     # The two "all visible" scopes, current against saved per-frame settings, collapsed into
     # one when per-frame export settings were retired.
@@ -1154,15 +1154,35 @@ class ExportSidebar(BaseSidebar):
         if persist:
             self.controller.session.repo.save_global_setting("export_scope", key)
 
+    @property
+    def export_scope(self) -> str:
+        """What the Export button exports: "current", "selected" or "all"."""
+        return self._export_scope
+
+    def set_export_scope(self, key: str) -> None:
+        """Make *key* what the Export button and the export key export, and remember it."""
+        self._set_export_scope(key)
+
+    def export_chosen_scope(self) -> None:
+        """Export whatever the Export button is set to: the frame, the selection or the roll."""
+        self.run_export(self._export_scope)
+
     def _flush_export_settings(self) -> None:
         """Stop the debounce timer and write the form into state immediately."""
         self.update_timer.stop()
         self._persist_all_export_settings()
 
     def _on_export_clicked(self) -> None:
+        self.export_chosen_scope()
+
+    def run_export(self, scope: str) -> None:
+        """Export *scope* ("current", "selected" or "all") with the settings in this panel,
+        without changing what the Export button's own scope is. The menu bar's Export menu
+        runs this, so it and the button can never export differently."""
+        if scope not in ExportSidebar._EXPORT_SCOPES:
+            raise ValueError(f"Unknown export scope {scope!r}")
         self._flush_export_settings()
         if self.state.linear_output:
-            scope = self._export_scope
             if scope == "all":
                 files = [
                     self.state.uploaded_files[i]
@@ -1180,7 +1200,6 @@ class ExportSidebar(BaseSidebar):
             else:
                 self.controller.request_linear_output_export()
             return
-        scope = self._export_scope
         if scope == "selected":
             self.controller.request_export_selected()
         elif scope == "all":
