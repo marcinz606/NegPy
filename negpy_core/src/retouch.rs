@@ -554,6 +554,280 @@ pub fn add_clean_grain(
     Some(blur)
 }
 
+const GRAIN_TILE: usize = 128;
+const GRAIN_HALO: usize = 16;
+const GRAIN_PATCH_CAP: usize = 1 << 20;
+const GRAIN_ROI_MAX_PX: usize = 4 * GRAIN_TILE * GRAIN_TILE;
+
+#[derive(Clone, Copy)]
+struct GrainTile {
+    rect: [usize; 4],
+    holes: usize,
+    solid: bool,
+}
+
+enum TileStatus {
+    Done(Patch),
+    Fallback,
+    Invalid,
+}
+
+#[allow(clippy::too_many_arguments)]
+fn tile_grain(
+    src: &[f32],
+    clean: &[bool],
+    (h, w): (usize, usize),
+    (kx, ky): (&[f32], &[f32]),
+    a: Option<&[f32]>,
+    tile: GrainTile,
+) -> TileStatus {
+    let [cx0, cy0, cx1, cy1] = tile.rect;
+    let mut halo = GRAIN_HALO;
+    let (tx0, ty0, tw, labels_crop, sub_donors) = loop {
+        if halo > GRAIN_TILE {
+            return TileStatus::Fallback;
+        }
+        let tx0 = cx0.saturating_sub(halo);
+        let ty0 = cy0.saturating_sub(halo);
+        let tx1 = (cx1 + halo).min(w);
+        let ty1 = (cy1 + halo).min(h);
+        let (tw, th) = (tx1 - tx0, ty1 - ty0);
+        let full = tx0 == 0 && ty0 == 0 && tx1 == w && ty1 == h;
+        let mut sub_holes = Vec::with_capacity(th * tw);
+        let mut has_zero = false;
+        for y in ty0..ty1 {
+            for &c in &clean[y * w + tx0..y * w + tx1] {
+                has_zero |= c;
+                sub_holes.push(!c as u8);
+            }
+        }
+        if !has_zero {
+            if full {
+                return TileStatus::Invalid;
+            }
+            halo *= 2;
+            continue;
+        }
+        let (dist, labels) = crate::distance::distance_transform_labels(&sub_holes, th, tw);
+        if !full {
+            let clipped = (cy0..cy1).any(|y| {
+                let row = (y - ty0) * tw;
+                let my0 = if ty0 > 0 { y - ty0 } else { usize::MAX };
+                let my1 = if ty1 < h { ty1 - 1 - y } else { usize::MAX };
+                let ym = my0.min(my1);
+                (cx0..cx1).any(|x| {
+                    if clean[y * w + x] {
+                        return false;
+                    }
+                    let mx0 = if tx0 > 0 { x - tx0 } else { usize::MAX };
+                    let mx1 = if tx1 < w { tx1 - 1 - x } else { usize::MAX };
+                    let limit = ym.min(mx0).min(mx1).saturating_sub(2) as f32;
+                    dist[row + (x - tx0)] > limit
+                })
+            });
+            if clipped {
+                halo *= 2;
+                continue;
+            }
+        }
+        let donors: Vec<(usize, usize)> = (0..th * tw)
+            .filter(|&i| sub_holes[i] == 0)
+            .map(|i| (ty0 + i / tw, tx0 + i % tw))
+            .collect();
+        break (tx0, ty0, tw, labels, donors);
+    };
+
+    let (hi, wi) = (h as isize - 1, w as isize - 1);
+    let mut pairs: Vec<(usize, usize, usize)> = Vec::with_capacity(tile.holes);
+    let (mut min_gx, mut max_gx) = (w, 0usize);
+    let (mut min_gy, mut max_gy) = (h, 0usize);
+    for y in cy0..cy1 {
+        let lrow = (y - ty0) * tw;
+        for x in cx0..cx1 {
+            let p = y * w + x;
+            if clean[p] {
+                continue;
+            }
+            let idx = labels_crop[lrow + (x - tx0)] as usize;
+            let Some(&(ny, nx)) = sub_donors.get(idx.wrapping_sub(1)) else {
+                return TileStatus::Invalid;
+            };
+            let my = (2 * ny as isize - y as isize).clamp(0, hi) as usize;
+            let mx = (2 * nx as isize - x as isize).clamp(0, wi) as usize;
+            let (gy, gx) = if clean[my * w + mx] {
+                (my, mx)
+            } else {
+                (ny, nx)
+            };
+            min_gx = min_gx.min(gx);
+            max_gx = max_gx.max(gx);
+            min_gy = min_gy.min(gy);
+            max_gy = max_gy.max(gy);
+            pairs.push((p, gy, gx));
+        }
+    }
+
+    let vec_end = (3 * w) & !7;
+    let bx0 = min_gx & !7;
+    let cand_bx1 = (max_gx + 8) & !7;
+    let bx1 = if 3 * cand_bx1 <= vec_end { cand_bx1 } else { w };
+    let (by0, by1) = (min_gy, max_gy + 1);
+    let bw_roi = bx1 - bx0;
+    let roi_px = (by1 - by0) * bw_roi;
+    if roi_px > GRAIN_ROI_MAX_PX {
+        return TileStatus::Fallback;
+    }
+    let mut blur_roi = vec![0f32; 3 * roi_px];
+    if kx.len() == 1 && ky.len() == 1 {
+        for y in by0..by1 {
+            blur_roi[3 * (y - by0) * bw_roi..3 * (y - by0 + 1) * bw_roi]
+                .copy_from_slice(&src[3 * (y * w + bx0)..3 * (y * w + bx1)]);
+        }
+    } else if crate::filter::sep_filter2d_roi(
+        src,
+        &mut blur_roi,
+        (h, w, 3),
+        (bx0, by0, bx1, by1),
+        (kx, ky),
+        crate::filter::Border::Reflect101,
+    )
+    .is_none()
+    {
+        return TileStatus::Invalid;
+    }
+
+    let mut px = Vec::with_capacity(pairs.len());
+    for (p, gy, gx) in pairs {
+        let take = gy * w + gx;
+        let b = 3 * ((gy - by0) * bw_roi + (gx - bx0));
+        let mut delta = [0f32; 3];
+        for c in 0..3 {
+            let g = src[3 * take + c] - blur_roi[b + c];
+            delta[c] = match a {
+                Some(a) => a[p] * g,
+                None => g,
+            };
+        }
+        px.push((p, delta));
+    }
+    TileStatus::Done(px)
+}
+
+/// `add_clean_grain` in place over active tiles, returning `Some(false)` when no pixel or every
+/// pixel is clean. Large or dense masks delegate to the full-frame pass.
+pub fn add_clean_grain_sparse(
+    src: &[f32],
+    clean: &[bool],
+    (h, w): (usize, usize),
+    sigma: f64,
+    a: Option<&[f32]>,
+    out: &mut [f32],
+) -> Option<bool> {
+    let n = h.checked_mul(w)?;
+    if h == 0
+        || w == 0
+        || n.checked_mul(3) != Some(src.len())
+        || clean.len() != n
+        || out.len() != src.len()
+        || a.is_some_and(|a| a.len() != n)
+        || !(sigma > 0.0 && sigma.is_finite() && sigma <= crate::filter::MAX_GAUSSIAN_SIGMA)
+    {
+        return None;
+    }
+    let kw_raw = crate::filter::gaussian_ksize(sigma);
+    if kw_raw.is_multiple_of(2) {
+        return None;
+    }
+    let nty = h.div_ceil(GRAIN_TILE);
+    let ntx = w.div_ceil(GRAIN_TILE);
+    let bands: Vec<(bool, Vec<GrainTile>)> = (0..nty)
+        .into_par_iter()
+        .map(|ty| {
+            let (ry0, ry1) = (ty * GRAIN_TILE, ((ty + 1) * GRAIN_TILE).min(h));
+            let mut has_clean = false;
+            let mut tiles = Vec::new();
+            for tx in 0..ntx {
+                let (rx0, rx1) = (tx * GRAIN_TILE, ((tx + 1) * GRAIN_TILE).min(w));
+                let (mut cx0, mut cy0, mut cx1, mut cy1) = (w, h, 0usize, 0usize);
+                let mut holes = 0usize;
+                for y in ry0..ry1 {
+                    let row = &clean[y * w + rx0..y * w + rx1];
+                    for (dx, &c) in row.iter().enumerate() {
+                        if c {
+                            has_clean = true;
+                        } else {
+                            let x = rx0 + dx;
+                            cx0 = cx0.min(x);
+                            cy0 = cy0.min(y);
+                            cx1 = cx1.max(x + 1);
+                            cy1 = cy1.max(y + 1);
+                            holes += 1;
+                        }
+                    }
+                }
+                if holes > 0 {
+                    let area = (ry1 - ry0) * (rx1 - rx0);
+                    tiles.push(GrainTile {
+                        rect: [cx0, cy0, cx1, cy1],
+                        holes,
+                        solid: holes == area,
+                    });
+                }
+            }
+            (has_clean, tiles)
+        })
+        .collect();
+    if !bands.iter().any(|(hc, _)| *hc) || bands.iter().all(|(_, t)| t.is_empty()) {
+        return Some(false);
+    }
+
+    let total_holes: usize = bands.iter().flat_map(|(_, ts)| ts).map(|t| t.holes).sum();
+    let solid_tiles = bands
+        .iter()
+        .flat_map(|(_, ts)| ts)
+        .filter(|t| t.solid)
+        .count();
+    if kw_raw > GRAIN_TILE
+        || total_holes > GRAIN_PATCH_CAP
+        || total_holes.saturating_mul(8) > n
+        || solid_tiles > 4
+    {
+        return add_clean_grain(src, clean, (h, w), sigma, a, out).map(|_| true);
+    }
+
+    let kw = if w == 1 { 1 } else { kw_raw };
+    let kh = if h == 1 { 1 } else { kw_raw };
+    let kx = crate::filter::gaussian_kernel(kw, sigma);
+    let ky = if kh == kw {
+        kx.clone()
+    } else {
+        crate::filter::gaussian_kernel(kh, sigma)
+    };
+    let tiles: Vec<GrainTile> = bands.into_iter().flat_map(|(_, ts)| ts).collect();
+    let statuses: Vec<TileStatus> = tiles
+        .par_iter()
+        .map(|&tile| tile_grain(src, clean, (h, w), (&kx, &ky), a, tile))
+        .collect();
+    let mut patches = Vec::with_capacity(statuses.len());
+    for status in statuses {
+        match status {
+            TileStatus::Done(px) => patches.push(px),
+            TileStatus::Fallback => {
+                return add_clean_grain(src, clean, (h, w), sigma, a, out).map(|_| true);
+            }
+            TileStatus::Invalid => return None,
+        }
+    }
+    for px in patches {
+        for (p, d) in px {
+            for c in 0..3 {
+                out[3 * p + c] += d[c];
+            }
+        }
+    }
+    Some(true)
+}
+
 /// The scalars of `apply_score_repair`, float32 as NumPy rounds them.
 pub struct ScoreRepair {
     pub score_floor: f32,
@@ -590,8 +864,8 @@ pub fn apply_score_repair(
     blend_fill(src, score, out, &mut a, (c.write_hi, c.write_span));
     let hi = c.write_hi;
     let clean: Vec<bool> = score.par_iter().map(move |&s| s >= hi).collect();
-    let blur_src = add_clean_grain(src, &clean, (h, w), sigma, Some(&a), out);
     if floor {
+        let blur_src = add_clean_grain(src, &clean, (h, w), sigma, Some(&a), out);
         let gauss = |img: &[f32]| {
             let mut b = vec![0f32; 3 * n];
             crate::filter::gaussian_blur(
@@ -611,6 +885,7 @@ pub fn apply_score_repair(
         let blur_out = gauss(out)?;
         add_floor_deficit(out, &a, &blur_src, &blur_out);
     } else {
+        add_clean_grain_sparse(src, &clean, (h, w), sigma, Some(&a), out)?;
         out.par_chunks_mut(BLOCK).for_each(|run| {
             for v in run {
                 *v = if v.is_nan() || *v > 0.0 { *v } else { 0.0 };
@@ -1583,4 +1858,74 @@ pub fn ir_gain(
                 }
             }
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sparse_grain_matches_full_frame_bits() {
+        let mut seed = 41u64;
+        let mut next_u32 = || {
+            seed = seed
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            (seed >> 32) as u32
+        };
+
+        for (h, w) in [(1, 15), (15, 1), (2, 2), (7, 9), (95, 190), (270, 341)] {
+            let n = h * w;
+            let src: Vec<f32> = (0..3 * n)
+                .map(|_| (next_u32() >> 8) as f32 / (1u32 << 24) as f32)
+                .collect();
+            let weights: Vec<f32> = (0..n)
+                .map(|_| (next_u32() >> 8) as f32 / (1u32 << 24) as f32)
+                .collect();
+            let base: Vec<f32> = (0..3 * n)
+                .map(|_| (next_u32() >> 8) as f32 / (1u32 << 24) as f32)
+                .collect();
+
+            let mut masks: Vec<Vec<bool>> = vec![
+                vec![true; n],
+                vec![false; n],
+                (0..n).map(|_| !next_u32().is_multiple_of(5)).collect(),
+            ];
+            let mut diag_and_blob = vec![true; n];
+            for step in 0..h.max(w) {
+                let y = step * h / h.max(w).max(1);
+                let x = step * w / h.max(w).max(1);
+                diag_and_blob[y * w + x] = false;
+            }
+            // Wide solid block to exercise halo expansion past GRAIN_HALO.
+            for y in 0..45.min(h) {
+                for x in w.saturating_sub(45)..w {
+                    diag_and_blob[y * w + x] = false;
+                }
+            }
+            masks.push(diag_and_blob);
+
+            for clean in &masks {
+                for sigma in [1.0, 2.3, 0.0, -1.0, f64::NAN, f64::INFINITY] {
+                    for alpha in [None, Some(weights.as_slice())] {
+                        let mut want = base.clone();
+                        let mut got = base.clone();
+                        let r_want = add_clean_grain(&src, clean, (h, w), sigma, alpha, &mut want);
+                        let r_got =
+                            add_clean_grain_sparse(&src, clean, (h, w), sigma, alpha, &mut got);
+                        let valid_sigma = sigma > 0.0 && sigma.is_finite();
+                        if !valid_sigma {
+                            assert!(r_got.is_none());
+                            assert!(r_want.is_none());
+                        } else {
+                            assert_eq!(r_want.is_some(), r_got == Some(true));
+                        }
+                        for (a, b) in got.iter().zip(&want) {
+                            assert_eq!(a.to_bits(), b.to_bits());
+                        }
+                    }
+                }
+            }
+        }
+    }
 }

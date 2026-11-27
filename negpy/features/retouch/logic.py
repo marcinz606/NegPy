@@ -1050,7 +1050,7 @@ def apply_hair_inpaint(
     )
     # Navier-Stokes propagates a smooth field, so the fill lands grainless. See
     # apply_score_repair, which fills the same kind of hole by a different route.
-    negpy_core.add_clean_grain(out, np.ascontiguousarray(src, dtype=np.float32), m == 0, max(1.0, factor))
+    negpy_core.add_clean_grain(out, src, m == 0, max(1.0, factor))
     return out
 
 

@@ -267,8 +267,9 @@ fn add_clean_grain(
         .as_slice_mut()
         .map_err(|_| PyValueError::new_err("needs a contiguous out"))?;
     super::detach(py, s.len(), || {
-        retouch::add_clean_grain(s, clean, dims, sigma, None, o)
-    });
+        retouch::add_clean_grain_sparse(s, clean, dims, sigma, None, o)
+    })
+    .ok_or_else(|| PyValueError::new_err("invalid add_clean_grain input"))?;
     Ok(())
 }
 
