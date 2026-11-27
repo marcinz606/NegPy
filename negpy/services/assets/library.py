@@ -17,7 +17,12 @@ from __future__ import annotations
 import os
 from typing import Any, Callable, Iterator, Optional
 
-from negpy.infrastructure.loaders.constants import SUPPORTED_RAW_EXTENSIONS, is_hidden_path, is_ir_sidecar_path
+from negpy.infrastructure.loaders.constants import (
+    PIXEL_SHIFT_FRAMES_FOLDER,
+    SUPPORTED_RAW_EXTENSIONS,
+    is_hidden_path,
+    is_ir_sidecar_path,
+)
 from negpy.services.assets.search import Term, facts_for, match
 
 
@@ -76,7 +81,7 @@ def iter_library_files(roots: list[str]) -> Iterator[dict[str, Any]]:
             continue
         seen_roots.add(real)
         for dirpath, dirnames, filenames in os.walk(root):
-            dirnames[:] = [d for d in dirnames if not d.startswith(".")]
+            dirnames[:] = [d for d in dirnames if not d.startswith(".") and d != PIXEL_SHIFT_FRAMES_FOLDER]
             for filename in filenames:
                 if is_hidden_path(filename):
                     continue

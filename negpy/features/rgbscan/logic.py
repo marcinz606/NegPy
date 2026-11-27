@@ -115,9 +115,17 @@ def probe_frame(path: str) -> FrameProbe:
     import rawpy
 
     with rawpy.imread(path) as raw:
+        black = float(np.mean(raw.black_level_per_channel))
+        if raw.raw_image_visible.ndim == 3:
+            # Full color at every pixel, as a merged Pixel Shift set is: no mosaic to read. Every
+            # fourth pixel is enough for means and a block-averaged signature, and bounds the copy.
+            rgb = raw.raw_image_visible[::4, ::4, :3].astype(np.float32)
+            means = rgb.reshape(-1, 3).mean(axis=0) - black
+            return FrameProbe(
+                means=(float(means[0]), float(means[1]), float(means[2])), signature=_scene_signature(rgb.mean(axis=2), black)
+            )
         mosaic = raw.raw_image_visible.astype(np.float32)
         colors = raw.raw_colors_visible
-        black = float(np.mean(raw.black_level_per_channel))
         return FrameProbe(means=_channel_means(mosaic, colors, black), signature=_scene_signature(mosaic, black))
 
 
@@ -337,7 +345,7 @@ def estimate_shift(ref_gray: np.ndarray, mov_gray: np.ndarray) -> Tuple[float, f
 def _align_to(ref_gray: np.ndarray, mov: np.ndarray, mov_ch: int, max_shift: float) -> np.ndarray:
     """Shift ``mov`` so its scene content lines up with ``ref_gray``. No-op if the
     estimate is implausibly large (correlation failed)."""
-    dx, dy = estimate_shift(ref_gray, mov[..., mov_ch])
+    dx, dy = estimate_shift(ref_gray, mov if mov.ndim == 2 else mov[..., mov_ch])
     if max(abs(dx), abs(dy)) > max_shift:
         return mov
     h, w = mov.shape[:2]
@@ -360,6 +368,18 @@ def assemble_rgb(r: np.ndarray, g: np.ndarray, b: np.ndarray, align: bool = True
         r = _align_to(ref, r, RED, max_shift)
         b = _align_to(ref, b, BLUE, max_shift)
     return negpy_core.pick_channels(*(np.ascontiguousarray(x, dtype=r.dtype) for x in (r, g, b)))
+
+
+def assemble_planes(r: np.ndarray, g: np.ndarray, b: np.ndarray, align: bool = True) -> np.ndarray:
+    """`assemble_rgb` from each exposure's own channel as an HxW float32 plane, with the same values.
+    The two channels an exposure does not give are never held or warped."""
+    if not (r.shape == g.shape == b.shape):
+        raise ValueError(f"RGB-scan exposures differ in shape: {r.shape}, {g.shape}, {b.shape}")
+    if align:
+        max_shift = max(16.0, 0.02 * r.shape[1])
+        r = _align_to(g, r, RED, max_shift)
+        b = _align_to(g, b, BLUE, max_shift)
+    return np.stack((r, g, b), axis=-1)
 
 
 def merge_rgb_triplet(

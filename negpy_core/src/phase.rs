@@ -140,24 +140,88 @@ fn inverse(mut cols: Vec<C32>, (m, n): (usize, usize)) -> Vec<f32> {
 /// the shift of `b` against `a` as (dx, dy), and the peak response. cv2's is half a pixel off
 /// along an axis whose padded size is odd.
 pub fn phase_correlate(a: &[f32], b: &[f32], h: usize, w: usize) -> (f64, f64, f64) {
+    correlate(a, b, (h, w), None)
+}
+
+/// `phase_correlate` less an `expected` (dx, dy) shift, which is taken out of the spectrum
+/// before the peak is read. The peak fit is exact only near a whole pixel, so a known
+/// fractional shift is measured as its remainder.
+pub fn phase_correlate_about(
+    a: &[f32],
+    b: &[f32],
+    (h, w): (usize, usize),
+    expected: (f64, f64),
+) -> (f64, f64, f64) {
+    correlate(a, b, (h, w), Some(expected))
+}
+
+fn correlate(
+    a: &[f32],
+    b: &[f32],
+    (h, w): (usize, usize),
+    expected: Option<(f64, f64)>,
+) -> (f64, f64, f64) {
     let win = hanning_window(h, w);
     let (m, n) = (optimal_dft_size(h), optimal_dft_size(w));
     let (mut fa, fb) = rayon::join(
         || forward(a, &win, (h, w), (m, n)),
         || forward(b, &win, (h, w), (m, n)),
     );
-    fa.par_chunks_mut(m)
-        .zip(fb.par_chunks(m))
-        .for_each(|(p, q)| {
-            for (p, q) in p.iter_mut().zip(q) {
-                // In f64: at 16-bit scale |v|^2 of the DC bin passes f32::MAX.
-                let v = *p * q.conj();
-                let (re, im) = (v.re as f64, v.im as f64);
-                let sq = re * re + im * im;
-                let k = sq.sqrt() / (sq + f32::EPSILON as f64);
-                *p = C32::new((re * k) as f32, (im * k) as f32);
-            }
-        });
+    // In f64: at 16-bit scale |v|^2 of the DC bin passes f32::MAX.
+    let unit = |p: C32, q: C32| {
+        let v = p * q.conj();
+        let (re, im) = (v.re as f64, v.im as f64);
+        let sq = re * re + im * im;
+        let k = sq.sqrt() / (sq + f32::EPSILON as f64);
+        (re * k, im * k)
+    };
+    match expected {
+        None => fa
+            .par_chunks_mut(m)
+            .zip(fb.par_chunks(m))
+            .for_each(move |(p, q)| {
+                for (p, q) in p.iter_mut().zip(q) {
+                    let (re, im) = unit(*p, *q);
+                    *p = C32::new(re as f32, im as f32);
+                }
+            }),
+        Some((dx, dy)) => {
+            // The ramp of a shift is one turn per axis, so each bin multiplies two table entries.
+            let turn = |t: f64| libm::sincos(-std::f64::consts::TAU * t);
+            let along_x: Vec<(f64, f64)> = (0..fa.len() / m)
+                .map(|x| turn(x as f64 * dx / n as f64))
+                .collect();
+            let along_y: Vec<(f64, f64)> = (0..m)
+                .map(|y| {
+                    let v = if 2 * y > m {
+                        y as f64 - m as f64
+                    } else {
+                        y as f64
+                    };
+                    turn(v * dy / m as f64)
+                })
+                .collect();
+            let (along_x, along_y) = (&along_x, &along_y);
+            fa.par_chunks_mut(m)
+                .zip(fb.par_chunks(m))
+                .enumerate()
+                .for_each(move |(x, (p, q))| {
+                    let (sin_x, cos_x) = along_x[x];
+                    for (y, (p, q)) in p.iter_mut().zip(q).enumerate() {
+                        // A Nyquist bin has no sign, so a fractional shift has no phase there.
+                        if 2 * x == n || 2 * y == m {
+                            *p = C32::default();
+                            continue;
+                        }
+                        let (re, im) = unit(*p, *q);
+                        let (sin_y, cos_y) = along_y[y];
+                        let (cos, sin) =
+                            (cos_x * cos_y - sin_x * sin_y, sin_x * cos_y + cos_x * sin_y);
+                        *p = C32::new((re * cos - im * sin) as f32, (re * sin + im * cos) as f32);
+                    }
+                });
+        }
+    }
     let corr = inverse(fa, (m, n));
 
     // fftShift rolls by (n / 2, m / 2). cv2 then measures from (n / 2.0, m / 2.0), half a pixel
@@ -205,6 +269,32 @@ pub fn phase_correlate(a: &[f32], b: &[f32], h: usize, w: usize) -> (f64, f64, f
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_known_shift_reads_as_its_remainder() {
+        let (h, w) = (64usize, 96usize);
+        // A fixed pseudo-random plane, moved three columns with wrap-around.
+        let mut state = 7u32;
+        let base: Vec<f32> = (0..h * w)
+            .map(|_| {
+                state = state.wrapping_mul(1664525).wrapping_add(1013904223);
+                (state >> 8) as f32
+            })
+            .collect();
+        let plane = |shift: usize| -> Vec<f32> {
+            (0..h * w)
+                .map(|i| base[(i / w) * w + (i % w + shift) % w])
+                .collect()
+        };
+        let (a, b) = (plane(0), plane(3));
+        let (dx, dy, _) = phase_correlate(&a, &b, h, w);
+        let (rx, ry, response) = phase_correlate_about(&a, &b, (h, w), (dx.round(), 0.0));
+        assert!((dx.abs() - 3.0).abs() < 0.2 && dy.abs() < 0.2, "{dx} {dy}");
+        assert!(
+            rx.abs() < 0.2 && ry.abs() < 0.2 && response > 0.3,
+            "{rx} {ry} {response}"
+        );
+    }
 
     #[test]
     fn optimal_sizes() {

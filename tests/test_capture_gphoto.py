@@ -7,6 +7,7 @@ fails unless the event queue was drained.
 
 import json
 import logging
+import dataclasses
 import os
 
 import pytest
@@ -296,7 +297,7 @@ def test_a_setting_write_republishes_the_settings_file(fake, tmp_path):
 def test_read_settings_omits_a_property_with_no_choices(cam):
     settings = cam.read_settings()
     assert "aperture" not in settings  # the UI greys the stepper out on a missing key
-    assert set(settings) == {"iso", "shutter", "magnifier"}
+    assert set(settings) == {"iso", "shutter", "magnifier", "pixel_shift"}
 
 
 def test_read_settings_reports_the_body_magnifier_state(cam):
@@ -316,7 +317,7 @@ def test_an_unreadable_magnifier_omits_the_entry_and_keeps_the_rest(fake, cam):
     fake.props["focusmagnifier"].value = None
     settings = cam.read_settings()
     assert "magnifier" not in settings
-    assert set(settings) == {"iso", "shutter"}
+    assert set(settings) == {"iso", "shutter", "pixel_shift"}
 
 
 def test_read_settings_has_no_magnifier_entry_for_a_body_without_one():
@@ -726,7 +727,7 @@ def test_live_view_publishes_frames_and_settings(fake, tmp_path):
     finally:
         camera.close()
     assert jpeg.read_bytes().startswith(b"\xff\xd8")
-    assert set(json.loads(settings.read_text())) == {"iso", "shutter", "magnifier", "pid"}
+    assert set(json.loads(settings.read_text())) == {"iso", "shutter", "magnifier", "pixel_shift", "pid"}
     assert not camera.is_running()
 
 
@@ -865,7 +866,7 @@ def test_an_idle_session_publishes_on_request_and_a_streaming_one_leaves_it_to_t
     assert not settings.exists()  # closed: nothing to read
     camera.open()
     camera.publish_settings()
-    assert set(json.loads(settings.read_text())) == {"iso", "shutter", "magnifier", "pid"}
+    assert set(json.loads(settings.read_text())) == {"iso", "shutter", "magnifier", "pixel_shift", "pid"}
     settings.unlink()
     camera.is_running = lambda: True  # the preview thread owns the publish while it streams
     camera.publish_settings()
@@ -883,7 +884,7 @@ def test_refusing_live_view_still_publishes_the_camera_settings(tmp_path):
     with pytest.raises(LiveViewUnsupported):
         camera.start()
 
-    assert set(json.loads(settings.read_text())) == {"iso", "shutter", "magnifier", "pid"}
+    assert set(json.loads(settings.read_text())) == {"iso", "shutter", "magnifier", "pixel_shift", "pid"}
     camera.close()
 
 
@@ -1240,3 +1241,136 @@ def test_a_body_that_refuses_bulb_says_to_check_the_drive_mode(cam, fake, tmp_pa
     monkeypatch.setattr("negpy.infrastructure.capture.gphoto.time.monotonic", lambda: next(clock, 4.0))
     with pytest.raises(GphotoError, match="drive mode to single shooting"):
         cam.capture_bulb(str(tmp_path / "f.raw"), lambda: None)
+
+
+# ---- Pixel Shift ------------------------------------------------------------
+
+
+def _shift_body(cam, fake, mode="1", count="1"):
+    """A Sony body with Pixel Shift: the switch, the shot count and the interval."""
+    cam._capabilities = dataclasses.replace(cam._capabilities, driver_model="Sony Alpha-A7r V (PC Control)")
+    fake.props["d239"] = _Widget(fake, "d239", mode, [], readonly=True)
+    fake.props["d23a"] = _Widget(fake, "d23a", count, ["1", "4", "16"], readonly=mode != "1")
+    fake.props["d23b"] = _Widget(fake, "d23b", "1", ["65535", "1", "2"])
+
+
+def _set_files(fake, *names):
+    """The files after the first, which the trigger itself returns."""
+    fake.events.extend((FakeGP.GP_EVENT_FILE_ADDED, _Path(n)) for n in names)
+
+
+def test_pixel_shift_counts_for_absent_off_and_on(cam, fake):
+    assert cam.pixel_shift_counts() is None and cam.read_settings()["pixel_shift"] is None
+    _shift_body(cam, fake, mode="0")
+    assert cam.pixel_shift_counts() == () and cam.read_settings()["pixel_shift"] == []
+    _shift_body(cam, fake)
+    assert cam.pixel_shift_counts() == (4, 16) and cam.read_settings()["pixel_shift"] == [4, 16]
+    cam.close()
+    assert cam.pixel_shift_counts() is None
+
+
+def test_another_maker_with_the_same_codes_has_no_pixel_shift(cam, fake, tmp_path):
+    _shift_body(cam, fake, count="16")
+    cam._capabilities = dataclasses.replace(cam._capabilities, driver_model="Nikon Z8")
+    assert cam.pixel_shift_counts() is None
+    cam.capture(str(tmp_path / "f.NEF"))
+    assert _settings_writes(fake) == []
+
+
+def test_a_set_is_saved_in_shot_order(cam, fake, tmp_path):
+    _shift_body(cam, fake)
+    _set_files(fake, "capt0002.ARW", "capt0003.ARW", "capt0004.ARW")
+    shots = []
+
+    paths = cam.capture_set(str(tmp_path / "f.raw"), 4, shutter="1/10", on_shot=lambda n, count: shots.append((n, count, fake.deletes)))
+    cam._post_shot.join()
+
+    assert paths == [str(tmp_path / f"f_S{n:02d}.ARW") for n in range(1, 5)]
+    assert all(os.path.exists(p) for p in paths)
+    assert shots == [(n, 4, n) for n in range(1, 5)]  # each frame is off the body before the next is read
+    assert fake.captures == 1
+    assert _settings_writes(fake) == [("d23a", "4"), ("d23b", "65535"), ("shutterspeed", "1/10")]
+    assert not cam._busy.is_set()
+
+
+@pytest.mark.parametrize("late, match", [((), "2 of 4"), (("capt0003.JPG",), "not a RAW")])
+def test_a_set_that_fails_leaves_no_file(cam, fake, tmp_path, monkeypatch, late, match):
+    monkeypatch.setattr("negpy.infrastructure.capture.gphoto._SET_FILE_TIMEOUT_S", 0.05)
+    _shift_body(cam, fake)
+    _set_files(fake, "capt0002.ARW", *late)
+
+    with pytest.raises(GphotoError, match=match):
+        cam.capture_set(str(tmp_path / "f.raw"), 4, shutter="1/10")
+
+    assert list(tmp_path.iterdir()) == []
+    assert not cam._busy.is_set() and not fake.undrained
+
+
+def test_a_refused_shot_count_takes_no_picture(cam, fake, tmp_path):
+    with pytest.raises(GphotoError, match="shot count"):  # no Pixel Shift properties on this body
+        cam.capture_set(str(tmp_path / "f.raw"), 4)
+    assert fake.captures == 0 and not cam._busy.is_set()
+
+
+def test_a_plain_capture_resets_the_shot_count(cam, fake, tmp_path):
+    _shift_body(cam, fake, count="16")
+    cam.capture(str(tmp_path / "f.ARW"))
+    assert _settings_writes(fake) == [("d23a", "1")]
+
+
+def test_a_plain_capture_writes_one_shot_whatever_the_count_reads(cam, fake, tmp_path):
+    _shift_body(cam, fake, count="1")  # the driver's cached read-back can hide a count set at the body
+    cam.capture(str(tmp_path / "f.ARW"))
+    assert _settings_writes(fake) == [("d23a", "1")]
+
+
+def test_a_plain_capture_leaves_a_locked_shot_count_alone(cam, fake, tmp_path):
+    _shift_body(cam, fake, mode="0", count="16")
+    cam.capture(str(tmp_path / "f.ARW"))
+    assert _settings_writes(fake) == []
+
+
+def test_a_failed_set_takes_its_other_frames_off_the_body(cam, fake, tmp_path, monkeypatch):
+    monkeypatch.setattr("negpy.infrastructure.capture.gphoto._SET_FILE_TIMEOUT_S", 0.05)
+    monkeypatch.setattr("negpy.infrastructure.capture.gphoto._SET_ABANDON_TIMEOUT_S", 0.05)
+    _shift_body(cam, fake)
+    _set_files(fake, "capt0002.JPG", "capt0003.ARW", "capt0004.ARW")
+
+    with pytest.raises(GphotoError, match="not a RAW"):
+        cam.capture_set(str(tmp_path / "f.raw"), 4)
+
+    assert fake.deletes == 3  # frame 1, then frames 3 and 4, which the body would hold
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_close_hands_the_body_back_as_it_was(cam, fake, tmp_path):
+    _shift_body(cam, fake)  # the body's own interval is "1"
+    _set_files(fake, "capt0002.ARW", "capt0003.ARW", "capt0004.ARW")
+    cam.capture_set(str(tmp_path / "f.raw"), 4)
+    cam._post_shot.join()
+    before = len(_settings_writes(fake))
+    cam.close()
+    assert _settings_writes(fake)[before:] == [("d23a", "4"), ("d23b", "1"), ("d23a", "1")]
+
+
+def test_close_resets_a_shot_count_that_did_not_settle(cam, fake, tmp_path, monkeypatch):
+    _shift_body(cam, fake)
+    monkeypatch.setattr(cam, "_set_verified", lambda name, value: False)
+    with pytest.raises(GphotoError, match="shot count"):
+        cam.capture_set(str(tmp_path / "f.raw"), 4)
+    monkeypatch.undo()
+    before = len(_settings_writes(fake))
+    cam.close()
+    assert _settings_writes(fake)[before:] == [("d23a", "1")]
+
+
+def test_close_writes_nothing_on_a_body_that_shot_no_set(cam, fake, tmp_path):
+    _shift_body(cam, fake)
+    cam.close()
+    assert _settings_writes(fake) == []
+
+
+def test_the_maker_names_the_position_table(cam, fake):
+    assert cam.pixel_shift_maker == ""
+    _shift_body(cam, fake)
+    assert cam.pixel_shift_maker == "sony"

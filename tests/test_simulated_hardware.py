@@ -247,3 +247,26 @@ def test_a_blend_calibration_measures_the_sensor_leak_on_the_simulated_rig(camer
     mixing = np.linalg.inv(np.array(result.sensor_matrix).reshape(3, 3))
     leaks = mixing[~np.eye(3, dtype=bool)]
     assert np.diag(mixing) == pytest.approx([1.0] * 3) and np.all((leaks > 0) & (leaks < 0.2))
+
+
+@pytest.mark.parametrize("count", [4, 16])
+def test_simulated_camera_shoots_a_pixel_shift_set_that_merges(camera, tmp_path, count):
+    import rawpy
+
+    from negpy.services.capture.pixel_shift import PixelShiftCamera
+    from negpy.services.capture.pixel_shift_merge import shot_positions
+
+    assert camera.pixel_shift_counts() == (4, 16)
+    lines = []
+    shifted = PixelShiftCamera(
+        camera, shot_positions(count, camera.pixel_shift_maker), frames_folder=str(tmp_path / "frames"), fallback=False, report=lines.append
+    )
+    path = shifted.capture(str(tmp_path / "frame.raw"))
+    assert path.endswith(".dng"), lines
+    scale = 1 if count == 4 else 2
+    with rawpy.imread(path) as raw:
+        assert raw.raw_image_visible.shape[:2] == (scale * 1999, scale * 2999)
+    # A plain capture after a set is one frame again.
+    plain = camera.capture(str(tmp_path / "plain.raw"))
+    with rawpy.imread(plain) as raw:
+        assert raw.raw_image_visible.shape == (2000, 3000)

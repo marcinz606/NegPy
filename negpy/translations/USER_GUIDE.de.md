@@ -585,7 +585,7 @@ NegPy hält macOS und Windows während des Scans wach. Schalte unter Linux vor e
 *   **Bild messen…** (Coolscan): misst die Belichtung an einem Bild und nutzt sie für jeden späteren Scan, damit alle Bilder einer Rolle zusammenpassen. **Entsperren** beendet das. Miss für jede Rolle neu.
 *   **Prescan…** (Plustek): eine schnelle Vorschau des ganzen Bereichs. Ziehe einen Zuschnitt auf, dann liest der nächste Scan nur diesen Bereich.
 
-<!-- panel:scan_camera src:0145e5d1 -->
+<!-- panel:scan_camera src:72f24776 -->
 ### Kamera
 
 Scannt mit einer Kamera auf einem Reprostativ, per USB im Modus **PC Remote** verbunden (macOS und Linux; sie braucht `python-gphoto2`). Mit einem NegPy-**Scanlight** steuert NegPy auch das Licht. CAMERA_SCANNING.md beschreibt die Einrichtung.
@@ -596,6 +596,7 @@ Scannt mit einer Kamera auf einem Reprostativ, per USB im Modus **PC Remote** ve
 *   **Messen**: stellt die Verschlusszeit so ein, dass der hellste Bereich, der nicht beschnitten werden darf (der klare Film eines Negativs, die Lichter eines Dias), knapp unter der Beschneidung liegt. Miss vor dem ersten Scan. Ohne kalibrierte Vorgabe nutzt ein Scan die Belichtung, die an der Kamera eingestellt ist, und NegPy fragt nach, bevor es ungemessen scannt.
 *   **Scan** nimmt das nächste Bild auf und importiert es. **Neu aufnehmen** (der Wiederholungspfeil) nimmt das letzte Bild erneut auf. Wenn ein Scan beschneidet, zeigt die Statuszeile, wie viel vom Bild beschnitten wurde. Im Fenster der Live-Ansicht scannt `Space` oder `S` und `R` nimmt neu auf. Mit einem Scanlight wählen **R**, **G**, **B** und **IR**, welche Belichtungen Neu aufnehmen wiederholt.
 *   **Aufnahmeverzögerung**: wartet vor der ersten Belichtung, damit sich ein wackliger Tisch beruhigt.
+*   **Pixel Shift**: mehr Details aus 4 oder 16 Bildern. **Einzelbilder behalten** behält sie.
 *   **Licht eingeschaltet lassen** (die Glühbirne): hält das Scanlight nach jedem Scan an, damit du das nächste Bild einrichten kannst.
 *   **Film** (mit einem Lento Dock): was das Dock beim Klick auf Scan tut. **Nächstes Bild** transportiert den Film nach jedem Scan um ein Bild. **Ganzer Streifen** scannt jedes Bild und wirft den Streifen dann aus; Stopp beendet den Lauf. Neu aufnehmen bewegt den Film nie. **Auswerfen** transportiert den Streifen heraus. Die Taste S des Docks wirkt wie Scan.
 *   **Flat Field aufnehmen**: nimmt nach dem Auswerfen eines ganzen Streifens das leere Dock auf und speichert es als Flat-Field-Profil der Rolle.

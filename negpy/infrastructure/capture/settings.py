@@ -57,6 +57,8 @@ class ScanlightSettings:
     film_transport: str = "off"  # a light that moves film: "off", "next" (one frame per Scan) or "strip" (the whole strip)
     strip_flat: bool = False  # after a whole strip ejects, shoot the empty dock for the roll's Flat Field profile
     capture_delay_s: float = 0.0  # seconds Scan and Retake hold the first exposure
+    pixel_shift: int = 1  # frames per exposure: 1, or a Pixel Shift set of 4 or 16
+    keep_shift_frames: bool = False  # keep a Pixel Shift set's own frames beside the merged file
     adopted_presets: tuple[str, ...] = ()  # built-in presets added to the dropdown; the rest stay under +
 
     def __post_init__(self) -> None:

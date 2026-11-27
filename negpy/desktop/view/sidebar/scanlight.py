@@ -41,7 +41,7 @@ from negpy.desktop.view.sidebar.calibration_window import (
     TRICHROME_MODE,
     CalibrationWindow,
 )
-from negpy.desktop.view.sidebar.live_view_window import LiveViewWindow, SettingStepper
+from negpy.desktop.view.sidebar.live_view_window import PIXEL_SHIFT_SETS, LiveViewWindow, SettingStepper, pixel_shift_choice
 from negpy.desktop.view.sidebar.roi_image import zebra_image
 from negpy.desktop.view.sidebar.scan_output import ScanOutputPanel
 from negpy.desktop.view.styles.color_vision import palette_for
@@ -254,6 +254,7 @@ class ScanlightSidebar(QWidget):
         self._focus_settle_timer.setInterval(_MAGNIFIER_SETTLE_MS)
         self._focus_settle_timer.timeout.connect(self._reset_focus_meter)
         self._settings_loaded = False  # have the live camera-setting dropdowns been populated yet?
+        self._pixel_shift_counts: Optional[tuple[int, ...]] = None  # the body's set sizes; None = no Pixel Shift, () = off on the body
         self._light_has_white = True  # does the connected Scanlight have a white LED? (False = v1-v3, RGB-only)
         self._light_has_ir = False  # infrared LEDs: the Big Scanlight
         self._light_moves_film = False  # the light has a film transport: the Lento Dock
@@ -526,6 +527,24 @@ class ScanlightSidebar(QWidget):
         self.bulb_release_rail.setVisible(False)  # shown while Blend is the capture mode
         _mode.addWidget(self.bulb_release_rail)
         _exp.addWidget(self.capture_mode_row)
+        # Outside the Capture mode row, so a white-light preset keeps it.
+        self.pixel_shift_choice = pixel_shift_choice()
+        self.keep_shift_btn = labeled_toggle(
+            "",
+            tr("Keep Source Frames"),
+            self._settings.keep_shift_frames,
+            tr("Keep the single frames of each set in a folder beside the merged file."),
+        )
+        self.pixel_shift_rail = SliderGroup(self.keep_shift_btn)
+        self.pixel_shift_row = QWidget()
+        self.pixel_shift_row.setObjectName("collapsible_content_body")
+        _shift = QVBoxLayout(self.pixel_shift_row)
+        _shift.setContentsMargins(0, 0, 0, 0)
+        _shift.setSpacing(THEME.space_xs)
+        _shift.addLayout(field_row(tr("Pixel Shift"), self.pixel_shift_choice))
+        _shift.addWidget(self.pixel_shift_rail)
+        self.pixel_shift_row.setVisible(False)
+        _exp.addWidget(self.pixel_shift_row)
         self.iso_stepper = SettingStepper()
         self.shutter_stepper = SettingStepper(shutter=True)
         self.aperture_stepper = SettingStepper()
@@ -623,6 +642,9 @@ class ScanlightSidebar(QWidget):
         self.bulb_release_btn.currentChanged.connect(lambda _i: self._on_bulb_release_picked())
         self.blend_sensor_combo.activated.connect(lambda _i: self._on_blend_sensor_picked())
         self.blend_sensor_btn.clicked.connect(self._open_sensor_calibration)
+        self.pixel_shift_choice.currentChanged.connect(lambda _i: self._on_pixel_shift_picked(int(self.pixel_shift_choice.currentData())))
+        self.lv_window.pixelShiftChanged.connect(self._on_pixel_shift_picked)
+        self.keep_shift_btn.toggled.connect(self._on_keep_shift_toggled)
         self.preset_save_btn.clicked.connect(self._on_preset_save)
         self.preset_del_btn.clicked.connect(self._on_preset_delete)
         # Typing an invalid path greys Scan immediately (with the reason), not on the next click.
@@ -1825,6 +1847,7 @@ class ScanlightSidebar(QWidget):
         calibration solves that; it does carry ISO + aperture, which the base is metered at)."""
         # A file this process wrote for an earlier camera must not fill the steppers after an unplug.
         data = self._settings_json() if self._camera_verified else {}
+        self._set_pixel_shift_counts(data.get("pixel_shift"))
         if not data:
             return
         magnifier = data.get("magnifier")
@@ -1887,6 +1910,54 @@ class ScanlightSidebar(QWidget):
             stepper.blockSignals(True)
             stepper.setCurrentIndex(idx)
             stepper.blockSignals(False)
+
+    def _set_pixel_shift_counts(self, counts) -> None:
+        """The body's published Pixel Shift set sizes: None, a list, or a missing key read as None."""
+        self._pixel_shift_counts = tuple(int(c) for c in counts) if isinstance(counts, list) else None
+        self._refresh_pixel_shift()
+
+    def _pixel_shift(self) -> int:
+        """Frames per exposure the next scan shoots: the saved set size while the body offers it, else 1."""
+        offered = self._pixel_shift_counts or ()
+        return self._settings.pixel_shift if self._settings.pixel_shift in offered and not self._blend_active() else 1
+
+    def _refresh_pixel_shift(self) -> None:
+        """Show the Pixel Shift choice on both surfaces with the body's set sizes, grayed while it cannot shoot one."""
+        counts = self._pixel_shift_counts
+        blend = self._blend_active()
+        value = self._pixel_shift()
+        for choice in (self.pixel_shift_choice, self.lv_window.pixel_shift_choice):
+            choice.blockSignals(True)
+            choice.setCurrentIndex(choice.findData(value))
+            choice.blockSignals(False)
+            for i, size in enumerate(PIXEL_SHIFT_SETS):
+                choice.set_choice_enabled(i, size == 1 or size in (counts or ()))
+            choice.setEnabled(bool(counts) and not blend and not self._scanning)  # one setting for a whole frame
+            if not counts:
+                why = tr("Turn on Pixel Shift Multi Shooting on the camera to use it.")
+            elif blend:
+                why = tr("Blend shoots one long exposure, so it cannot take a Pixel Shift set.")
+            else:
+                why = choice.plain_tooltip
+            choice.setToolTip(wrap_tooltip(why))
+        self.pixel_shift_row.setVisible(counts is not None)
+        self.lv_window.pixel_shift_col.setVisible(counts is not None)
+        self.pixel_shift_rail.setVisible(value > 1)
+
+    def pick_pixel_shift(self, size: int) -> None:
+        """Pick a set size by shortcut, when the choice is in view and offers it."""
+        choice = self.pixel_shift_choice
+        if not choice.isHidden() and choice.isEnabled() and (size == 1 or size in (self._pixel_shift_counts or ())):
+            self._on_pixel_shift_picked(size)
+
+    def _on_pixel_shift_picked(self, size: int) -> None:
+        self._settings = replace(self._settings, pixel_shift=size)
+        self._save_settings()
+        self._refresh_pixel_shift()
+
+    def _on_keep_shift_toggled(self, on: bool) -> None:
+        self._settings = replace(self._settings, keep_shift_frames=on)
+        self._save_settings()
 
     def _refresh_ir_shutter(self, info) -> None:
         """The IR stepper offers the body's shutter choices and holds the saved IR shutter: a
@@ -2204,6 +2275,8 @@ class ScanlightSidebar(QWidget):
             whole_strip=dock and s.film_transport == "strip" and not retake,
             strip_flat=dock and s.film_transport == "strip" and s.strip_flat and not retake,
             shutter_ladder=self._shutter_labels(),
+            pixel_shift=self._pixel_shift(),
+            keep_shift_frames=s.keep_shift_frames,
         )
         self._capturing = tuple(channels) + (("IR",) if req.infrared else ()) if triplet else ()
         self._strip_running = req.whole_strip
@@ -2557,6 +2630,7 @@ class ScanlightSidebar(QWidget):
         self.capture_mode_row.setVisible(not self._settings.white_mode)
         self.bulb_release_rail.setVisible(self._blend_active())
         self.blend_sensor_row.setVisible(self._blend_active() and not self._preset_sensor_profile())
+        self._refresh_pixel_shift()
         self.inter_exposure_delay_slider.setEnabled(not self._settings.single_capture and not self._blend_active())
         for slider in (self.r_slider, self.g_slider, self.b_slider):
             slider.setEnabled(editable)
@@ -2642,6 +2716,7 @@ class ScanlightSidebar(QWidget):
 
     def set_scanning(self, active: bool) -> None:
         self._scanning = active
+        self._refresh_pixel_shift()
         if active:
             self.status_strip.start_progress(_CAPTURE_BAR)
         else:

@@ -8,6 +8,13 @@ from negpy.services.rendering.preview_cache import PreviewCacheUsage
 
 # Shared with any other RAM-consuming background worker that needs the same floor.
 MIN_RAM_RESERVE_BYTES = 512 * 1024 * 1024
+
+
+def fits_in_memory(nbytes: int, available: int | None) -> bool:
+    """True when `nbytes` fits in the memory that is free now, with a reserve. Unknown free memory does not fit."""
+    return available is not None and available >= nbytes + max(MIN_RAM_RESERVE_BYTES, nbytes // 4)
+
+
 _INTEGRATED_GPU_RESERVE_BYTES = 256 * 1024 * 1024
 
 

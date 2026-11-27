@@ -22,6 +22,7 @@ pub mod loaders;
 pub mod meter;
 pub mod morph;
 pub mod phase;
+pub mod pixel_shift;
 pub mod pool;
 pub mod print_curve;
 pub mod process;

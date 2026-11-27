@@ -31,8 +31,15 @@ from negpy.infrastructure.capture.base import (
     ShutterRelease,
 )
 from negpy.infrastructure.capture.protocol import MAX_SHUTTER_PULSE_S
+from negpy.infrastructure.loaders.constants import (
+    SUPPORTED_JPEG_EXTENSIONS,
+    SUPPORTED_JXL_EXTENSIONS,
+    SUPPORTED_RAW_EXTENSIONS,
+    SUPPORTED_TIFF_EXTENSIONS,
+)
 from negpy.kernel.system.logging import get_logger
 from negpy.services.capture.calibration import PWM_MAX, PWM_MIN
+from negpy.services.capture.pixel_shift_dng import merged_shots
 
 logger = get_logger(__name__)
 
@@ -125,6 +132,33 @@ def verify_raw_size(path: str, min_bytes: int, max_bytes: int) -> None:
         )
 
 
+_CAMERA_FILE_EXTENSIONS = SUPPORTED_RAW_EXTENSIONS - SUPPORTED_TIFF_EXTENSIONS - SUPPORTED_JPEG_EXTENSIONS - SUPPORTED_JXL_EXTENSIONS
+
+
+def other_formats(path: str) -> list[str]:
+    """The same exposure's files in another camera format."""
+    folder = os.path.dirname(path)
+    stem, ext = os.path.splitext(os.path.basename(path))
+    found = []
+    for name in os.listdir(folder):
+        other_stem, other_ext = os.path.splitext(name)
+        if other_stem == stem and other_ext.lower() != ext.lower() and other_ext.lower() in _CAMERA_FILE_EXTENSIONS:
+            found.append(os.path.join(folder, name))
+    return found
+
+
+def _drop_other_formats(path: str) -> None:
+    """Remove the file an earlier take of this exposure left under the other Pixel Shift setting: a
+    merged set is a DNG and a plain frame the camera's RAW, so a retake changes the extension. A file
+    that is no such pair stays."""
+    for other in other_formats(path):
+        if merged_shots(path) or merged_shots(other):
+            try:
+                os.remove(other)
+            except OSError:  # the new frame is on disk and must still be reported
+                logger.warning("could not remove the earlier take %s", other, exc_info=True)
+
+
 def _capture_validated_single(
     camera: Camera,
     *,
@@ -149,9 +183,11 @@ def _capture_validated_single(
             staged_path = camera.capture(staged_stem + _RAW_SUFFIX, shutter=shutter, iso=iso, aperture=aperture)
         verify_raw_size(staged_path, min_raw_bytes, max_raw_bytes)
         final_path = os.path.join(output_folder, os.path.basename(staged_path))
-        if cancel is not None and cancel.is_set():
+        # A merged set is kept after Stop: its frames are gone, and it cannot be shot again for free.
+        if cancel is not None and cancel.is_set() and not merged_shots(staged_path):
             raise CaptureError(tr("capture cancelled"))
         os.replace(staged_path, final_path)
+        _drop_other_formats(final_path)
         return final_path
     finally:
         shutil.rmtree(staging_dir, ignore_errors=True)
@@ -313,9 +349,11 @@ class CaptureService:
                 if i < len(CAPTURE_ORDER) - 1:
                     self._sleep(settings.inter_exposure_delay_s)
 
-            if cancel is not None and cancel.is_set():
+            if cancel is not None and cancel.is_set() and not all(merged_shots(p) for p in staged_paths.values()):
                 raise CaptureError(tr("capture cancelled"))
             paths = _promote_triplet(staged_paths, settings.output_folder)
+            for path in paths.values():
+                _drop_other_formats(path)
             ok = True
         finally:
             self._release_light(ok, end_light)
