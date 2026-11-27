@@ -27,6 +27,12 @@ class TestDecodeGate(unittest.TestCase):
         with gate.hold("prefetch", "/neighbor.arw"):
             self.assertTrue(_enters_promptly(gate, "foreground", "/clicked.arw"))
 
+    def test_distinct_prefetch_files_enter_concurrently_while_same_file_serializes(self):
+        gate = _DecodeGate()
+        with gate.hold("prefetch", "/neighbor_a.arw"):
+            self.assertTrue(_enters_promptly(gate, "prefetch", "/neighbor_b.arw"))
+            self.assertFalse(_enters_promptly(gate, "prefetch", "/neighbor_a.arw", timeout=0.1))
+
     def test_foreground_waits_for_a_prefetch_of_the_same_file(self):
         gate = _DecodeGate()
         with gate.hold("prefetch", "/clicked.arw"):
@@ -161,6 +167,12 @@ class TestForegroundOverlapsPrefetch(unittest.TestCase):
         self.assertTrue(done.wait(5))
         prefetch_thread.join(5)
         click_thread.join(5)
+
+    def test_shutdown_prevents_late_enqueue_from_reopening_prefetch_pool(self):
+        worker = PreviewLoadWorker(MagicMock(), state=PreviewLoadState())
+        worker.shutdown()
+        worker.enqueue_prefetch(_prefetch_task("/late.arw", 1))
+        self.assertIsNone(worker._prefetch_pool)
 
 
 if __name__ == "__main__":

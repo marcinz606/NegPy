@@ -133,9 +133,14 @@ class PreviewBufferCache:
                 # navigated from, so going back is instant). Unbudgeted, HQ buffers of hundreds of MB
                 # each would evict every small preview through the byte cap.
                 limit = max(1, self._app.preview_cache_max_full_res_entries)
-                full = [k for k in self._order if isinstance(k, tuple) and k[3] and k != t]
-                for other in full[: max(0, len(full) - (limit - 1))]:  # trim oldest beyond budget
-                    self._remove_key(other)
+                full = [k for k in self._order if isinstance(k, tuple) and len(k) > 3 and k[3] and k != t]
+                need_drop = max(0, len(full) - (limit - 1))
+                if need_drop:
+                    prot = frozenset(protected_file_hashes)
+                    unprotected = [k for k in full if not self._is_protected(k, prot, False)]
+                    protected_list = [k for k in full if self._is_protected(k, prot, False)]
+                    for other in (unprotected + protected_list)[:need_drop]:
+                        self._remove_key(other)
             if t in self._data:
                 self._order.remove(t)
             self._data[t] = _Entry(buffer=buffer, dims=dims, metadata=dict(metadata), byte_size=b)
@@ -162,18 +167,31 @@ class PreviewBufferCache:
         *,
         protected_file_hashes: Collection[str] = (),
         preserve_full_resolution: bool = False,
+        for_full_resolution: bool = False,
     ) -> PreviewCacheUsage:
         with self._lock:
             entries = len(self._data)
             bytes_used = sum(entry.byte_size for entry in self._data.values())
             protected = frozenset(protected_file_hashes)
             reclaimable = [key for key in self._order if not self._is_protected(key, protected, preserve_full_resolution)]
+            entries_remaining = max(0, self._app.preview_cache_max_entries - entries)
+            reclaimable_entries = len(reclaimable)
+            if for_full_resolution:
+                max_full = max(1, self._app.preview_cache_max_full_res_entries)
+                full_keys = [key for key in self._order if isinstance(key, tuple) and len(key) > 3 and bool(key[3])]
+                full_reclaimable = [key for key in full_keys if not self._is_protected(key, protected, False)]
+                full_free = max(0, max_full - len(full_keys))
+                overall_slots = entries_remaining + reclaimable_entries
+                full_slots = full_free + len(full_reclaimable)
+                effective_slots = min(overall_slots, full_slots)
+                entries_remaining = min(entries_remaining, full_free)
+                reclaimable_entries = max(0, effective_slots - entries_remaining)
             return PreviewCacheUsage(
                 entries=entries,
                 bytes_used=bytes_used,
-                entries_remaining=max(0, self._app.preview_cache_max_entries - entries),
+                entries_remaining=entries_remaining,
                 bytes_remaining=max(0, self._app.preview_cache_max_bytes - bytes_used),
-                reclaimable_entries=len(reclaimable),
+                reclaimable_entries=reclaimable_entries,
                 reclaimable_bytes=sum(self._data[key].byte_size for key in reclaimable),
             )
 
