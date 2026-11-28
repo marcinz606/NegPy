@@ -605,6 +605,10 @@ class CompactSlider(BaseSlider):
         self._edited_dot.setVisible(abs(self.spin.value() - self._default) > 1e-6)
 
     def eventFilter(self, obj, event) -> bool:
+        # The collector clears a slider's attributes before Qt deletes it, and its window still sends
+        # it events as it closes. An error raised here ends the process.
+        if getattr(self, "label", None) is None:
+            return False
         if obj is self.label:
             et = event.type()
             if et == QEvent.Type.MouseButtonPress and event.button() == Qt.MouseButton.LeftButton:

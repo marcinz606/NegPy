@@ -600,6 +600,12 @@ class ShortcutManager:
             "lento_strip_flat": lambda: (
                 right.scanlight_sidebar.strip_flat_btn.toggle() if not right.scanlight_sidebar.strip_flat_btn.isHidden() else None
             ),
+            "pixel_shift_off": lambda: right.scanlight_sidebar.pick_pixel_shift(1),
+            "pixel_shift_4": lambda: right.scanlight_sidebar.pick_pixel_shift(4),
+            "pixel_shift_16": lambda: right.scanlight_sidebar.pick_pixel_shift(16),
+            "pixel_shift_keep_frames": lambda: (
+                right.scanlight_sidebar.keep_shift_btn.toggle() if not right.scanlight_sidebar.pixel_shift_rail.isHidden() else None
+            ),
             "lento_eject": lambda: right.scanlight_sidebar.eject_btn.click() if not right.scanlight_sidebar.dock_body.isHidden() else None,
             "scanlight_infrared": lambda: (
                 right.scanlight_sidebar.ir_toggle.toggle() if not right.scanlight_sidebar._ir_exposure_widget.isHidden() else None

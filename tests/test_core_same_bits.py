@@ -44,7 +44,26 @@ def _filled(fill):
 
 _LAB = (_IMG3 * np.array([100.0, 160.0, 160.0], np.float32) - np.array([0.0, 80.0, 80.0], np.float32)).astype(np.float32)
 
+# One uint16 mosaic per Pixel Shift position, RGGB, odd in both sizes so the edge rows are covered.
+_SHIFT_COLORS = np.tile(np.array([[0, 1], [3, 2]], np.uint8), (24, 31))[:47, :61]
+
+
+def _shift_set(count):
+    from negpy.services.capture.pixel_shift_merge import merge_set, shot_positions
+
+    rng = np.random.default_rng(count)
+    return merge_set((rng.integers(0, 16384, (47, 61), dtype=np.uint16) for _ in range(count)), _SHIFT_COLORS, shot_positions(count))
+
+
+def _shift_detail():
+    shot = np.random.default_rng(7).integers(0, 16384, (47, 61), dtype=np.uint16)
+    return np.array([*negpy_core.pixel_shift_brightest_site(shot), *negpy_core.pixel_shift_site_detail(shot, (1, 0))], np.uint64)
+
+
 _CASES = {
+    "pixel_shift_merge_4": lambda: _shift_set(4),
+    "pixel_shift_merge_16": lambda: _shift_set(16),
+    "pixel_shift_detail": _shift_detail,
     "chroma_spread": lambda: np.array(negpy_core.chroma_spread(_IMG3, 4, 0.003, 0.97, 0.1)),
     "percentiles": lambda: np.array(negpy_core.percentiles(_IMG1.ravel(), [0.5, 1.0, 37.0, 50.0, 99.0]), np.float32),
     "resize_area_general": lambda: negpy_core.resize_area(_IMG3, (47, 31)),
@@ -197,6 +216,9 @@ _HASHES = {
     "canny": "1e3125ae47a5dd1719f97531ffebffc79a6461ba1fae024d26d4d7a85b89b968",
     "find_external_contours": "ebb4302dd2bc7226a7ed24fbb5e16e14f407d5693ce47128a649cee9e4a098be",
     "morph_close_u8": "4be9a2976881ff83eb0b92a8ec484e048c61612324afbde73b6e0c89aa92865e",
+    "pixel_shift_merge_4": "515be67d809704ad607624ee9dfd0c15d4219ad2baea3a00d98fc92861815755",
+    "pixel_shift_merge_16": "5dba33868243da0e7a629606c9dd23ec6c899f4e56e8b0cd352340be8ddeb206",
+    "pixel_shift_detail": "0c7db729a8e4b408b716b1d0c4ea8e7702be2392c9d5f54d8fce5cbc851e34c5",
     "to_log_density": "cc4d2086edf051826619f024a4f5d28c80d28528291d9df4610c1d3854144038",
     "unmix_log": "73edc03deb7e068718e77264608858efaec4b64776f64645da9f4aef54ec23b4",
     "unmix_log_anchored": "0d1d92c5fdf62796f89d844d8c03bd2c8fc9cd8da35f11f44b9fa9cbeb1507f4",

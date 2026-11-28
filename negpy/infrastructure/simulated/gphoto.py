@@ -47,6 +47,10 @@ _CFA_PHOTOMETRIC = 32803
 # Enough texture that every frame of a roll passes trichrome grouping's same-frame floor.
 _FILM_SHAPES = 24
 _FIRST_CHANNEL = "RGB".index(CAPTURE_ORDER[0].letter)
+# Pixel Shift: where each shot's samples sit on the film, (row, col) in sensor pixels.
+_FOUR_SHOTS = ((0, 1), (1, 1), (1, 0), (0, 0))
+_HALF_STEPS = ((0.0, 0.5), (0.0, 0.0), (0.5, 0.5), (0.5, 0.0))
+_SHIFT_COUNT, _SHIFT_INTERVAL = "d23a", "d23b"
 
 
 def _seconds(label: str) -> float:
@@ -106,7 +110,7 @@ class _Path:
 
 
 class _Abilities:
-    model = MODEL
+    model = f"Sony {MODEL}"  # the driver entry: NegPy offers Pixel Shift on a Sony driver only
     operations = 1 | 8 | 16  # CAPTURE_IMAGE | CAPTURE_PREVIEW | CONFIG
 
 
@@ -152,12 +156,17 @@ class _Camera:
             self._gp.bulb_switch(bool(int(widget.value or 0)))
 
     def capture(self, _kind: int) -> _Path:
-        self._gp.pending_raw = self._gp.still_dng()
+        count = int(self._gp.props[_SHIFT_COUNT].value or 1)
+        frames = self._gp.shift_set(count) if count > 1 else [self._gp.still_dng()]
+        self._gp.pending_raw = frames[0]
+        # The rest of a set arrives one file at a time, as the body sends it.
+        self._gp.set_files = {f"capt{n:04d}.DNG": data for n, data in enumerate(frames[1:], 2)}
+        self._gp.events += [(SimGphoto.GP_EVENT_FILE_ADDED, _Path(name)) for name in self._gp.set_files]
         self._gp.shot_events = 1
         return _Path("capt0001.DNG")
 
-    def file_get(self, _folder: str, _name: str, _kind: int) -> _Data:
-        return _Data(self._gp.pending_raw)
+    def file_get(self, _folder: str, name: str, _kind: int) -> _Data:
+        return _Data(self._gp.set_files.pop(name, self._gp.pending_raw))
 
     def file_delete(self, _folder: str, _name: str) -> None:
         pass
@@ -191,8 +200,11 @@ class SimGphoto:
             "capturetarget": _Widget("capturetarget", "card", ["card", "sdram"]),
             "focusmagnifier": _Widget("focusmagnifier", "Off,320,240", ["Off", "1", "6.9", "13.7"]),
             "bulb": _Widget("bulb", "0", []),
+            _SHIFT_COUNT: _Widget(_SHIFT_COUNT, "1", ["1", "4", "16"]),
+            _SHIFT_INTERVAL: _Widget(_SHIFT_INTERVAL, "65535", ["65535", "1000"]),
         }
         self.pending_raw = b""
+        self.set_files: dict[str, bytes] = {}
         self.shot_events = 0
         self.events: list[tuple[int, object]] = []
         self._bulb_open: Optional[float] = None
@@ -253,6 +265,21 @@ class SimGphoto:
         quad = self._signal(*_film(_SENSOR_HW[0] // 2, _SENSOR_HW[1] // 2, self._frame), dose)
         cfa = np.empty(_SENSOR_HW, np.float32)
         cfa[0::2, 0::2], cfa[0::2, 1::2], cfa[1::2, 0::2], cfa[1::2, 1::2] = quad[..., 0], quad[..., 1], quad[..., 1], quad[..., 2]
+        return self._dng(cfa)
+
+    def shift_set(self, count: int) -> list[bytes]:
+        """The frames of one Pixel Shift set: the film sampled per photosite at each shot's position."""
+        self._advance_film()
+        scale = 1 if count == 4 else 2
+        height, width = _SENSOR_HW
+        scene = self._signal(*_film(scale * (height + 2), scale * (width + 2), self._frame))
+        y, x = np.mgrid[0:height, 0:width]
+        channel = (y % 2) + (x % 2)  # RGGB
+        halves = _HALF_STEPS if count == 16 else ((0.0, 0.0),)
+        positions = [(row + half_row, col + half_col) for half_row, half_col in halves for row, col in _FOUR_SHOTS]
+        return [self._dng(scene[scale * y + int(row * scale), scale * x + int(col * scale), channel]) for row, col in positions]
+
+    def _dng(self, cfa: np.ndarray) -> bytes:
         counts = cfa * (_WHITE - _BLACK)
         counts += self._rng.normal(0.0, 1.0, _SENSOR_HW).astype(np.float32) * np.sqrt(counts + 4.0)
         raw = np.clip(counts + _BLACK, 0, _WHITE).astype(np.uint16)

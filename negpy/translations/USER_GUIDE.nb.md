@@ -585,7 +585,7 @@ NegPy holder macOS og Windows våkne mens den skanner. På Linux slår du av aut
 *   **Mål bilde…** (Coolscan): måler eksponeringen på ett bilde og bruker den for hver senere skanning, så alle bildene i en rull samsvarer. **Lås opp** avslutter det. Mål på nytt for hver rull.
 *   **Forhåndsskann…** (Plustek): en rask forhåndsvisning av hele området. Dra en beskjæring, så leser neste skanning bare det området.
 
-<!-- panel:scan_camera src:0145e5d1 -->
+<!-- panel:scan_camera src:72f24776 -->
 ### Kamera
 
 Skanner med et kamera på et reprostativ, koblet til med USB i **PC Remote**-modus (macOS og Linux; det krever `python-gphoto2`). Med en NegPy **Scanlight** styrer NegPy også lyset. CAMERA_SCANNING.md forklarer oppsettet.
@@ -596,6 +596,7 @@ Skanner med et kamera på et reprostativ, koblet til med USB i **PC Remote**-mod
 *   **Måler**: angir lukkertiden slik at den lyseste delen som ikke må klippes (den klare filmen i et negativ, høylysene i et dias), havner like under klipping. Mål før første skanning. Uten en kalibrert forhåndsinnstilling bruker en skanning eksponeringen som er angitt på kameraet, og NegPy spør før den skanner uten lysmåling.
 *   **Skann** tar neste bilde og importerer det; **Ta på nytt** (gjør om-pilen) tar det siste bildet igjen. Når en skanning klipper, forteller statuslinjen hvor mye av bildet som ble klippet. I vinduet Direktevisning skanner `Space` eller `S`, og `R` tar på nytt. Med en Scanlight velger **R**, **G**, **B** og **IR** hvilke eksponeringer Ta på nytt gjentar.
 *   **Opptaksforsinkelse**: venter før den første eksponeringen, så et ustøtt bord rekker å falle til ro.
+*   **Pixel Shift**: flere detaljer fra 4 eller 16 bilder. **Behold kildebilder** beholder dem.
 *   **La lyset være på** (pæren): lar Scanlight lyse etter hver skanning, så du kan ramme inn neste bilde.
 *   **Film** (med en Lento Dock): hva holderen gjør når du klikker Skann. **Neste bilde** flytter filmen ett bilde etter hver skanning. **Hele stripen** skanner hvert bilde og mater så ut stripen; Stopp avslutter det. Ta på nytt flytter aldri filmen. **Mat ut** flytter stripen ut. S-knappen på holderen virker som Skann.
 *   **Ta flatfelt**: når en hel stripe er matet ut, fotograferes den tomme holderen og lagres som rullens flatfeltprofil.

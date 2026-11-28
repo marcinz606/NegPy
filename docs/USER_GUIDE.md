@@ -833,6 +833,7 @@ Scans with a camera on a copy stand, connected over USB in **PC Remote** mode (m
 *   **Meter**: sets the shutter so the brightest part that must not clip (a negative's clear film, a slide's highlights) lands just under clipping. Meter before the first scan. Without a calibrated preset, a scan uses the exposure set on the camera, and NegPy asks before it scans unmetered.
 *   **Scan** shoots the next frame and imports it; **Retake** (the redo arrow) shoots the last frame again. When a scan clips, the status line tells you how much of the picture clipped. In the Live View window, `Space` or `S` scans and `R` retakes. With a Scanlight, **R**, **G**, **B** and **IR** pick which exposures Retake repeats.
 *   **Capture Delay**: waits before the first exposure, so a shaky table can settle.
+*   **Pixel Shift**: more detail from 4 or 16 frames. **Keep Source Frames** keeps them.
 *   **Keep Light On** (the bulb): keeps the Scanlight lit after each scan, so you can frame the next shot.
 *   **Film** (with a Lento Dock): what the dock does when you click Scan. **Next Frame** moves the film one frame after each scan. **Whole Strip** scans every frame, then ejects the strip; Stop ends it. Retake never moves the film. **Eject** moves the strip out. The dock's S button works as Scan.
 *   **Shoot Flat Field**: after a whole strip ejects, shoots the empty dock and saves it as the roll's Flat Field profile.

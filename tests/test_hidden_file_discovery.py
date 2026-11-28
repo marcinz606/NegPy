@@ -105,3 +105,13 @@ def test_an_unexpected_failure_emits_error_not_silence(tmp_path, monkeypatch) ->
     worker.process(AssetDiscoveryTask(paths=[str(tmp_path)], supported_extensions=tuple(SUPPORTED_RAW_EXTENSIONS)))
 
     assert errors == ["boom"]
+
+
+def test_library_walk_skips_kept_pixel_shift_frames(tmp_path):
+    from negpy.infrastructure.loaders.constants import PIXEL_SHIFT_FRAMES_FOLDER
+
+    kept = tmp_path / PIXEL_SHIFT_FRAMES_FOLDER
+    kept.mkdir()
+    (kept / "Roll_Frame001_S01.ARW").write_bytes(b"x")
+    (tmp_path / "Roll_Frame001.dng").write_bytes(b"x")
+    assert [os.path.basename(f["path"]) for f in iter_library_files([str(tmp_path)])] == ["Roll_Frame001.dng"]

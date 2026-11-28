@@ -30,6 +30,7 @@ pub mod meter;
 pub mod morph;
 pub mod orient;
 pub mod phase;
+pub mod pixel_shift;
 pub mod png;
 pub mod print_curve;
 pub mod process;
@@ -73,6 +74,7 @@ fn negpy_core(m: &pyo3::Bound<'_, pyo3::types::PyModule>) -> pyo3::PyResult<()> 
     py::loaders::register(m)?;
     py::process::register(m)?;
     py::phase::register(m)?;
+    py::pixel_shift::register(m)?;
     py::rgbscan::register(m)?;
     py::capture::register(m)?;
     py::print_curve::register(m)?;

@@ -29,13 +29,15 @@ from __future__ import annotations
 
 from negpy.kernel.system.i18n import tr
 import json
+import contextlib
 import os
 import re
 import tempfile
 import threading
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Iterator, Optional
 
 from negpy.infrastructure import simulated
 from negpy.infrastructure.loaders.constants import (
@@ -143,6 +145,31 @@ _BULB_RELEASES: tuple[tuple[str, Any, Any], ...] = (
 #: reduction can hold it for as long again as the exposure.
 _BULB_FILE_TIMEOUT_S = 30.0
 _BULB_EVENT_WAIT_MS = 500
+
+
+@dataclass(frozen=True)
+class _ShiftBody:
+    """How one maker's bodies take a Pixel Shift set: one trigger, then one file per shot.
+
+    A maker gets a row only with its position table in `pixel_shift_merge` confirmed on a real
+    body; every other body shows no Pixel Shift control.
+    """
+
+    #: Named in the driver entry, and the key of the maker's position table.
+    maker: str
+    #: Shots per trigger. Writable only while the feature is on at the body; "1" is a plain frame.
+    count: str
+    #: The pause between shots, which the body keeps per count, and its shortest value.
+    interval: str
+    shortest: str
+
+
+_SHIFT_BODIES = (_ShiftBody(maker="sony", count="d23a", interval="d23b", shortest="65535"),)  # PTP codes
+#: How long a failed set waits for each frame the body still sends, so none stays queued on it.
+_SET_ABANDON_TIMEOUT_S = 3.0
+#: How long past the exposure time the next frame of a set can take to arrive.
+# Longer than the slowest shutter step, so a slow frame is never taken for a missing one.
+_SET_FILE_TIMEOUT_S = 40.0
 
 
 def _require_raw(name: str) -> None:
@@ -367,6 +394,8 @@ class GphotoCamera:
     def _reset_body_state(self) -> None:
         """Forget controls whose names and semantics belong to one camera body."""
         self._capabilities = CameraCapabilities(driver_model="")
+        #: The body's own Pixel Shift interval per count, read before a set overwrote it.
+        self._shift_intervals: dict[int, Optional[str]] = {}
         # Set once a stream has failed on a body that is otherwise fine, so nothing restarts it.
         # Retrying walks a Fujifilm off the USB bus entirely (issue #658).
         self._preview_broken = False
@@ -471,6 +500,11 @@ class GphotoCamera:
                 self.release_bulb()  # the body must not stay in Bulb after NegPy lets go of it
             except Exception as exc:  # noqa: BLE001 — teardown must not raise
                 logger.warning("gphoto2: could not restore the shutter: %s", exc)
+            if self._camera is not None:
+                try:
+                    self._restore_shift_settings(self._camera)
+                except Exception as exc:  # noqa: BLE001 — teardown must not raise
+                    logger.warning("gphoto2: could not leave Pixel Shift: %s", exc)
             self._alive = False
             if self._camera is not None:
                 try:
@@ -622,7 +656,7 @@ class GphotoCamera:
         """
         with self._lock:
             camera = self._require()
-            out: dict[str, dict] = {}
+            out: dict[str, Any] = {}
             for key in _PROPERTIES:
                 name = self._property(key)
                 if name is None:
@@ -658,6 +692,8 @@ class GphotoCamera:
                     "writable": not widget.get_readonly(),
                     "options": options,
                 }
+            counts = self.pixel_shift_counts()
+            out["pixel_shift"] = None if counts is None else list(counts)
             # The body's own magnifier state, whoever engaged or released it. Sony packs "ratio,x,y".
             spec = self._probe_magnifier()
             if spec is not None:
@@ -801,48 +837,22 @@ class GphotoCamera:
         (a scan re-asserts them so a drifted setting can't falsify it); `_set_verified` writes every
         time, because the driver's cached read-back does not follow the dial.
         """
-        prev = self._post_shot
-        if prev is not None and prev.is_alive():
-            prev.join()  # the previous shot's drain normally finished during the caller's LED settle
-        self._busy.set()
-        drained_async = False
-        try:
-            with self._lock:
-                camera = self._require()
-                t0 = time.perf_counter()
-                self.release_bulb()  # a plain shot at a held Bulb would expose for as long as the shutter stays open
-                if shutter:
-                    name = self._property("shutter")
-                    if name is None or not self._set_verified(name, shutter):
-                        raise GphotoError(tr("could not set shutter to {value!r}: camera rejected it or it did not settle", value=shutter))
-                for prop, value in (("iso", iso), ("aperture", aperture)):
-                    # Not fatal like the shutter: a warning plus the current setting beats
-                    # aborting a scan, and the preset's value was settable at calibration.
-                    if value:
-                        name = self._property(prop)
-                        if name is None or not self._set_verified(name, value):
-                            logger.warning("gphoto2: could not lock %s to %r for the scan; using the current setting", prop, value)
-                t_assert = time.perf_counter()
-                try:
-                    path = camera.capture(self._gp.GP_CAPTURE_IMAGE)
-                    t_shot = time.perf_counter()
-                    _require_raw(path.name)
-                    data = self._download(camera, path)
-                    t_download = time.perf_counter()
-                except BaseException:
-                    # A failed shot drains inline, still under the lock: the error must leave a
-                    # clean queue behind before the preview or a retry touches the session.
-                    self._drain_events()
-                    raise
-        except self._gp.GPhoto2Error as exc:
-            raise GphotoError(tr("capture failed: {value}", value=exc)) from exc
-        else:
-            self._drain_owed.set()  # the preview must clear this shot's stragglers before resuming
-            self._finish_shot_async()
-            drained_async = True
-        finally:
-            if not drained_async:
-                self._busy.clear()
+        with self._still() as camera:
+            t0 = time.perf_counter()
+            self._leave_set_count(camera)
+            self._apply_exposure(shutter, iso, aperture)
+            t_assert = time.perf_counter()
+            try:
+                path = camera.capture(self._gp.GP_CAPTURE_IMAGE)
+                t_shot = time.perf_counter()
+                _require_raw(path.name)
+                data = self._download(camera, path)
+                t_download = time.perf_counter()
+            except BaseException:
+                # A failed shot drains inline, still under the lock: the error must leave a
+                # clean queue behind before the preview or a retry touches the session.
+                self._drain_events()
+                raise
 
         out_path = _write_raw(out_path, path.name, data)
         logger.info(
@@ -855,6 +865,43 @@ class GphotoCamera:
             len(data) / 1e6 / max(t_download - t_shot, 1e-9),
         )
         return out_path
+
+    @contextmanager
+    def _still(self) -> Iterator[Any]:
+        """Claim the body for one trigger: the preview stands aside, and a success drains on a worker."""
+        prev = self._post_shot
+        if prev is not None and prev.is_alive():
+            prev.join()  # the previous shot's drain normally finished during the caller's LED settle
+        self._busy.set()
+        drained_async = False
+        try:
+            with self._lock:
+                camera = self._require()
+                self.release_bulb()  # a plain shot at a held Bulb would expose for as long as the shutter stays open
+                yield camera
+        except self._gp.GPhoto2Error as exc:
+            raise GphotoError(tr("capture failed: {value}", value=exc)) from exc
+        else:
+            self._drain_owed.set()  # the preview must clear this shot's stragglers before resuming
+            self._finish_shot_async()
+            drained_async = True
+        finally:
+            if not drained_async:
+                self._busy.clear()
+
+    def _apply_exposure(self, shutter: Optional[str], iso: Optional[str], aperture: Optional[str]) -> None:
+        """Lock the body to the preset's exposure before a trigger."""
+        if shutter:
+            name = self._property("shutter")
+            if name is None or not self._set_verified(name, shutter):
+                raise GphotoError(tr("could not set shutter to {value!r}: camera rejected it or it did not settle", value=shutter))
+        for prop, value in (("iso", iso), ("aperture", aperture)):
+            # Not fatal like the shutter: a warning plus the current setting beats
+            # aborting a scan, and the preset's value was settable at calibration.
+            if value:
+                name = self._property(prop)
+                if name is None or not self._set_verified(name, value):
+                    logger.warning("gphoto2: could not lock %s to %r for the scan; using the current setting", prop, value)
 
     def capture_bulb(
         self,
@@ -890,6 +937,7 @@ class GphotoCamera:
                     bulb = self._bulb_choice(camera, name)
                 if bulb is None and usb_release:
                     raise GphotoError(tr("this camera offers no Bulb shutter over USB; set Bulb on the camera and use a release cable"))
+                self._leave_set_count(camera)
                 release = self._bulb_release(camera) if usb_release else None
                 if usb_release and release is None:
                     raise GphotoError(tr("this camera has no bulb release over USB; use a release cable on the Scanlight"))
@@ -976,6 +1024,148 @@ class GphotoCamera:
         widget = camera.get_single_config(name)
         widget.set_value(value)
         camera.set_single_config(name, widget)
+
+    def pixel_shift_counts(self) -> Optional[tuple[int, ...]]:
+        """The Pixel Shift set sizes the body offers now: None on a body without the feature,
+        empty while the feature is off on the body, else the counts above 1."""
+        with self._lock:
+            if self._camera is None or not self._alive:
+                return None
+            try:
+                body = self._shift_body()
+                if body is None:
+                    return None
+                self._camera.get_single_config(body.count)  # absent on a body without the feature
+                widget = self._shift_count_widget(self._camera)
+                if widget is None:
+                    return ()
+                offered = _choices(self._gp, widget)
+                return tuple(int(c) for c in offered if c.isdigit() and int(c) > 1)
+            except Exception as exc:  # noqa: BLE001 — absence is normal, and the UI asks from a poll
+                logger.debug("gphoto2: no Pixel Shift: %s", exc)
+                return None
+
+    def capture_set(
+        self,
+        out_path: str,
+        count: int,
+        shutter: Optional[str] = None,
+        iso: Optional[str] = None,
+        aperture: Optional[str] = None,
+        on_shot: Optional[Callable[[int, int], None]] = None,
+    ) -> list[str]:
+        """Take one Pixel Shift set of `count` frames on one trigger and return their paths in shot
+        order, named `<out_path stem>_S01` onward. `on_shot(n, count)` runs as each frame lands."""
+        stem = os.path.splitext(out_path)[0]
+        saved: list[str] = []
+        try:
+            with self._still() as camera:
+                self._shift_intervals.setdefault(count, None)  # before the write, so close resets a count that did not settle
+                body = self._set_shot_count(count)
+                if self._shift_intervals[count] is None:
+                    self._shift_intervals[count] = self._config_value(camera, body.interval)
+                if not self._set_verified(body.interval, body.shortest):
+                    raise GphotoError(tr("could not set the Pixel Shift interval: camera rejected it or it did not settle"))
+                self._apply_exposure(shutter, iso, aperture)
+                try:
+                    path = camera.capture(self._gp.GP_CAPTURE_IMAGE)
+                    for n in range(1, count + 1):
+                        if n > 1:
+                            path = self._next_file(camera, _SET_FILE_TIMEOUT_S)
+                            if path is None:
+                                raise GphotoError(tr("the camera sent {n} of {count} Pixel Shift frames", n=n - 1, count=count))
+                        _require_raw(path.name)
+                        # Downloaded as it arrives: the body refuses a download of the whole set afterwards.
+                        data = self._download(camera, path)
+                        saved.append(_write_raw(f"{stem}_S{n:02d}.raw", path.name, data))
+                        if on_shot is not None:
+                            on_shot(n, count)
+                except BaseException:
+                    self._abandon_set(camera, count - len(saved))
+                    self._drain_events()
+                    raise
+        except BaseException:
+            for frame in saved:
+                with contextlib.suppress(OSError):  # the first error is the one to report
+                    os.remove(frame)
+            raise
+        logger.info("gphoto2 captured a %d-frame Pixel Shift set → %s", count, stem)
+        return saved
+
+    def _shift_body(self) -> Optional[_ShiftBody]:
+        """This body's row of `_SHIFT_BODIES`. Another maker's body can hold an unrelated property
+        under the same code, so the driver entry decides."""
+        driver = self._capabilities.driver_model.lower()
+        return next((body for body in _SHIFT_BODIES if body.maker in driver), None)
+
+    @property
+    def pixel_shift_maker(self) -> str:
+        """The key of this body's position table; empty on a body without Pixel Shift."""
+        body = self._shift_body()
+        return body.maker if body is not None else ""
+
+    def _abandon_set(self, camera: Any, left: int) -> None:
+        """Take the rest of a failed set off the body: it holds each frame until it is downloaded."""
+        with contextlib.suppress(Exception):  # the first error is the one to report
+            for _ in range(left):
+                path = self._next_file(camera, _SET_ABANDON_TIMEOUT_S)
+                if path is None:
+                    return
+                self._download(camera, path)
+
+    def _shift_count_widget(self, camera: Any) -> Optional[Any]:
+        """The shot-count property while Pixel Shift is on at the body; the body locks it while off.
+        The mode property itself is a menu with no choices, which `_safe_value` cannot read."""
+        body = self._shift_body()
+        if body is None:
+            return None
+        try:
+            widget = camera.get_single_config(body.count)
+        except self._gp.GPhoto2Error:
+            return None
+        return None if widget.get_readonly() else widget
+
+    def _leave_set_count(self, camera: Any) -> None:
+        """Put the body at one frame per trigger: at a set count a plain trigger takes a whole set and
+        hands over only its first frame. Written without a read: the cached read-back can be stale."""
+        if self._shift_count_widget(camera) is not None:
+            self._set_shot_count(1)
+
+    def _restore_shift_settings(self, camera: Any) -> None:
+        """Hand the body back as it was: its own interval for each count a set used, and one frame per trigger."""
+        body = self._shift_body()
+        if body is None or not self._shift_intervals or self._shift_count_widget(camera) is None:
+            return
+        for count, interval in self._shift_intervals.items():
+            if interval and interval != body.shortest:
+                self._set_shot_count(count)
+                self._set_verified(body.interval, interval)
+        self._shift_intervals.clear()
+        self._set_shot_count(1)
+
+    def _config_value(self, camera: Any, name: str) -> Optional[str]:
+        """A property's value, or None when this body has no such property."""
+        try:
+            return _safe_value(self._gp, camera.get_single_config(name))
+        except self._gp.GPhoto2Error:
+            return None
+
+    def _set_shot_count(self, count: int) -> _ShiftBody:
+        body = self._shift_body()
+        if body is None or not self._set_verified(body.count, str(count)):
+            raise GphotoError(
+                tr("could not set the Pixel Shift shot count to {value}: camera rejected it or it did not settle", value=count)
+            )
+        return body
+
+    def _next_file(self, camera: Any, timeout_s: float) -> Optional[Any]:
+        """The camera path of the next file the body adds, or None after `timeout_s`."""
+        deadline = time.monotonic() + timeout_s
+        while time.monotonic() < deadline:
+            kind, data = camera.wait_for_event(_BULB_EVENT_WAIT_MS)
+            if kind == self._gp.GP_EVENT_FILE_ADDED:
+                return data
+        return None
 
     def _wait_for_raw(self, camera: Any) -> Any:
         """The camera path of the RAW a Bulb exposure adds. A JPEG the body adds beside it is

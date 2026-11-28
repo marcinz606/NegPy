@@ -821,7 +821,7 @@ NegPy tiene svegli macOS e Windows durante la scansione. Su Linux, disattiva la 
 *   **Misura fotogramma…** (Coolscan): misura l'esposizione su un fotogramma e la usa per ogni scansione successiva, così tutti i fotogrammi di un rullino corrispondono. **Sblocca** la termina. Misura di nuovo per ogni rullino.
 *   **Prescansione…** (Plustek): una rapida anteprima completa. Trascina un ritaglio, e la scansione successiva legge solo quell'area.
 
-<!-- panel:scan_camera src:0145e5d1 -->
+<!-- panel:scan_camera src:72f24776 -->
 ### Fotocamera
 
 Esegue la scansione con una fotocamera su uno stativo di riproduzione, collegata via USB in modalità **PC Remote** (macOS e Linux; richiede `python-gphoto2`). Con uno **Scanlight** di NegPy, NegPy controlla anche la luce. CAMERA_SCANNING.md spiega la configurazione.
@@ -832,6 +832,7 @@ Esegue la scansione con una fotocamera su uno stativo di riproduzione, collegata
 *   **Esposimetro**: imposta l'otturatore in modo che la parte più luminosa che non deve essere tosata (la pellicola trasparente di un negativo, le alte luci di una diapositiva) cada appena sotto la tosatura. Misura prima della prima scansione. Senza una preimpostazione calibrata, una scansione usa l'esposizione impostata sulla fotocamera, e NegPy chiede conferma prima di eseguire una scansione non misurata.
 *   **Scansiona** scatta il fotogramma successivo e lo importa; **Riprendi** (la freccia di ripetizione) scatta di nuovo l'ultimo fotogramma. Quando una scansione viene tosata, la riga di stato indica quanta parte dell'immagine è tosata. Nella finestra del Live View, `Spazio` o `S` esegue la scansione e `R` riprende. Con uno Scanlight, **R**, **G**, **B** e **IR** scelgono quali esposizioni Riprendi ripete.
 *   **Ritardo di acquisizione**: attende prima della prima esposizione, così un tavolo traballante può assestarsi.
+*   **Pixel Shift**: più dettaglio da 4 o 16 fotogrammi. **Conserva i fotogrammi sorgente** li conserva.
 *   **Luce sempre accesa** (la lampadina): tiene acceso lo Scanlight dopo ogni scansione, così puoi inquadrare lo scatto successivo.
 *   **Pellicola** (con un Lento Dock): cosa fa il caricatore quando fai clic su Scansiona. **Fotogramma successivo** fa avanzare la pellicola di un fotogramma dopo ogni scansione. **Intera striscia** scansiona ogni fotogramma, poi espelle la striscia; Ferma la termina. Riprendi non sposta mai la pellicola. **Espelli** fa uscire la striscia. Il pulsante S del caricatore funziona come Scansiona.
 *   **Scatta Campo piatto**: dopo l'espulsione di un'intera striscia, fotografa il caricatore vuoto e lo salva come profilo di Campo piatto del rullino.

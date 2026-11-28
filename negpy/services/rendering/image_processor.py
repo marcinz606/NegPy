@@ -14,6 +14,7 @@ from PIL import Image, ImageCms
 from typing import Any, Callable, Dict, List, NamedTuple, Optional, Sequence, Tuple
 from negpy.kernel.system.logging import get_logger
 from negpy.kernel.system.config import APP_CONFIG, render_scale_factor
+from negpy.kernel.system.memory import available_system_memory_bytes
 from negpy.domain.types import ImageBuffer
 from negpy.domain.models import (
     WorkspaceConfig,
@@ -73,7 +74,7 @@ from negpy.features.retouch.logic import (
     paint_to_score,
 )
 from negpy.features.retouch.clone import apply_clone_strokes, clone_token
-from negpy.features.rgbscan.logic import merge_rgb_triplet, rgbscan_token
+from negpy.features.rgbscan.logic import assemble_planes, rgbscan_token
 from negpy.features.rgbscan.models import RgbScanConfig, is_rgb_triplet
 from negpy.features.stitch.logic import stitch_composite
 from negpy.features.hdr.logic import merge_bracket
@@ -82,6 +83,7 @@ from negpy.features.stitch.models import stitch_has_triplets, stitch_token
 from negpy.domain.interfaces import PipelineContext
 from negpy.services.rendering.base_read import NOT_READ, base_log_for, cached_base_log
 from negpy.services.rendering.engine import DarkroomEngine
+from negpy.services.rendering.prefetch_policy import fits_in_memory
 from negpy.services.rendering.gpu_engine import GPUEngine
 from negpy.infrastructure.capture.raw_demosaic import _user_sat
 from negpy.infrastructure.gpu.device import GPUDevice
@@ -209,6 +211,9 @@ _JXL_COLOR = {
 
 # Pinned wb_override for a decode with no white-balance gain applied at all.
 _NEUTRAL_WB = (1.0, 1.0, 1.0, 1.0)
+#: Memory one decode holds, per byte of its file, for the largest files: an uncompressed merged frame, of which
+# libraw holds the samples, a four-channel working image and the output at once.
+_DECODE_BYTES_PER_FILE_BYTE = 6
 
 
 class ArmedCrop(NamedTuple):
@@ -1210,7 +1215,7 @@ class ImageProcessor:
         # differently on the two paths.
         is_triplet = is_rgb_triplet(rgbcfg) and not hdr_active(params.hdr)
 
-        decoded: Dict[str, np.ndarray] = {}
+        planes: Dict[int, np.ndarray] = {}  # each exposure's own channel, float32
         if is_triplet:
             # Each exposure is a single narrowband channel: only one raw channel carries real
             # signal, and a WB gain applied to it corrects nothing, since there is no scene
@@ -1220,35 +1225,33 @@ class ImageProcessor:
             for label, path in (("green", rgbcfg.green_path), ("blue", rgbcfg.blue_path)):
                 if not os.path.exists(path):
                     raise FileNotFoundError(tr("RGB-scan {value} exposure not found: {value1}", value=label, value1=path))
-            siblings = [p for p in dict.fromkeys((rgbcfg.green_path, rgbcfg.blue_path)) if p != file_path]
-            with ThreadPoolExecutor(max_workers=1 + len(siblings)) as pool:
-                primary_future = pool.submit(
-                    self._decode_sensor_rgb,
-                    file_path,
+            wanted: Dict[str, List[int]] = {}
+            for channel, path in enumerate((file_path, rgbcfg.green_path, rgbcfg.blue_path)):
+                wanted.setdefault(path, []).append(channel)
+
+            def _take(path: str) -> Dict[str, Any]:
+                """Decode one exposure and keep only the planes it gives."""
+                decoded, decoded_metadata = self._decode_sensor_rgb(
+                    path,
                     linear_raw,
-                    fast=fast_decode,
+                    fast=fast_decode and path == file_path,
                     wb_override=_NEUTRAL_WB,
                     demosaic=demosaic,
                     positive_decode=positive_decode(params.process),
                     highlight_mode=highlight_mode,
                 )
-                decoded = dict(
-                    zip(
-                        siblings,
-                        pool.map(
-                            lambda p: self._decode_sensor_rgb(
-                                p,
-                                linear_raw,
-                                wb_override=_NEUTRAL_WB,
-                                demosaic=demosaic,
-                                positive_decode=positive_decode(params.process),
-                                highlight_mode=highlight_mode,
-                            )[0],
-                            siblings,
-                        ),
-                    )
-                )
-                rgb, metadata = primary_future.result()
+                # Float before the merge: the align's cubic warp overshoots the sensor
+                # ceiling, and a cast of the merge back to uint16 wraps it to black.
+                for channel in wanted[path]:
+                    planes[channel] = uint16_to_float32(np.ascontiguousarray(decoded[..., channel]))
+                return decoded_metadata
+
+            # The exposures decode at once only when memory holds all three decodes.
+            available = available_system_memory_bytes()
+            decode_bytes = _DECODE_BYTES_PER_FILE_BYTE * sum(os.path.getsize(path) for path in wanted)
+            workers = len(wanted) if available is None or fits_in_memory(decode_bytes, available) else 1
+            with ThreadPoolExecutor(max_workers=workers) as pool:
+                metadata = list(pool.map(_take, wanted))[0]
         else:
             rgb, metadata = self._decode_sensor_rgb(
                 file_path,
@@ -1274,12 +1277,8 @@ class ImageProcessor:
         ir_full = metadata.get("ir")
 
         if is_triplet:
-            # Merged in float, as the preview merges: the align's cubic warp overshoots the
-            # sensor ceiling, and a cast of the merge back to uint16 wraps it to black.
-            def _decode(path: str) -> np.ndarray:
-                return uint16_to_float32(rgb if path == file_path else decoded[path])
-
-            f32_buffer = merge_rgb_triplet(_decode, file_path, rgbcfg.green_path, rgbcfg.blue_path, align=rgbcfg.align)
+            f32_buffer = assemble_planes(planes[0], planes[1], planes[2], align=rgbcfg.align)
+            planes.clear()
         elif hdr_active(params.hdr):
             # Merged straight to float32: the recovered detail sits below the reference
             # exposure's quantization step, so a uint16 round-trip would discard it. This

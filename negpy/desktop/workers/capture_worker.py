@@ -40,7 +40,10 @@ from negpy.services.capture.calibration import (
     scan_ladder,
     true_seconds,
 )
-from negpy.services.capture.service import CaptureError, CaptureService, capture_single
+from negpy.services.capture.pixel_shift import FRAMES_FOLDER, PixelShiftCamera
+from negpy.services.capture.pixel_shift_dng import merged_shots
+from negpy.services.capture.pixel_shift_merge import shot_positions
+from negpy.services.capture.service import CaptureError, CaptureService, capture_single, other_formats
 
 logger = get_logger(__name__)
 
@@ -52,6 +55,8 @@ _FLAT_START_FACTOR = 1 / 8
 _FLAT_ATTEMPTS = 4
 _FLAT_LOW, _FLAT_HIGH, _FLAT_TARGET = 0.45, 0.92, 0.75  # brightest channel, fraction of the clip level
 _FLAT_CLIPPED_STEP = 1 / 4  # a clipped reference hides its level, so step down two stops
+# A merged Pixel Shift DNG holds full color at every pixel, far above one plain RAW's size.
+_MERGED_MAX_RAW_BYTES = 4 * 1024 * 1024 * 1024
 
 
 def _current_shutter(camera) -> str:
@@ -107,6 +112,8 @@ class CaptureRequest:
     whole_strip: bool = False  # scan and advance frame after frame until the strip ends or Stop
     strip_flat: bool = False  # with whole_strip: after the eject, shoot the empty dock for the roll's Flat Field profile
     shutter_ladder: tuple[str, ...] = ()  # the body's shutter labels, for the flat's own exposure
+    pixel_shift: int = 1  # frames per exposure: 1, or a Pixel Shift set of 4 or 16
+    keep_shift_frames: bool = False  # keep a Pixel Shift set's own frames beside the merged file
 
 
 @dataclass(frozen=True)
@@ -381,6 +388,30 @@ class CaptureWorker(QObject):
             # preview pauses for the second or two the body needs.
             camera = self._acquire_camera()
             logger.info("run_capture setup %.0f ms", (time.perf_counter() - _t0) * 1000)
+            # Only the visible exposures shoot a Pixel Shift set; Blend and the infrared exposure use the plain body.
+            shifted = req.pixel_shift > 1 and not req.blend_capture
+            # A set moves the bar inside its exposure: a whole frame, or one of the three colors.
+            frame_share = 0.75 if req.infrared else 1.0
+            one_file = not req.rgb_mode or req.white_mode or req.single_capture
+            exposures = 1 if one_file else sum(ch.letter in req.channels for ch in CAPTURE_ORDER)
+            exposure_step = frame_share / max(exposures, 1)
+            self._exposure_base = 0.0
+            shot = (
+                PixelShiftCamera(
+                    camera,
+                    shot_positions(req.pixel_shift, getattr(camera, "pixel_shift_maker", "")),
+                    frames_folder=os.path.join(req.output_folder, FRAMES_FOLDER),
+                    keep_frames=req.keep_shift_frames,
+                    # One plain frame cannot stand beside two merged channels: the sizes differ.
+                    fallback=not req.rgb_mode or req.white_mode or req.single_capture,
+                    report=self.status.emit,
+                    part=lambda share: self.progress.emit(self._exposure_base + share * exposure_step),
+                    cancel=self._cancel,
+                )
+                if shifted
+                else camera
+            )
+            size = {"max_raw_bytes": _MERGED_MAX_RAW_BYTES} if shifted else {}
 
             if not req.rgb_mode:
                 # Normal white-light scanning, with no Scanlight: one plain camera shot imported
@@ -389,12 +420,13 @@ class CaptureWorker(QObject):
                 self._wait_before_capture(req.capture_delay_s)
                 self.status.emit(tr("Capturing…"))
                 path = capture_single(
-                    camera,
+                    shot,
                     roll_name=req.roll_name,
                     frame_number=req.frame_number,
                     output_folder=req.output_folder,
                     shutter=(req.shutters[0] or None),
                     cancel=self._cancel,
+                    **size,
                 )
                 self._finish_frame(req, [path])
                 self._report_clipping(path)
@@ -403,6 +435,7 @@ class CaptureWorker(QObject):
             # RGB / white-preset captures drive the Scanlight, so it must be connected.
             light = self._ensure_light(req.port)
             service = CaptureService(light, camera)
+            visible = CaptureService(light, shot) if shifted else service
             # Only the frame's last exposure leaves the light lit; an earlier one hands straight to the next.
             visible_end = None if req.infrared else req.end_light
 
@@ -449,7 +482,7 @@ class CaptureWorker(QObject):
             self._wait_before_capture(req.capture_delay_s)  # after the light check, so a dead light fails at once
             if req.white_mode:  # one broadband white exposure (slide / B&W), no RGB triplet
                 self.status.emit(tr("Capturing white frame…"))
-                path = service.capture_white(
+                path = visible.capture_white(
                     roll_name=req.roll_name,
                     frame_number=req.frame_number,
                     output_folder=req.output_folder,
@@ -458,6 +491,7 @@ class CaptureWorker(QObject):
                     settle_s=req.settle_s,
                     cancel=self._cancel,
                     end_light=visible_end,
+                    **size,
                 )
                 self._finish_frame(req, _with_ir([path]))
                 self._report_clipping(path)
@@ -473,10 +507,11 @@ class CaptureWorker(QObject):
                 shutters=_shutters_or_none(req.shutters),
                 iso=req.iso or None,  # force the preset's exposure on the body before each shot
                 aperture=req.aperture or None,
+                **size,
             )
             if req.single_capture:  # one narrowband exposure, imported as an ordinary single RAW
                 self.status.emit(tr("Capturing…"))
-                path = service.capture_rgb_single(settings, cancel=self._cancel, end_light=visible_end)
+                path = visible.capture_rgb_single(settings, cancel=self._cancel, end_light=visible_end)
                 self._finish_frame(req, _with_ir([path]))
                 self._report_clipping(path)
                 return True
@@ -498,6 +533,7 @@ class CaptureWorker(QObject):
                 return True
 
             if tuple(req.channels) != ("R", "G", "B"):  # a subset of the visible exposures, each shot alone
+                self._check_sibling_formats(req, shifted)
                 paths = []
                 last = [ch for ch in CAPTURE_ORDER if ch.letter in req.channels][-1:]
                 for i, ch in enumerate(CAPTURE_ORDER):
@@ -506,7 +542,7 @@ class CaptureWorker(QObject):
                     self.channel.emit(ch.letter)
                     self.status.emit(tr("Capturing {channel} channel…", channel=ch.letter))
                     paths.append(
-                        service.capture_channel(
+                        visible.capture_channel(
                             roll_name=req.roll_name,
                             frame_number=req.frame_number,
                             output_folder=req.output_folder,
@@ -518,8 +554,11 @@ class CaptureWorker(QObject):
                             settle_s=req.settle_s,
                             cancel=self._cancel,
                             end_light=visible_end if [ch] == last else None,
+                            **size,
                         )
                     )
+                    self._exposure_base += exposure_step
+                    self.progress.emit(self._exposure_base)
                 self._finish_frame(req, _with_ir(paths))
                 return True
 
@@ -530,9 +569,13 @@ class CaptureWorker(QObject):
                 self.channel.emit(letter)
                 self.status.emit(tr("Capturing {value} channel…", value=tr(_names.get(letter, letter))))
 
-            result = service.capture_triplet(
+            def _on_exposure_done(share: float) -> None:
+                self._exposure_base = share * frame_share
+                self.progress.emit(self._exposure_base)
+
+            result = visible.capture_triplet(
                 settings,
-                progress=lambda f: self.progress.emit(f * (0.75 if req.infrared else 1.0)),
+                progress=_on_exposure_done,
                 cancel=self._cancel,
                 on_channel=_on_channel,
                 end_light=visible_end,
@@ -748,6 +791,19 @@ class CaptureWorker(QObject):
             return
         if share is not None:
             self.clipped.emit(path, share)
+
+    def _check_sibling_formats(self, req: CaptureRequest, shifted: bool) -> None:
+        """Refuse one exposure of a frame under another Pixel Shift setting than its siblings: a
+        merged file's size follows its shot count, and the frame's three files must match."""
+        shots = req.pixel_shift if shifted else 0
+        for ch in CAPTURE_ORDER:
+            if ch.letter in req.channels:
+                continue
+            # A name no file has: every format of this exposure is then another format.
+            wanted = os.path.join(req.output_folder, f"{req.roll_name}_Frame{req.frame_number:03d}_{ch.letter}.")
+            for other in other_formats(wanted) if os.path.isdir(req.output_folder) else ():
+                if merged_shots(other) != shots:
+                    raise CaptureError(tr("This frame's other exposures use a different Pixel Shift setting. Retake the whole frame."))
 
     def _wait_before_capture(self, delay_s: float) -> None:
         """Hold the first exposure for `delay_s`; Stop ends the wait as a cancellation."""

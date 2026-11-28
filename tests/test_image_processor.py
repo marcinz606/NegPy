@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -208,6 +209,39 @@ def test_load_source_f32_never_fast_decodes_rgbscan_triplets(monkeypatch, tmp_pa
 
     service._load_source_f32(str(r), cfg, fast_decode=True)
     assert calls and calls[0] is False
+
+
+@pytest.mark.parametrize(("available", "together"), [(64 * 1024**3, 3), (None, 3), (600 * 1024**2, 1)])
+def test_rgbscan_exposures_decode_together_only_when_memory_holds_them(monkeypatch, tmp_path, available, together) -> None:
+    import threading
+    import time
+    from dataclasses import replace
+
+    import negpy.services.rendering.image_processor as ip
+    from negpy.features.rgbscan.models import RgbScanConfig
+
+    paths = [tmp_path / n for n in ("r.raw", "g.raw", "b.raw")]
+    for index, f in enumerate(paths):
+        f.write_bytes(b"x" * 32 * 1024**2)  # three decodes need more than the reserve leaves of 600 MB
+    lock, running, most = threading.Lock(), [0], [0]
+
+    def decode(path, *_args, **_kwargs):
+        with lock:
+            running[0] += 1
+            most[0] = max(most[0], running[0])
+        time.sleep(0.05)
+        with lock:
+            running[0] -= 1
+        value = 1000 * (1 + [str(p) for p in paths].index(path))
+        return np.full((4, 6, 3), value, np.uint16) + np.arange(3, dtype=np.uint16), {}
+
+    service = ImageProcessor()
+    monkeypatch.setattr(service, "_decode_sensor_rgb", decode)
+    monkeypatch.setattr(ip, "available_system_memory_bytes", lambda: available)
+    cfg = replace(WorkspaceConfig(), rgbscan=RgbScanConfig(enabled=True, green_path=str(paths[1]), blue_path=str(paths[2]), align=False))
+    buffer, _ir, _space = service._decode_oriented_f32(str(paths[0]), cfg)
+    assert most[0] == together
+    np.testing.assert_allclose(buffer[0, 0] * 65535, (1000, 2001, 3002), atol=0.01)  # each exposure gives its own channel
 
 
 def test_detect_luma_reuses_stats_across_threshold_changes(monkeypatch) -> None:

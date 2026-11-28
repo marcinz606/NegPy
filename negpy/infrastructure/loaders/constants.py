@@ -69,6 +69,10 @@ SUPPORTED_RAW_EXTENSIONS: Set[str] = (
 IR_SIDECAR_SUFFIXES: tuple[str, ...] = ("_ir_valid", "_ir")
 
 
+#: Folder beside a scan's files that holds the kept source frames of merged Pixel Shift sets.
+PIXEL_SHIFT_FRAMES_FOLDER = "Pixel Shift Frames"
+
+
 def is_hidden_path(path: str) -> bool:
     """True for a dot-prefixed name. Asset discovery skips these: `.DS_Store` and a macOS
     `._frame.dng` AppleDouble fork both pass an extension-only filter, since the fork keeps

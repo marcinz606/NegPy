@@ -32,6 +32,7 @@ from negpy.desktop.view.styles.theme import THEME
 from negpy.desktop.view.widgets.charts import MiniRGBHistogramWidget
 from negpy.desktop.view.widgets.dialog_geometry import remember_dialog_geometry
 from negpy.desktop.view.widgets.floating_panel import float_over_app
+from negpy.desktop.view.widgets.segmented_choice import SegmentedChoice
 from negpy.desktop.view.widgets.step_combo import StepCombo
 from negpy.services.capture.calibration import shutter_displays
 
@@ -41,6 +42,17 @@ _CHANNEL_COLORS = {"R": THEME.channel_red_text, "G": THEME.channel_green_text, "
 _DONE_COLOR = THEME.status_success
 _FLASH_MS = 1500
 _FOCUS_AT_PEAK = 0.99
+#: Frames per exposure the Pixel Shift choice offers, in segment order; 1 is Off.
+PIXEL_SHIFT_SETS = (1, 4, 16)
+
+
+def pixel_shift_choice() -> SegmentedChoice:
+    """The Pixel Shift set size, shared by the panel and the Live View window."""
+    return SegmentedChoice(
+        (("", tr("Off")), ("", tr("4 Shots")), ("", tr("16 Shots"))),
+        tr("Take 4 or 16 frames with the sensor moved between them, for more detail and true color at every pixel."),
+        data=PIXEL_SHIFT_SETS,
+    )
 
 
 # The camera's own label of an item, which a write sends; the item text is only its display.
@@ -111,6 +123,7 @@ class LiveViewWindow(QDialog):
     meterRequested = pyqtSignal()
     channelsChanged = pyqtSignal(str)  # the letter whose toggle moved: R, G, B or IR
     captureDelayChanged = pyqtSignal(float)  # seconds, stepped on the toolbar's delay stepper
+    pixelShiftChanged = pyqtSignal(int)  # frames per exposure picked here; the panel owns the setting
 
     def __init__(self, parent=None, *, repo=None) -> None:
         super().__init__(parent)
@@ -238,7 +251,17 @@ class LiveViewWindow(QDialog):
             col.addWidget(tag)
             col.addWidget(stepper)
             settings_row.addLayout(col, 1)
+        self.pixel_shift_choice = pixel_shift_choice()
+        self.pixel_shift_choice.currentChanged.connect(lambda _i: self.pixelShiftChanged.emit(int(self.pixel_shift_choice.currentData())))
         layout.addWidget(self.settings_widget)
+        # A row of its own: a calibrated RGB preset hides the steppers above, and still shoots sets.
+        self.pixel_shift_col = QWidget()  # hidden on a body without Pixel Shift
+        row = QHBoxLayout(self.pixel_shift_col)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.addWidget(hint_label(tr("Pixel Shift")))
+        row.addWidget(self.pixel_shift_choice, 1)
+        self.pixel_shift_col.setVisible(False)
+        layout.addWidget(self.pixel_shift_col)
 
         # Capture progress lives here as well as on the side panel: while scanning a roll the
         # operator watches this window, and the bar reaching 100% is the signal that the film may

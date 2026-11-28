@@ -438,3 +438,10 @@ def test_a_value_column_button_leaves_the_field_the_whole_track(qapp):
     track_right = slider.x() + slider.slider.geometry().right()
     assert combo.geometry().right() == track_right
     assert track_right < button.x() and button.geometry().right() <= card.width()
+
+
+def test_the_event_filter_survives_a_slider_the_collector_has_cleared(qapp):
+    slider = CompactSlider("Density", 0.0, 2.0, 1.0)
+    label = slider.label
+    vars(slider).clear()
+    assert slider.eventFilter(label, QEvent(QEvent.Type.Hide)) is False

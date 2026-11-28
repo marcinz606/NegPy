@@ -936,3 +936,14 @@ def test_export_triplet_keeps_an_aligned_overshoot_saturated(tmp_path, monkeypat
 
     assert f32.dtype == np.float32
     assert f32.min() >= 1.0
+
+
+def test_assemble_planes_gives_the_values_of_assemble_rgb():
+    from negpy.features.rgbscan.logic import assemble_planes
+
+    _base, r, g, b = _scene_triplet(3.0, 2.0)
+    planes = (np.ascontiguousarray(r[..., 0]), np.ascontiguousarray(g[..., 1]), np.ascontiguousarray(b[..., 2]))
+    for align in (True, False):
+        np.testing.assert_array_equal(assemble_planes(*planes, align=align), assemble_rgb(r, g, b, align=align))
+    with pytest.raises(ValueError):
+        assemble_planes(planes[0][:4], planes[1], planes[2])
