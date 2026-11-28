@@ -564,7 +564,7 @@ NegPy hält macOS und Windows während des Scans wach. Schalte unter Linux vor e
 
 **Plustek**: Der OpticFilm 8200i SE, 8200i, 8100 V2, 8300i SE, 7600i v1 und 7600i v2 funktionieren. Probiere bei anderen Modellen SANE. Richte unter Windows zuerst den USB-Treiber ein ([PLUSTEK_WINDOWS.md](PLUSTEK_WINDOWS.md)). **Coolscan**: braucht kein SANE. Unter Linux braucht USB eine udev-Regel für den Hersteller `04b0`.
 
-<!-- panel:scan_quality src:8a8dc1c2 -->
+<!-- panel:scan_quality src:dbd0885a -->
 ### Film & Qualität
 
 *   **Film**: Farbnegativ, S/W-Negativ, Dia oder Kodachrome. Er bestimmt die Bilderkennung, die Messung und ob Infrarot angeboten wird.
@@ -574,6 +574,7 @@ NegPy hält macOS und Windows während des Scans wach. Schalte unter Linux vor e
 *   **Samples** (Coolscan): liest jede Zeile mehrfach, für weniger Rauschen in den Schatten. Langsamer.
 *   **Infrarot**: **IR** scannt einen Infrarotkanal für die Staubentfernung auf der Karte Retusche. **ICE** (Coolscan) entfernt den Staub stattdessen im Scanner. Ein Scanner ohne ICE zeigt nur einen **IR**-Schalter. Nicht für S/W oder Kodachrome.
 *   **Superfine** (Coolscan): scannt eine Zeile pro Durchgang. Langsamer.
+*   **Grain Dissolver** (DiMAGE Scan Elite 5400): bewegt den Diffusor des Scanners in den Lichtweg, für weicheres Korn und gleichmäßigeres Licht. Langsamer. Vorschauen scannen ohne ihn.
 *   **Autofokus**, **Auto-Belichtung** und **Belichtung**: Fokus und Belichtung am Scanner, vor dem Scan.
 *   **Analoge Verstärkung** (Coolscan): mehr oder weniger Scanner-Belichtung als die gemessene, in Blenden. Der Pfeil öffnet **Rot**, **Grün** und **Blau**, einen Regler pro Kanal.
 

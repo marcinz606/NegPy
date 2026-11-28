@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.13"
 
 [manifest]
@@ -150,6 +150,21 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/27/96/3acae5da0953be042c0b4dea6d6789d2f080701c77b88e44d5bd41b9219b/coverage-7.14.0-cp314-cp314t-win_amd64.whl", hash = "sha256:29943e552fdc08e082eb51400fb2f58e118a83b5542bd06531214e084399b644", size = 224680, upload-time = "2026-05-10T18:02:25.896Z" },
     { url = "https://files.pythonhosted.org/packages/93/3d/6ab5d2dd8325d838737c6f8d83d62eb6230e0d70b87b51b57bbfd08fa767/coverage-7.14.0-cp314-cp314t-win_arm64.whl", hash = "sha256:742a73ea621953b012f2c4c2219b512180dd84489acf5b1596b0aafc55b9100b", size = 222703, upload-time = "2026-05-10T18:02:27.822Z" },
     { url = "https://files.pythonhosted.org/packages/61/e8/cb8e80d6f9f55b99588625062822bf946cf03ed06315df4bd8397f5632a1/coverage-7.14.0-py3-none-any.whl", hash = "sha256:8de5b61163aee3d05c8a2beab6f47913df7981dad1baf82c414d99158c286ab1", size = 211764, upload-time = "2026-05-10T18:02:29.538Z" },
+]
+
+[[package]]
+name = "dimage5400"
+version = "0.1.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "libusb-package", marker = "sys_platform == 'win32'" },
+    { name = "numpy" },
+    { name = "pyusb" },
+    { name = "tifffile" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/7c/6b/f79852b37d1a57ba7a697b456cef5b7baf76ba8266c7f94efa82fc167e98/dimage5400-0.1.0.tar.gz", hash = "sha256:9d91e6de92bb29d803eebce9980ebb8214867df8b509547dab3684d691eeef56", size = 51390, upload-time = "2026-11-28T06:06:16.755Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/14/34/3d3c3cefed6d162f93158aba2c1f4ae832927ff89b2112c77ae647d11014/dimage5400-0.1.0-py3-none-any.whl", hash = "sha256:9da782e265c0f3248699930545124e4d0abd041ca218d7cffceb04346f575d37", size = 47132, upload-time = "2026-11-28T06:06:15.727Z" },
 ]
 
 [[package]]
@@ -369,6 +384,9 @@ dependencies = [
 camera = [
     { name = "gphoto2", marker = "sys_platform != 'win32'" },
 ]
+dimage5400 = [
+    { name = "dimage5400" },
+]
 nkscan = [
     { name = "nkscan" },
 ]
@@ -391,6 +409,9 @@ dev = [
     { name = "ruff" },
     { name = "ty" },
 ]
+dimage5400 = [
+    { name = "dimage5400" },
+]
 nkscan = [
     { name = "nkscan" },
 ]
@@ -406,6 +427,7 @@ sane = [
 
 [package.metadata]
 requires-dist = [
+    { name = "dimage5400", marker = "extra == 'dimage5400'", specifier = ">=0.1" },
     { name = "gphoto2", marker = "sys_platform != 'win32' and extra == 'camera'", specifier = ">=2.5" },
     { name = "imagecodecs", specifier = "==2026.6.6" },
     { name = "imageio", specifier = "==2.37.3" },
@@ -426,7 +448,7 @@ requires-dist = [
     { name = "tifffile", specifier = "==2026.6.1" },
     { name = "wgpu", specifier = "==0.31.1" },
 ]
-provides-extras = ["nkscan", "plustek", "sane", "camera"]
+provides-extras = ["nkscan", "dimage5400", "plustek", "sane", "camera"]
 
 [package.metadata.requires-dev]
 camera = [{ name = "gphoto2", marker = "sys_platform != 'win32'", specifier = ">=2.5" }]
@@ -438,6 +460,7 @@ dev = [
     { name = "ruff", specifier = "==0.14.10" },
     { name = "ty", specifier = ">=0.0.26" },
 ]
+dimage5400 = [{ name = "dimage5400", specifier = ">=0.1" }]
 nkscan = [{ name = "nkscan", specifier = ">=0.21" }]
 pieusb = [{ name = "pieusb", specifier = ">=0.3.7" }]
 plustek = [{ name = "pyopticfilm", specifier = ">=1.3.11" }]

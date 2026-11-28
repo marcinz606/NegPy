@@ -48,7 +48,7 @@ jobs:
       - name: Install Dependencies
         # pieusb / plustek are pure Python (+ bundled libusb where needed); without
         # them those backend tests importorskip away.
-        run: uv sync --group dev --group plustek --group pieusb
+        run: uv sync --group dev --group plustek --group pieusb --group dimage5400
 
       - name: Rust checks (fmt, clippy, test)
         # Under uv run, PyO3's build script finds the project's Python 3.13, not the runner's.

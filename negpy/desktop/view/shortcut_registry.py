@@ -180,6 +180,7 @@ REGISTRY: dict[str, ShortcutEntry] = {
     "share_crossover": ShortcutEntry("", tr("Share the Crossover of this frame with the roll"), tr("Process")),
     "scan_prescan": ShortcutEntry("", tr("Prescan and set crop (Plustek)"), tr("Process")),
     "scan_meter_frame": ShortcutEntry("", tr("Meter a frame and lock the scan exposure (Coolscan)"), tr("Process")),
+    "scan_grain_dissolver": ShortcutEntry("", tr("Toggle Grain Dissolver (DiMAGE Scan Elite 5400)"), tr("Process")),
     "scan_as_roll": ShortcutEntry("", tr("Toggle Scan as Roll"), tr("Process")),
     "scan_folder_as_roll": ShortcutEntry("", tr("Toggle Folder as Roll"), tr("Process")),
     "scan_new_roll": ShortcutEntry("", tr("Start the next scan roll"), tr("Process")),

@@ -74,6 +74,10 @@ params = [
     "--hidden-import=pyopticfilm",
     "--hidden-import=pyopticfilm.device.data",
     "--collect-all=pyopticfilm",
+    # DiMAGE Scan Elite 5400 / 5400 II: pure Python on pyusb, imported only when its
+    # backend is picked, so the analysis does not see it.
+    "--hidden-import=dimage5400",
+    "--collect-submodules=dimage5400",
     # Ship PyUSB + bundled libusb on Windows only. Linux/macOS use host libusb
     # via PyUSB (same stack SANE needs).
     *(

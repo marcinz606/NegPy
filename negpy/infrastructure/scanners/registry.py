@@ -41,6 +41,12 @@ def _make_pieusb() -> ScannerBackend:
     return PieusbBackend()
 
 
+def _make_dimage5400() -> ScannerBackend:
+    from negpy.infrastructure.scanners.dimage5400_backend import Dimage5400Backend
+
+    return Dimage5400Backend()
+
+
 def _make_sim() -> ScannerBackend:
     from negpy.infrastructure.simulated.scanner import SimulatedBackend
 
@@ -55,6 +61,7 @@ BACKENDS: dict[str, tuple[str, Callable[[], ScannerBackend]]] = {
     "nkscan": ("Nikon Coolscan (nkscan)", _make_nkscan),
     "plustek": ("pyOpticfilm (Plustek)", _make_plustek),
     "pieusb": ("PIEUSB", _make_pieusb),
+    "dimage5400": ("Minolta DiMAGE Scan Elite 5400 / 5400 II", _make_dimage5400),
 }
 if sys.platform != "win32":
     BACKENDS = {

@@ -809,6 +809,7 @@ NegPy keeps macOS and Windows awake while it scans. On Linux, turn off automatic
 *   **Resolution** and **Bit depth**: the scan's dpi and bits per channel.
 *   **Scan mode** (Plustek): **Multi-Pass** averages several scans for less noise; **Adaptive Multi-Exposure** combines a short and a long exposure for more range, with the long exposure set from each frame; **Fixed Multi-Exposure** uses the scanner's one long exposure on every frame, as SilverFast does (8200i SE, 8100 V2 and 8300i SE). The 7600i v2 and 8200i offer Adaptive Multi-Exposure but not Multi-Pass.
 *   **Samples** (Coolscan): reads each line several times, for less noise in the shadows. Slower.
+*   **Grain Dissolver** (DiMAGE Scan Elite 5400): moves the scanner's diffuser into the light, for softer grain and an even light. Slower. Previews scan without it.
 *   **Infrared**: **IR** scans an infrared channel, for dust removal on the Retouch card. **ICE** (Coolscan) removes the dust in the scanner instead. A scanner without ICE shows one **IR** toggle. Not for B&W or Kodachrome.
 *   **Superfine** (Coolscan): scans one line per pass. Slower.
 *   **Autofocus**, **Auto-exposure** and **Exposure**: focus and exposure on the scanner, before the scan.
