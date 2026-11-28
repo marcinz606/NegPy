@@ -90,13 +90,13 @@ Folden **Avlesninger** inneholder tall om skanningen. En gul verdi er en advarse
 *   **Reparer**: andel av bildet som støvfjerningen skrev om.
 *   **Fargeomfang**: andel som prøveskriveren ikke kan gjengi, under prøvetrykk på skjerm.
 
-<!-- panel:autocrop src:3047f00d -->
+<!-- panel:autocrop src:7a98c232 -->
 ### 4.1 Beskjæring
 
 Velg den delen av bildet du vil beholde, selv eller med autobeskjæring.
 
 *   **Tegn**: dra en beskjæring på bildet. Dra et hjørne for å endre størrelsen, innsiden for å flytte den, eller utenfor boksen for å rotere. `Enter` eller **Ferdig** beholder beskjæringen, og `Esc` setter tilbake beskjæringen du hadde før. **×** fjerner en beskjæring du har tegnet. Tegning slår av autobeskjæring.
-*   **Autobeskjær** (også på linjen i fanen Geometri): finner kantene i bildet og beskjærer etter dem.
+*   **Autobeskjær** (også på linjen i fanen Geometri): finner kantene i bildet og beskjærer etter dem. Når skanningen også viser deler av nabobildene, beholder autobeskjæring det største bildet nærmest midten.
 *   **Forhold**: formen på beskjæringen, for eksempel `3:2` eller `1:1`, dreid for å passe bildet. **Fri** bruker formen NegPy finner, og du kan dra én side om gangen. **Oppdag** velger den nærmeste standardformen.
 *   **Veiledning**: komposisjonslinjer, for eksempel tredjedeler, mens du tegner. Roterknappen dreier dem.
 *   **Modus** (folden Innstillinger for autobeskjæring): **Bare bildet** beskjærer til bildet. **Filmkant** beholder hele filmen med kanten og hullene.
@@ -104,7 +104,7 @@ Velg den delen av bildet du vil beholde, selv eller med autobeskjæring.
 *   **Rett opp først**: retter bildet etter filmkantene før autobeskjæring beskjærer det.
 *   **Beskjær alle bilder** (Bare bildet): beskjærer alle bilder sammen. Tydelige bilder hjelper utydelige, og beskjæringer du har tegnet, blir stående.
 
-Autobeskjæring krever at skannerlyset eller holderen er den lyseste delen av skanningen. Den lar et bilde være i fred når bildet er like lyst som lyset, eller når neste bilde fyller en stor del av én side. Beskjær et slikt bilde selv, eller bruk **Filmkant** og juster innover.
+Autobeskjæring krever at skannerlyset eller holderen er den lyseste delen av skanningen. Den lar et bilde være i fred når bildet er like lyst som lyset, eller når ingen tydelig spalte skiller det fra neste bilde. Beskjær et slikt bilde selv, eller bruk **Filmkant** og juster innover.
 
 <!-- panel:geometry src:ad12a4c6 -->
 ### 4.2 Rett opp

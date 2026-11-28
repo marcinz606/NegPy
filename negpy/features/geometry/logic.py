@@ -2,7 +2,7 @@ from negpy.kernel.system.i18n import tr
 import math
 from dataclasses import dataclass, field, replace
 from functools import lru_cache
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, cast
 
 import negpy_core
 import numpy as np
@@ -269,6 +269,16 @@ def _refine_roi_to_image(img: ImageBuffer, film_roi: ROI) -> Tuple[ROI, Optional
     Returns (roi, row_occupancy | None, col_occupancy | None).
     """
     return negpy_core.refine_roi_to_image(np.ascontiguousarray(img, dtype=np.float32), tuple(int(v) for v in film_roi))
+
+
+def _main_frame(lum: np.ndarray, roi: ROI) -> ROI:
+    """
+    Narrows a box to its main picture when blank gaps split it into more than one frame: a
+    strip whose frames are smaller than the scan shows parts of the frames beside the one in
+    the gate. The longest picture run wins, weighted toward the center. `lum` is detection
+    luminance; a box that no gap splits comes back as it is.
+    """
+    return negpy_core.main_frame(np.ascontiguousarray(lum, dtype=np.float32), tuple(int(v) for v in roi))
 
 
 def _find_autocrop_roi_from_contours(img: ImageBuffer) -> ROI | None:
@@ -813,6 +823,13 @@ def get_autocrop_coords(
         # The threshold fallback's box is too loose to refine inward, but the mask/base walk
         # reads the edges themselves and needs no well-found box.
         roi = _trim_film_edges(lum, film_roi)
+    if mode != AutocropMode.FILM:
+        main = _main_frame(lum, roi)
+        if main != roi:
+            # Rebate Trim scales the rebate only, so the film box takes the main frame's cut too.
+            film_roi = cast(ROI, tuple(m if m != r else f for m, r, f in zip(main, roi, film_roi)))
+            # A gap edge that is not square to the scan leaves a wedge of film base inside the run.
+            roi = cast(ROI, tuple(t if m != r else m for t, m, r in zip(_trim_film_edges(lum, main), main, roi)))
 
     roi = scale_roi_inset(film_roi, roi, rebate_trim)
     roi = _scale_roi(roi, det_scale, h, w)

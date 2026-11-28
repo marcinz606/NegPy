@@ -341,3 +341,21 @@ def test_a_single_long_picture_line_is_not_a_frame() -> None:
     cv2.line(img, (0, 200), (699, 260), (0.9, 0.9, 0.9), 6)
 
     assert trusted_frame_skew(img) is None
+
+
+def _full_height_strip(h: int = 600, w: int = 900) -> np.ndarray:
+    """A strip that fills the scan top to bottom: one whole frame and parts of the two beside it."""
+    rng = np.random.default_rng(5)
+    img = np.full((h, w), 0.7, np.float32)
+    for x1, x2 in ((0, 180), (230, 670), (720, w)):
+        texture = 0.1 + 0.2 * rng.random((h, x2 - x1))
+        img[:, x1:x2] = cv2.GaussianBlur(texture.astype(np.float32), (0, 0), 3)
+    return np.repeat(img[:, :, None], 3, axis=2)
+
+
+@pytest.mark.parametrize("angle", [-0.6, 0.4])
+def test_a_strip_with_no_film_edge_squares_on_its_main_frame(angle: float) -> None:
+    skew = trusted_frame_skew(_scan(_full_height_strip(), angle))
+
+    assert skew is not None
+    assert skew.fine_rotation == pytest.approx(angle, abs=0.05)

@@ -5,7 +5,7 @@ import pytest
 
 from core_pin import digest, linux_pin
 from negpy.features.geometry.batch_autocrop import CropEvidence, RollCropTemplate, _rect_from_edge_profile, _top_edge_slope
-from negpy.features.geometry.logic import _place_window_by_occupancy
+from negpy.features.geometry.logic import _main_frame, _place_window_by_occupancy
 
 
 def _tilted_box(tilt, seed, size=(400, 600)):
@@ -75,3 +75,22 @@ def test_place_window_by_occupancy_pin():
         target = float(rng.uniform(1, end - start + 1)) if rng.random() < 0.5 else float(rng.integers(1, end - start + 1))
         got.append(_place_window_by_occupancy(start, end, target, occ, scale))
     assert digest(got) == "75f380746aba9a674a2c09abdd17af2f602c49165fda7acf891fd48e5f74ad22"
+
+
+@linux_pin
+def test_main_frame_pin():
+    rng = np.random.default_rng(11)
+    got = []
+    for _ in range(200):
+        h, w = int(rng.integers(40, 300)), int(rng.integers(40, 400))
+        lum = np.full((h, w), rng.choice([0.7, 0.0]), np.float32)
+        x = 0
+        while x < w:
+            x2 = x + int(rng.integers(w // 12 + 1, w // 2 + 2))
+            lum[:, x:x2] = rng.uniform(0.05, 0.4, (h, min(x2, w) - x))
+            x = x2 + int(rng.integers(1, w // 10 + 2))
+        lum += rng.normal(0, 0.002, (h, w)).astype(np.float32)
+        lum = np.clip(lum if rng.random() < 0.5 else lum.T, 0, None)
+        got.append(_main_frame(lum, (0, lum.shape[0], 0, lum.shape[1])))
+    assert len(set(got)) > 20
+    assert digest(got) == "bc20a7e88a41697fa93eec76b0cdde68124593e0cca149a9fe1056ee8b059dc7"

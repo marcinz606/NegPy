@@ -90,13 +90,13 @@ Die Falte **Messwerte** enthält Zahlen zum Scan. Ein bernsteinfarbener Wert ist
 *   **Reparatur**: Anteil des Bildes, den die Staubentfernung neu geschrieben hat.
 *   **Gamut**: Anteil, den der Proof-Drucker nicht drucken kann, solange du einen Softproof nutzt.
 
-<!-- panel:autocrop src:3047f00d -->
+<!-- panel:autocrop src:7a98c232 -->
 ### 4.1 Zuschnitt
 
 Wähle den Teil des Bildes, der bleibt, von Hand oder mit dem Auto-Zuschnitt.
 
 *   **Zeichnen**: Ziehe einen Zuschnitt auf das Bild. Ziehe an einer Ecke, um die Größe zu ändern, im Inneren, um ihn zu verschieben, oder außerhalb des Rahmens, um ihn zu drehen. `Enter` oder **Fertig** behält den Zuschnitt, `Esc` stellt den vorherigen Zuschnitt wieder her. Das **×** entfernt einen gezeichneten Zuschnitt. Beim Zeichnen wird der Auto-Zuschnitt ausgeschaltet.
-*   **Auto-Zuschnitt** (auch in der Leiste des Tabs Geometrie): findet die Ränder des Bildes und schneidet darauf zu.
+*   **Auto-Zuschnitt** (auch in der Leiste des Tabs Geometrie): findet die Ränder des Bildes und schneidet darauf zu. Zeigt der Scan auch Teile der Nachbarbilder, behält der Auto-Zuschnitt das größte Bild nahe der Mitte.
 *   **Verhältnis**: die Form des Zuschnitts, zum Beispiel `3:2` oder `1:1`, passend zum Bild gedreht. **Frei** nutzt die Form, die NegPy findet, und du kannst jeweils eine Seite ziehen. **Erkennen** wählt die nächste Standardform.
 *   **Hilfslinien**: Kompositionslinien, zum Beispiel Drittel, während du zeichnest. Die Dreh-Schaltfläche dreht sie.
 *   **Modus** (Falte Auto-Zuschnitt-Einstellungen): **Nur Bild** schneidet auf das Bild zu. **Filmrand** behält den ganzen Film mit Rand und Perforation.
@@ -104,7 +104,7 @@ Wähle den Teil des Bildes, der bleibt, von Hand oder mit dem Auto-Zuschnitt.
 *   **Erst ausrichten**: richtet das Bild an seinen Filmkanten aus, bevor der Auto-Zuschnitt es zuschneidet.
 *   **Alle Bilder zuschneiden** (Nur Bild): schneidet alle Bilder zusammen zu. Klare Bilder helfen unklaren, und gezeichnete Zuschnitte bleiben.
 
-Der Auto-Zuschnitt braucht die Scannerlichtquelle oder den Halter als hellsten Teil des Scans. Er lässt ein Bild unverändert, wenn das Bild so hell ist wie die Lichtquelle oder das nächste Bild einen großen Teil einer Seite füllt. Schneide ein solches Bild von Hand zu oder nutze **Filmrand** und schneide nach innen.
+Der Auto-Zuschnitt braucht die Scannerlichtquelle oder den Halter als hellsten Teil des Scans. Er lässt ein Bild unverändert, wenn das Bild so hell ist wie die Lichtquelle oder keine klare Lücke es vom nächsten Bild trennt. Schneide ein solches Bild von Hand zu oder nutze **Filmrand** und schneide nach innen.
 
 <!-- panel:geometry src:ad12a4c6 -->
 ### 4.2 Geraderichten

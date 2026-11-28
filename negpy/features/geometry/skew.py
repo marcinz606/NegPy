@@ -13,6 +13,7 @@ from negpy.domain.types import ImageBuffer
 from negpy.features.geometry.logic import (
     AUTOCROP_DETECT_RES,
     _detection_luma,
+    _main_frame,
     _normalize_detection_input,
     _refine_roi_to_image,
     apply_fine_rotation,
@@ -116,6 +117,8 @@ def _frame_lines(lum: np.ndarray, rotated: np.ndarray) -> list[EdgeLine]:
     # box is still found from the canvas.
     outer = film.roi if film.roi is not None else (0, rotated.shape[0], 0, rotated.shape[1])
     gate, _, _ = _refine_roi_to_image(rotated, outer)
+    # The main picture's own edges, not those of the frames beside it on the strip.
+    gate = _main_frame(lum, gate)
     if gate != outer:
         boxes.append(("gate", gate))
     h, w = lum.shape

@@ -20,6 +20,9 @@ from negpy.features.geometry.logic import (
     _closest_standard_ratio,
     _detection_luma,
     _get_threshold_autocrop_coords,
+    _main_frame,
+    _refine_roi_to_image,
+    _trim_film_edges,
     _trim_opaque_border,
     apply_fine_rotation,
     get_autocrop_coords,
@@ -233,6 +236,54 @@ def _no_box_evidence(
     )
 
 
+# Frames the roll template cannot place. Each carries its own single-frame crop.
+_OWN_CROP_REASONS = ("unsupported_orientation", "partial_neighbors")
+
+
+def _own_evidence(
+    key: str, image: ImageBuffer, reason: str, target_ratio: str, rebate_trim: float, deskewed: tuple[float, bool] | None = None
+) -> CropEvidence:
+    """Evidence for a frame that takes no part in the roll: its own angle and single-frame crop.
+    `deskewed` is the (angle, confident) an already rotated `image` carries."""
+    h, w = image.shape[:2]
+    profile, profile_contrast = _vertical_edge_profile(image)
+    # The roll template cannot place this frame, but the single-frame detector reads it
+    # like any other. Abstaining would leave batch worse than Auto on the same frame.
+    if deskewed is None:
+        skew = _edge_fit(image)
+        own_angle, confident = (skew, True) if skew is not None else (0.0, False)
+        own_image = apply_fine_rotation(image, own_angle) if abs(own_angle) > 1e-4 else image
+    else:
+        (own_angle, confident), own_image = deskewed, image
+    try:
+        own_roi = get_autocrop_coords(own_image, target_ratio_str=target_ratio, rebate_trim=rebate_trim)
+    except Exception:
+        own_roi = None
+    return CropEvidence(
+        key,
+        (h, w),
+        None,
+        own_angle,
+        0.0,
+        target_ratio=target_ratio,
+        rebate_trim=rebate_trim,
+        angle_confident=confident,
+        vertical_edge_contrast=profile_contrast,
+        vertical_edge_profile=profile,
+        fallback_roi=own_roi,
+        reason=reason,
+    )
+
+
+def _shows_partial_neighbors(image: ImageBuffer, box: ROI | None = None) -> bool:
+    """Whether the film box (the threshold box without one) holds a main picture and parts of the frames
+    beside it. The roll template places one frame per scan at one position, which such a strip does not keep."""
+    lum = _detection_luma(image)
+    if box is None:
+        box = _trim_film_edges(lum, _trim_opaque_border(lum, _get_threshold_autocrop_coords(image, None)))
+    return _main_frame(lum, box) != box
+
+
 def detect_crop_candidate(
     key: str,
     image: ImageBuffer,
@@ -247,31 +298,8 @@ def detect_crop_candidate(
     which is landscape, and carries its own single-frame crop instead.
     """
     h, w = image.shape[:2]
-    profile, profile_contrast = _vertical_edge_profile(image)
     if w <= h:
-        skew = _edge_fit(image)
-        # The roll template cannot place this frame, but the single-frame detector reads it
-        # like any other. Abstaining would leave batch worse than Auto on the same frame.
-        own_angle = skew if skew is not None else 0.0
-        own_image = apply_fine_rotation(image, own_angle) if abs(own_angle) > 1e-4 else image
-        try:
-            own_roi = get_autocrop_coords(own_image, target_ratio_str=target_ratio, rebate_trim=rebate_trim)
-        except Exception:
-            own_roi = None
-        return CropEvidence(
-            key,
-            (h, w),
-            None,
-            own_angle,
-            0.0,
-            target_ratio=target_ratio,
-            rebate_trim=rebate_trim,
-            angle_confident=skew is not None,
-            vertical_edge_contrast=profile_contrast,
-            vertical_edge_profile=profile,
-            fallback_roi=own_roi,
-            reason="unsupported_orientation",
-        )
+        return _own_evidence(key, image, "unsupported_orientation", target_ratio, rebate_trim)
 
     initial = detect_film_bounds_with_confidence(image)
     correction = float(initial.correction_angle) if initial.roi is not None else 0.0
@@ -293,6 +321,8 @@ def detect_crop_candidate(
             correction = skew
             angle_confident = True
         elif initial.roi is None:
+            if _shows_partial_neighbors(image):
+                return _own_evidence(key, image, "partial_neighbors", target_ratio, rebate_trim)
             return _no_box_evidence(key, image, initial, 0.0, False, target_ratio, rebate_trim)
 
     corrected = apply_fine_rotation(image, correction) if abs(correction) > 1e-4 else image
@@ -300,6 +330,8 @@ def detect_crop_candidate(
     final = initial if corrected is image else detect_film_bounds_with_confidence(corrected)
     if final.roi is None:
         if initial.roi is None:
+            if _shows_partial_neighbors(corrected):
+                return _own_evidence(key, corrected, "partial_neighbors", target_ratio, rebate_trim, (correction, angle_confident))
             # Keeps the fallback payload: an opaque-holder roll's template rests on it.
             return _no_box_evidence(key, corrected, final, correction, angle_confident, target_ratio, rebate_trim)
         return CropEvidence(
@@ -322,6 +354,9 @@ def detect_crop_candidate(
     roi = _trim_opaque_border(lum, final.roi)
     border = tuple(_side_border(lum, roi)[name] for name in BORDER_SIDES)
     bright_border = _bright_side_border(lum, roi)
+    # The refined box, as single-frame Auto Crop reads it: a neighbor sliver the refinement drops is no strip.
+    if _shows_partial_neighbors(corrected, _refine_roi_to_image(corrected, roi)[0]):
+        return _own_evidence(key, corrected, "partial_neighbors", target_ratio, rebate_trim, (correction, angle_confident))
     y1, y2, x1, x2 = roi
     if y2 <= y1 or x2 <= x1:
         return CropEvidence(
@@ -723,7 +758,7 @@ def resolve_roll_crops(
 ) -> list[ResolvedCrop]:
     """Resolve trustworthy and template-supported frames; ambiguous frames abstain."""
     # A portrait frame's rect and fitted angle describe a different canvas.
-    pooled = [item for item in evidence if item.reason != "unsupported_orientation"]
+    pooled = [item for item in evidence if item.reason not in _OWN_CROP_REASONS]
     templates = {
         ratio: build_roll_template([item for item in pooled if item.target_ratio == ratio])
         for ratio in dict.fromkeys(item.target_ratio for item in evidence)
@@ -731,12 +766,12 @@ def resolve_roll_crops(
 
     # A portrait frame resolves before the roll is consulted, and whether or not the roll
     # produced a template: it took no part in either, so neither can place it.
-    results = [crop for item in evidence if item.reason == "unsupported_orientation" for crop in _own_crop(item)]
+    results = [crop for item in evidence if item.reason in _OWN_CROP_REASONS for crop in _own_crop(item)]
     if not any(template is not None for template in templates.values()):
         return results
 
     for item in evidence:
-        if item.reason == "unsupported_orientation":
+        if item.reason in _OWN_CROP_REASONS:
             continue
         template = templates.get(item.target_ratio)
         if template is None:

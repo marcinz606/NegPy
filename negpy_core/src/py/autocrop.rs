@@ -66,8 +66,25 @@ fn place_window_by_occupancy(
     }))
 }
 
+/// `_main_frame(lum, (y1, y2, x1, x2))` on an HxW float32 detection-luminance plane.
+#[pyfunction]
+fn main_frame(
+    py: Python<'_>,
+    lum: PyReadonlyArray2<'_, f32>,
+    roi: (i64, i64, i64, i64),
+) -> PyResult<(i64, i64, i64, i64)> {
+    let (h, w) = (lum.shape()[0], lum.shape()[1]);
+    let img = lum
+        .as_slice()
+        .map_err(|_| PyValueError::new_err("needs a contiguous plane"))?;
+    Ok(super::detach(py, img.len(), || {
+        autocrop::main_frame(img, h, w, roi)
+    }))
+}
+
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(top_edge_slope, m)?)?;
     m.add_function(wrap_pyfunction!(rect_from_edge_profile, m)?)?;
-    m.add_function(wrap_pyfunction!(place_window_by_occupancy, m)?)
+    m.add_function(wrap_pyfunction!(place_window_by_occupancy, m)?)?;
+    m.add_function(wrap_pyfunction!(main_frame, m)?)
 }

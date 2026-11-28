@@ -921,3 +921,33 @@ def test_portrait_evidence_does_not_shape_the_roll_template() -> None:
         assert resolved[key].crop_rect == pytest.approx(crop.crop_rect)
     for index in range(3):
         assert resolved[f"portrait-{index}"].correction_angle == pytest.approx(5.0)
+
+
+def _strip_scan():
+    """A 645 frame in a 3:2 scan with no film edge in view, and parts of the frames beside it."""
+    rng = np.random.default_rng(0)
+    lum = np.full((600, 900), 0.7, np.float32)
+    for x1, x2 in ((0, 180), (230, 670), (720, 900)):
+        lum[:, x1:x2] = rng.uniform(0.08, 0.3, (600, x2 - x1))
+    lum += rng.normal(0, 0.004, lum.shape).astype(np.float32)
+    return np.repeat(np.clip(lum, 0, None)[:, :, None], 3, axis=2)
+
+
+def test_a_tilted_strip_scan_keeps_its_deskew_angle():
+    image = batch_autocrop.apply_fine_rotation(_strip_scan(), 0.8)
+
+    evidence = detect_crop_candidate("strip", image, target_ratio="Free")
+
+    assert evidence.reason == "partial_neighbors"
+    assert evidence.correction_angle == pytest.approx(batch_autocrop._edge_fit(image), abs=0.05)
+    assert abs(evidence.correction_angle) > 0.5
+
+
+def test_a_strip_scan_with_partial_neighbors_takes_its_own_crop():
+    # The roll template cannot place it.
+    evidence = detect_crop_candidate("strip", _strip_scan(), target_ratio="Free")
+
+    assert evidence.reason == "partial_neighbors"
+    x1, _, x2, _ = _resolved_by_key([*_trusted_roll(), evidence])["strip"].crop_rect
+    assert x1 == pytest.approx(230 / 900, abs=0.03)
+    assert x2 == pytest.approx(670 / 900, abs=0.03)
