@@ -800,7 +800,7 @@ NegPy tiene svegli macOS e Windows durante la scansione. Su Linux, disattiva la 
 
 **Plustek**: funzionano OpticFilm 8200i SE, 8200i, 8100 V2, 8300i SE, 7600i v1 e 7600i v2; per altri modelli, prova SANE. Su Windows, installa prima il driver USB ([PLUSTEK_WINDOWS.md](PLUSTEK_WINDOWS.md)). **Coolscan**: non richiede SANE. Su Linux, l'USB richiede una regola udev per il produttore `04b0`.
 
-<!-- panel:scan_quality src:8a8dc1c2 -->
+<!-- panel:scan_quality src:dbd0885a -->
 ### Pellicola e qualità
 
 *   **Pellicola**: Negativo a colori, Negativo B/N, Diapositiva o Kodachrome. Stabilisce il rilevamento dei fotogrammi, la misurazione e se viene offerto l'infrarosso.
@@ -810,6 +810,7 @@ NegPy tiene svegli macOS e Windows durante la scansione. Su Linux, disattiva la 
 *   **Campioni** (Coolscan): legge ogni riga più volte, per meno rumore nelle ombre. Più lento.
 *   **Infrarosso**: **IR** scansiona un canale infrarosso, per la rimozione della polvere nel riquadro Ritocco. **ICE** (Coolscan) rimuove invece la polvere nello scanner. Uno scanner senza ICE mostra un unico interruttore **IR**. Non per B/N o Kodachrome.
 *   **Superfine** (Coolscan): scansiona una riga per passata. Più lento.
+*   **Grain Dissolver** (DiMAGE Scan Elite 5400): porta il diffusore dello scanner nel percorso della luce, per una grana più morbida e una luce più uniforme. Più lento. Le anteprime vengono acquisite senza.
 *   **Autofocus**, **Esposizione automatica** ed **Esposizione**: messa a fuoco ed esposizione sullo scanner, prima della scansione.
 *   **Guadagno analogico** (Coolscan): più o meno esposizione dello scanner rispetto a quella misurata, in stop. La freccia apre **Rosso**, **Verde** e **Blu**, uno per canale.
 

@@ -69,6 +69,9 @@ class ScanParams:
     samples: int = 1
     # One line per pass: slower, and it owes the host no line registration.
     superfine: bool = False
+    # Move the diffuser into the light path: softer grain and an even light, slower. Requires
+    # ScannerCapabilities.grain_dissolver.
+    grain_dissolver: bool = False
     # Film format the transport cannot measure itself ("135", "66", ...). None = let it decide.
     film_format: str | None = None
     # What is on the film. Reversal stock reads the opposite way against the unexposed film

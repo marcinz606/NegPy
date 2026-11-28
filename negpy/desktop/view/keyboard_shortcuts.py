@@ -579,6 +579,11 @@ class ShortcutManager:
             "scan_meter_frame": (
                 lambda: right.scan_sidebar.exposure_meter_btn.click() if getattr(right, "scan_sidebar", None) is not None else None
             ),
+            "scan_grain_dissolver": lambda: (
+                right.scan_sidebar.grain_dissolver_btn.toggle()
+                if getattr(right, "scan_sidebar", None) is not None and not right.scan_sidebar.grain_dissolver_btn.isHidden()
+                else None
+            ),
             "scan_as_roll": lambda: right.scan_output.as_roll_btn.toggle(),
             "scan_folder_as_roll": lambda: right.scan_output.folder_roll_btn.toggle(),
             "scan_new_roll": lambda: right.scan_output.new_roll_btn.click(),

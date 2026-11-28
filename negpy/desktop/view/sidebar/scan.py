@@ -194,6 +194,7 @@ class ScanSidebar(QWidget):
         self._caps_auto_exposure = False
         self._caps_clean = False
         self._caps_superfine = False
+        self._caps_grain_dissolver = False
         self._caps_max_samples = 1
         self._caps_film_formats: tuple[str, ...] = ()
         self._caps_film_types: tuple[str, ...] = ()
@@ -377,7 +378,12 @@ class ScanSidebar(QWidget):
         self.autofocus_btn = tool_toggle("fa5s.bullseye", tr("Autofocus"), tr("Autofocus before scanning (film is rarely perfectly flat)"))
         self.autofocus_btn.setChecked(True)
         self.ae_btn = tool_toggle("fa5s.sun", tr("Auto-exposure"), tr("Meter exposure in hardware before the scan"))
-        for row_btns in ((self.ir_btn, self.superfine_btn), (self.autofocus_btn, self.ae_btn)):
+        self.grain_dissolver_btn = tool_toggle(
+            "fa5s.braille",
+            tr("Grain Dissolver"),
+            tr("Move the scanner's diffuser into the light: softer grain and an even light, slower. Previews scan without it."),
+        )
+        for row_btns in ((self.ir_btn, self.superfine_btn), (self.autofocus_btn, self.ae_btn, self.grain_dissolver_btn)):
             row = QHBoxLayout()
             for btn in row_btns:
                 btn.setVisible(False)
@@ -516,6 +522,7 @@ class ScanSidebar(QWidget):
         self.ae_btn.toggled.connect(lambda: self._on_ae_toggled())
         self.dust_btn.currentChanged.connect(lambda _i: self._on_ir_toggled(self.dust_btn.currentData() == "ir"))
         self.superfine_btn.toggled.connect(lambda: self._update_settings_from_ui())
+        self.grain_dissolver_btn.toggled.connect(lambda: self._update_settings_from_ui())
         self.samples_btn.currentIndexChanged.connect(lambda: self._update_settings_from_ui())
         self.format_combo.currentIndexChanged.connect(lambda: self._update_settings_from_ui())
         self.film_type_btn.currentIndexChanged.connect(lambda: self._on_film_type_changed())
@@ -713,6 +720,7 @@ class ScanSidebar(QWidget):
             self.crop_label.setVisible(False)
             self.dust_widget.setVisible(False)
             self.superfine_btn.setVisible(False)
+            self.grain_dissolver_btn.setVisible(False)
             self.samples_widget.setVisible(False)
             self.film_format_widget.setVisible(False)
             self.film_type_widget.setVisible(False)
@@ -720,6 +728,7 @@ class ScanSidebar(QWidget):
             self._caps_auto_exposure = False
             self._caps_clean = False
             self._caps_superfine = False
+            self._caps_grain_dissolver = False
             self._caps_max_samples = 1
             self._caps_film_formats = ()
             self._caps_film_types = ()
@@ -864,6 +873,12 @@ class ScanSidebar(QWidget):
         self.superfine_btn.setVisible(self._caps_superfine)
         self.superfine_btn.setChecked(self._caps_superfine and self._settings.superfine)
         self.superfine_btn.blockSignals(False)
+
+        self._caps_grain_dissolver = bool(caps.grain_dissolver)
+        self.grain_dissolver_btn.blockSignals(True)
+        self.grain_dissolver_btn.setVisible(self._caps_grain_dissolver)
+        self.grain_dissolver_btn.setChecked(self._caps_grain_dissolver and self._settings.grain_dissolver)
+        self.grain_dissolver_btn.blockSignals(False)
 
         self._caps_max_samples = int(caps.max_samples)
         self.samples_btn.blockSignals(True)
@@ -1081,6 +1096,9 @@ class ScanSidebar(QWidget):
         if self._caps_max_samples <= 1:
             return 1
         return int(self.samples_btn.currentData() or 1)
+
+    def _grain_dissolver(self) -> bool:
+        return self._caps_grain_dissolver and self.grain_dissolver_btn.isChecked()
 
     def _film_format(self) -> str | None:
         return self.format_combo.currentData() if self._caps_film_formats else None
@@ -1418,6 +1436,8 @@ class ScanSidebar(QWidget):
         passes = [name for name, on in ((tr("IR"), capture_ir), (tr("ICE"), self._ice_on())) if on]
         if self._caps_superfine and self.superfine_btn.isChecked():
             passes.append(tr("Superfine"))
+        if self._grain_dissolver():
+            passes.append(tr("Grain Dissolver"))
         if self._samples() > 1:
             passes.append(tr("{count}× sampled", count=self._samples()))
         gain_ev, channel_gain_ev = self._analog_gain()
@@ -1516,6 +1536,7 @@ class ScanSidebar(QWidget):
             clean=self._ice_on(),
             samples=self._samples(),
             superfine=self._caps_superfine and self.superfine_btn.isChecked(),
+            grain_dissolver=self._grain_dissolver(),
             film_format=self._film_format(),
             film_type=self._film_type(),
             exposures=self._locked_exposures(device),
@@ -1702,6 +1723,7 @@ class ScanSidebar(QWidget):
             clean=self._ice_on(),
             samples=self._samples(),
             superfine=self._caps_superfine and self.superfine_btn.isChecked(),
+            grain_dissolver=self._grain_dissolver(),
             film_format=self._film_format(),
             film_type=self._film_type(),
             selected_frames=(spec if (spec := self._frame_spec()) is not None else self._settings.selected_frames),

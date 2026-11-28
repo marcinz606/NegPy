@@ -86,6 +86,8 @@ class ScannerCapabilities:
     film_types: tuple[str, ...] = ()
     max_samples: int = 1  # per-line multi-sample bound; 1 = single read
     superfine: bool = False  # one line per pass, slower, owes the host no registration
+    #: A diffuser the transport can move into the light path (Minolta's Grain Dissolver).
+    grain_dissolver: bool = False
     #: One metered exposure can be reused for every later scan (`ScanParams.exposures`).
     exposure_lock: bool = False
     #: The metered exposure can be scaled per channel before the pass (`ScanParams.analog_gain_ev`).

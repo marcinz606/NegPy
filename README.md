@@ -51,7 +51,7 @@ The desktop interface supports English, Simplified Chinese (简体中文), Japan
 
 ### Capture
 
-* Film scanners: Plustek OpticFilm 8200i SE, 8200i, 8100 V2, 8300i SE, 7600i v1 and 7600i v2 over USB, Nikon Coolscan, Reflecta, Pacific Image, and anything SANE supports.
+* Film scanners: Plustek OpticFilm 8200i SE, 8200i, 8100 V2, 8300i SE, 7600i v1 and 7600i v2 over USB, Minolta DiMAGE Scan Elite 5400 and 5400 II over USB, Nikon Coolscan, Reflecta, Pacific Image, and anything SANE supports.
 * Tethered camera scanning (macOS and Linux), including narrowband RGB captures with a [Scanlight](https://github.com/jackw01/scanlight) and a sub-pixel Trichrome merge ([guide](docs/CAMERA_SCANNING.md)).
 * Flat-field correction, sensor calibration for narrowband light, and lens correction read from the file.
 * Camera RAWs, TIFF, DNG, JPEG XL and scanner formats such as Pakon, Coolscan NEF, Flextight FFF and Noritsu.
@@ -127,7 +127,7 @@ To build the DMG, set `NEGPY_MACOS_ARCH=x86_64` (Intel) or `NEGPY_MACOS_ARCH=arm
 
 Run the installer past the warnings.
 
-Plustek OpticFilm scanners need the WinUSB driver, installed with [Zadig](https://zadig.akeo.ie/) in place of the SilverFast driver. See [PLUSTEK_WINDOWS.md](docs/PLUSTEK_WINDOWS.md). Camera scanning is not available on Windows.
+Plustek OpticFilm scanners need the WinUSB driver, installed with [Zadig](https://zadig.akeo.ie/) in place of the SilverFast driver. See [PLUSTEK_WINDOWS.md](docs/PLUSTEK_WINDOWS.md). The DiMAGE Scan Elite 5400 and 5400 II need the same, see [DIMAGE5400.md](docs/DIMAGE5400.md). Camera scanning is not available on Windows.
 
 ## Data location
 

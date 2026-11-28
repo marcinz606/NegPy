@@ -564,7 +564,7 @@ NegPy holder macOS og Windows våkne mens den skanner. På Linux slår du av aut
 
 **Plustek**: OpticFilm 8200i SE, 8200i, 8100 V2, 8300i SE, 7600i v1 og 7600i v2 virker; for andre modeller kan du prøve SANE. På Windows setter du først opp USB-driveren ([PLUSTEK_WINDOWS.md](PLUSTEK_WINDOWS.md)). **Coolscan**: trenger ikke SANE. På Linux krever USB en udev-regel for leverandøren `04b0`.
 
-<!-- panel:scan_quality src:8a8dc1c2 -->
+<!-- panel:scan_quality src:dbd0885a -->
 ### Film og kvalitet
 
 *   **Film**: fargenegativ, S/H-negativ, dias eller Kodachrome. Den styrer bildeoppdaging, lysmåling, og om infrarødt tilbys.
@@ -574,6 +574,7 @@ NegPy holder macOS og Windows våkne mens den skanner. På Linux slår du av aut
 *   **Prøver** (Coolscan): leser hver linje flere ganger, for mindre støy i skyggene. Tregere.
 *   **Infrarød**: **IR** skanner en infrarød kanal, for støvfjerning på kortet Retusj. **ICE** (Coolscan) fjerner i stedet støvet i skanneren. En skanner uten ICE viser én **IR**-bryter. Ikke for S/H eller Kodachrome.
 *   **Superfin** (Coolscan): skanner én linje per passering. Tregere.
+*   **Grain Dissolver** (DiMAGE Scan Elite 5400): flytter skannerens diffusor inn i lysbanen, for mykere korn og jevnere lys. Tregere. Forhåndsvisninger skannes uten den.
 *   **Autofokus**, **Autoeksponering** og **Eksponering**: fokus og eksponering på skanneren, før skanningen.
 *   **Analog forsterkning** (Coolscan): mer eller mindre skannereksponering enn den målte, i blendertrinn. Pilen åpner **Rød**, **Grønn** og **Blå**, én per kanal.
 

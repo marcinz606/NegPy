@@ -35,6 +35,7 @@ class ScannerSettings:
     clean: bool = False
     samples: int = 1
     superfine: bool = False
+    grain_dissolver: bool = False
     # Frame length for a transport that measures the strip; None lets it decide.
     film_format: str | None = None
     film_type: str = "negative"
