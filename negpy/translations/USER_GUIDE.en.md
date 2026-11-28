@@ -263,7 +263,7 @@ Two cards: **Crop** sets the part of the picture you keep, and **Straighten** tu
 Choose the part of the picture to keep, by hand or with Auto Crop.
 
 *   **Draw**: drag a crop on the picture. Drag a corner to resize it, the inside to move it, or outside the box to rotate. `Enter` or **Done** keeps the crop, and `Esc` puts back the crop you had before. The **×** removes a crop you drew. Drawing turns Auto Crop off.
-*   **Auto Crop** (also on the Geometry tab's bar): finds the edges of the picture and crops to them.
+*   **Auto Crop** (also on the Geometry tab's bar): finds the edges of the picture and crops to them. When the scan also shows parts of the frames beside it, Auto Crop keeps the largest picture nearest the center.
 *   **Ratio**: the crop shape, such as `3:2` or `1:1`, turned to fit the frame. **Free** uses the shape NegPy finds, and you can drag one side at a time. **Detect** picks the nearest standard shape.
 *   **Guide**: composition lines, such as thirds, while you draw. The rotate button turns them.
 *   **Mode** (Auto Crop Settings fold): **Image only** crops to the picture. **Film edge** keeps the whole film with its border and holes.
@@ -271,7 +271,7 @@ Choose the part of the picture to keep, by hand or with Auto Crop.
 *   **Square First**: straightens the frame to its film edges before Auto Crop crops it.
 *   **Crop All Frames** (Image only): crops every frame together. Clear frames help unclear ones, and crops you drew stay.
 
-Auto Crop needs the scanner light or holder to be the brightest part of the scan. It leaves a frame alone when the picture is as bright as the light, or when the next frame fills a large part of one side. Crop such a frame by hand, or use **Film edge** and trim in.
+Auto Crop needs the scanner light or holder to be the brightest part of the scan. It leaves a frame alone when the picture is as bright as the light, or when no clear gap separates it from the next frame. Crop such a frame by hand, or use **Film edge** and trim in.
 
 <!-- panel:geometry -->
 ### 4.2 Straighten

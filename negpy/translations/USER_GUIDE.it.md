@@ -256,13 +256,13 @@ La sezione **Letture** contiene numeri sulla scansione. Un valore ambra è un av
 
 Due riquadri: **Ritaglio** stabilisce la parte dell'immagine che conservi, e **Raddrizza** la ruota e la livella. Entrambi contengono i valori propri di questo fotogramma. Il loro pulsante **Applica ai fotogrammi** li copia sulla selezione o sull'intero rullino ([§1](#fotogramma-o-rullino)).
 
-<!-- panel:autocrop src:3047f00d -->
+<!-- panel:autocrop src:7a98c232 -->
 ### 4.1 Ritaglio
 
 Scegli la parte dell'immagine da conservare, a mano o con il Ritaglio automatico.
 
 *   **Disegna**: trascina un ritaglio sull'immagine. Trascina un angolo per ridimensionarlo, l'interno per spostarlo o fuori dal riquadro per ruotarlo. `Invio` o **Fatto** conserva il ritaglio, e `Esc` ripristina il ritaglio precedente. La **×** rimuove un ritaglio che hai disegnato. Disegnare disattiva il Ritaglio automatico.
-*   **Ritaglio automatico** (anche sulla barra della scheda Geometria): trova i bordi dell'immagine e ritaglia su di essi.
+*   **Ritaglio automatico** (anche sulla barra della scheda Geometria): trova i bordi dell'immagine e ritaglia su di essi. Quando la scansione mostra anche parti dei fotogrammi vicini, il Ritaglio automatico conserva l'immagine più grande e più vicina al centro.
 *   **Proporzioni**: la forma del ritaglio, come `3:2` o `1:1`, ruotata per adattarsi al fotogramma. **Libero** usa la forma che trova NegPy, e puoi trascinare un lato alla volta. **Rileva** sceglie la forma standard più vicina.
 *   **Guida**: linee di composizione, come i terzi, mentre disegni. Il pulsante di rotazione le ruota.
 *   **Modalità** (sezione Impostazioni del ritaglio automatico): **Solo immagine** ritaglia sull'immagine. **Bordo della pellicola** conserva l'intera pellicola con il suo bordo e le perforazioni.
@@ -270,7 +270,7 @@ Scegli la parte dell'immagine da conservare, a mano o con il Ritaglio automatico
 *   **Prima squadra**: raddrizza il fotogramma sui bordi della pellicola prima che il Ritaglio automatico lo ritagli.
 *   **Ritaglia tutti i fotogrammi** (Solo immagine): ritaglia tutti i fotogrammi insieme. I fotogrammi nitidi aiutano quelli incerti, e i ritagli che hai disegnato restano.
 
-Il Ritaglio automatico richiede che la luce dello scanner o il supporto sia la parte più luminosa della scansione. Lascia stare un fotogramma quando l'immagine è luminosa quanto la luce, o quando il fotogramma successivo occupa gran parte di un lato. Ritaglia a mano un fotogramma del genere, oppure usa **Bordo della pellicola** e rifila verso l'interno.
+Il Ritaglio automatico richiede che la luce dello scanner o il supporto sia la parte più luminosa della scansione. Lascia stare un fotogramma quando l'immagine è luminosa quanto la luce, o quando nessuno spazio netto lo separa dal fotogramma successivo. Ritaglia a mano un fotogramma del genere, oppure usa **Bordo della pellicola** e rifila verso l'interno.
 
 <!-- panel:geometry src:ad12a4c6 -->
 ### 4.2 Raddrizza

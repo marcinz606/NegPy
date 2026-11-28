@@ -6,6 +6,7 @@ from negpy.features.geometry.logic import (
     BORDER_SIDES,
     _closest_standard_ratio,
     _detection_luma,
+    _main_frame,
     _normalize_detection_input,
     _refine_roi_to_image,
     _roi_from_measured_border,
@@ -21,7 +22,7 @@ from negpy.features.geometry.logic import (
     toggle_flip,
 )
 from negpy.features.geometry.processor import CropProcessor, GeometryProcessor
-from negpy.features.geometry.models import GeometryConfig
+from negpy.features.geometry.models import AutocropMode, GeometryConfig
 from negpy.domain.interfaces import PipelineContext
 from negpy.domain.models import CROP_RATIO_CHOICES, AspectRatio, canonical_crop_ratio
 
@@ -1810,3 +1811,94 @@ def test_film_edges_on_a_box_too_small_for_a_border_walk_are_zero():
 
     lum = np.random.default_rng(0).random((16, 16)).astype(np.float32)
     assert measure_film_edges(lum, (0, 16, 0, 16)) == {"top": 0.0, "bottom": 0.0, "left": 0.0, "right": 0.0}
+
+
+def _strip(frames, base, shape=(600, 900), picture=(0.08, 0.3), bed=None, seed=0):
+    """A strip along x: pictures at the (x1, x2) spans in `frames`, film base at level `base`
+    between them. `bed` adds bare light of that level in the left 5%."""
+    h, w = shape
+    rng = np.random.default_rng(seed)
+    lum = np.full((h, w), base, np.float32)
+    for x1, x2 in frames:
+        lum[:, x1:x2] = rng.uniform(*picture, (h, x2 - x1)).astype(np.float32)
+    lum += rng.normal(0, 0.004, (h, w)).astype(np.float32)
+    if bed is not None:
+        lum[:, : w // 20] = bed
+    return np.clip(lum, 0, None)
+
+
+def test_main_frame_keeps_the_picture_between_two_partial_neighbors():
+    # A 645 frame in a 3:2 scan: part of the frame before, the frame, part of the frame after.
+    lum = _strip([(0, 180), (230, 670), (720, 900)], base=0.7)
+    assert _main_frame(lum, (0, 600, 0, 900)) == (0, 600, 230, 670)
+
+
+def test_main_frame_splits_along_either_axis():
+    lum = _strip([(0, 180), (230, 670), (720, 900)], base=0.7)
+    assert _main_frame(np.ascontiguousarray(lum.T), (0, 900, 0, 600)) == (230, 670, 0, 600)
+
+
+def test_main_frame_reads_a_slide_strip_by_its_black_gaps():
+    lum = _strip([(0, 180), (230, 670), (720, 900)], base=0.0, picture=(0.1, 0.9))
+    lum[:, 180:230] = lum[:, 670:720] = 0.002
+    assert _main_frame(lum, (0, 600, 0, 900)) == (0, 600, 230, 670)
+
+
+def test_main_frame_keeps_a_deep_shadow_band_of_a_slide():
+    # Picture shadow is dark, but lighter than the unexposed film between frames.
+    lum = _strip([(0, 900)], base=0.0, picture=(0.1, 0.9))
+    lum[:, 300:360] = 0.012
+    assert _main_frame(lum, (0, 600, 0, 900)) == (0, 600, 0, 900)
+
+
+@pytest.mark.parametrize("rebate_trim", [0.5, 1.0, 1.5])
+def test_rebate_trim_does_not_scale_the_main_frame_cut(rebate_trim):
+    lum = _strip([(0, 180), (230, 670), (720, 900)], base=0.7)
+    img = np.repeat(lum[..., None], 3, axis=2)
+    _, _, x1, x2 = get_autocrop_coords(img, target_ratio_str=AspectRatio.FREE, rebate_trim=rebate_trim)
+    assert x1 >= 225 and x2 <= 675 and x2 - x1 > 380
+
+
+def test_main_frame_drops_bare_light_beside_the_strip():
+    lum = _strip([(120, 560), (610, 900)], base=0.7, bed=1.0)
+    assert _main_frame(lum, (0, 600, 0, 900)) == (0, 600, 120, 560)
+
+
+def test_main_frame_prefers_the_centered_picture_of_two_alike():
+    lum = _strip([(0, 300), (340, 640), (680, 900)], base=0.7)
+    assert _main_frame(lum, (0, 600, 0, 900)) == (0, 600, 340, 640)
+
+
+def test_main_frame_keeps_both_frames_of_a_pair_alike():
+    # A half-frame pair or a stereo pair: neither picture is the main one.
+    roi = (0, 600, 0, 900)
+    assert _main_frame(_strip([(10, 435), (465, 890)], base=0.7), roi) == roi
+
+
+def test_main_frame_leaves_a_single_frame_alone():
+    roi = (0, 600, 0, 900)
+    assert _main_frame(_strip([(0, 900)], base=0.7), roi) == roi
+    # Rebate on both sides and no second picture: the gate refinement owns those edges.
+    assert _main_frame(_strip([(60, 840)], base=0.7), roi) == roi
+
+
+def test_main_frame_keeps_a_flat_bright_band_at_the_picture_edge():
+    # Open shadow in a negative reads like film base. With no picture past it, it is not a gap.
+    lum = _strip([(0, 900)], base=0.7)
+    lum[:120] = 0.7
+    roi = (0, 600, 0, 900)
+    assert _main_frame(lum, roi) == roi
+
+
+def test_main_frame_ignores_a_gap_wider_than_a_frame_gap():
+    lum = _strip([(0, 300), (500, 900)], base=0.7)
+    roi = (0, 600, 0, 900)
+    assert _main_frame(lum, roi) == roi
+
+
+@pytest.mark.parametrize("mode, splits", [(AutocropMode.IMAGE, True), (AutocropMode.FILM, False)])
+def test_autocrop_keeps_the_main_picture_of_a_strip_in_image_mode_only(mode, splits):
+    lum = _strip([(0, 180), (230, 670), (720, 900)], base=0.7)
+    img = np.repeat(lum[..., None], 3, axis=2)
+    y1, y2, x1, x2 = get_autocrop_coords(img, target_ratio_str=AspectRatio.FREE, mode=mode)
+    assert (x1 >= 225 and x2 <= 675 and x2 - x1 > 380) == splits
